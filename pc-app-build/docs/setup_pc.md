@@ -3,58 +3,67 @@
 ## Prerequisites
 
 - Python 3.10 or later
-- Git (for cloning the repository)
+- Git
 
 ## Installation
 
-1. **Clone the repository**
+1. Clone the repository:
 
-   ```bash
-   git clone <repository-url>
-   cd note-assistant-app/pc-app-build
-   ```
+```bat
+git clone https://github.com/ER1C-6832/note-assistant-app.git
+cd note-assistant-app\pc-app-build
+```
 
-2. **Create and activate a virtual environment**
+2. Create and activate a virtual environment:
 
-   ```bash
-   python -m venv venv
-   ```
+```bat
+python -m venv venv
+venv\Scripts\activate
+```
 
-   - **Windows**: `venv\Scripts\activate`
-   - **Linux / macOS**: `source venv/bin/activate`
+3. Install dependencies:
 
-3. **Install dependencies**
+```bat
+pip install -r requirements.txt
+```
 
-   ```bash
-   pip install -r requirements.txt
-   ```
+4. Configure environment:
 
-4. **Configure environment**
+```bat
+copy .env.example .env
+```
 
-   ```bash
-   cp .env.example .env
-   ```
-
-   Edit `.env` if custom ports or paths are needed (defaults are suitable
-   for local development).
+Edit `.env` if custom ports or paths are needed. The defaults are suitable for
+local development.
 
 ## Running
 
-See [scripts/start_all.bat](../scripts/start_all.bat) for the one-click
-launcher, or start each service individually:
+Start everything with the one-click launcher:
 
-```bash
-# Terminal 1: Notes API
-python -m uvicorn services.notes-api.app.main:app --host 127.0.0.1 --port 18080 --reload
+```bat
+scripts\start_all.bat
+```
 
-# Terminal 2: PC Assistant Sidecar
-python services/pc-assistant-sidecar/main.py
+Or start each service individually:
 
-# Terminal 3: PC App
-python apps/notes-pyside/main.py
+```bat
+REM Terminal 1: Notes API
+scripts\start_notes_api.bat
+
+REM Terminal 2: PC Assistant Sidecar
+scripts\start_sidecar.bat
+
+REM Terminal 3: PC App
+scripts\start_pc_app.bat
 ```
 
 ## Verification
 
-1. Visit `http://127.0.0.1:18080/health` — should return `{"status": "ok"}`
-2. The PC App window should display the Note Assistant main interface
+1. Visit `http://127.0.0.1:18080/api/health`.
+2. The response should include:
+
+```json
+{"status": "ok", "service": "notes-api", "version": "0.1.0"}
+```
+
+3. Launch the PC App and confirm the Note Assistant main window appears.

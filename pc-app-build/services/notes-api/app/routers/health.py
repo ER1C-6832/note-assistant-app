@@ -1,5 +1,5 @@
 """
-Health check endpoint.
+Health check endpoint for the Notes API.
 """
 
 from fastapi import APIRouter
@@ -8,5 +8,10 @@ router = APIRouter(tags=["health"])
 
 
 @router.get("/api/health")
-async def health():
-    return {"status": "ok", "service": "notes-api", "version": "0.1.0"}
+async def health() -> dict[str, str]:
+    """Return the basic service health state."""
+    return {
+        "status": "ok",
+        "service": "notes-api",
+        "version": "0.1.0",
+    }
