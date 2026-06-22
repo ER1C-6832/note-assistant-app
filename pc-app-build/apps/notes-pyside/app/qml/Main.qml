@@ -18,6 +18,7 @@ ApplicationWindow {
 
     property string currentPage: "home"
     property string currentCategory: "all"
+    property string pendingCategory: "all"
 
     function openPage(pageName) {
         currentPage = pageName
@@ -30,14 +31,35 @@ ApplicationWindow {
 
     function openCategory(categoryKey) {
         currentCategory = categoryKey
-        notesController.loadCategory(categoryKey)
-        currentPage = "home"
+        pendingCategory = categoryKey
+        currentPage = categoryKey === "deleted" ? "deletedList" : "home"
+        categoryLoadTimer.restart()
     }
 
-    Component.onCompleted: {
-        notesController.testConnection()
-        notesController.loadAll()
+    Timer {
+        id: startupTimer
+        interval: 80
+        repeat: false
+        onTriggered: {
+            notesController.testConnection()
+            notesController.loadAll()
+        }
     }
+
+    Timer {
+        id: categoryLoadTimer
+        interval: 30
+        repeat: false
+        onTriggered: {
+            if (root.pendingCategory === "deleted") {
+                notesController.loadDeleted()
+            } else {
+                notesController.loadCategory(root.pendingCategory)
+            }
+        }
+    }
+
+    Component.onCompleted: startupTimer.start()
 
     ColumnLayout {
         anchors.fill: parent
@@ -47,10 +69,19 @@ ApplicationWindow {
         TopBar {
             Layout.fillWidth: true
             onSearchRequested: function(keyword) {
-                notesController.searchNotes(keyword)
                 root.currentCategory = "search"
-                root.openPage("search")
+                root.currentPage = "search"
+                searchTimer.keyword = keyword
+                searchTimer.restart()
             }
+        }
+
+        Timer {
+            id: searchTimer
+            property string keyword: ""
+            interval: 30
+            repeat: false
+            onTriggered: notesController.searchNotes(keyword)
         }
 
         RowLayout {
@@ -68,11 +99,7 @@ ApplicationWindow {
                     root.openCategory(categoryKey)
                 }
 
-                onDeletedRequested: {
-                    root.currentCategory = "deleted"
-                    notesController.loadDeleted()
-                    root.openPage("deletedList")
-                }
+                onDeletedRequested: root.openCategory("deleted")
 
                 onPageRequested: function(pageName) {
                     root.currentCategory = pageName
@@ -128,10 +155,11 @@ ApplicationWindow {
 
         CreateNotePage {
             onBackRequested: root.openPage("home")
-            onSaved: {
-                notesController.createNote(titleText, contentText, tagsText)
-                root.currentCategory = "all"
-                root.openPage("home")
+            onSaved: function(titleText, contentText, tagsText) {
+                if (notesController.createNote(titleText, contentText, tagsText)) {
+                    root.currentCategory = "all"
+                    root.openPage("home")
+                }
             }
         }
     }
@@ -145,9 +173,10 @@ ApplicationWindow {
             noteTags: notesController.selectedTagsText
             onBackRequested: root.openPage("home")
             onSaved: function(titleText, contentText, tagsText) {
-                notesController.updateSelectedNote(titleText, contentText, tagsText)
-                root.currentCategory = "all"
-                root.openPage("home")
+                if (notesController.updateSelectedNote(titleText, contentText, tagsText)) {
+                    root.currentCategory = "all"
+                    root.openPage("home")
+                }
             }
         }
     }
@@ -159,9 +188,10 @@ ApplicationWindow {
             noteTitle: notesController.selectedTitle
             onBackRequested: root.openPage("home")
             onDeleted: {
-                notesController.deleteSelectedNote()
-                root.currentCategory = "all"
-                root.openPage("home")
+                if (notesController.deleteSelectedNote()) {
+                    root.currentCategory = "all"
+                    root.openPage("home")
+                }
             }
         }
     }

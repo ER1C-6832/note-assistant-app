@@ -123,11 +123,11 @@ Rectangle {
                         width: 8
                         height: 8
                         radius: 4
-                        color: notesController.apiConnected ? "#16A34A" : "#EF4444"
+                        color: notesController.isBusy ? "#4F7CFF" : notesController.apiConnected ? "#16A34A" : "#EF4444"
                     }
 
                     Text {
-                        text: notesController.apiConnected ? "Notes API 已连接" : "Notes API 未连接"
+                        text: notesController.isBusy ? "正在同步" : notesController.apiConnected ? "Notes API 已连接" : "Notes API 未连接"
                         color: "#4B5563"
                         font.pixelSize: 12
                     }

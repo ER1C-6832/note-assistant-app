@@ -65,10 +65,10 @@ Rectangle {
         }
 
         StatusBadge {
-            text: notesController.apiConnected ? "Notes API 已连接" : "Notes API 未连接"
-            dotColor: notesController.apiConnected ? "#16A34A" : "#EF4444"
-            bgColor: notesController.apiConnected ? "#ECFDF3" : "#FEF2F2"
-            textColor: notesController.apiConnected ? "#166534" : "#991B1B"
+            text: notesController.isBusy ? "正在同步" : notesController.apiConnected ? "Notes API 已连接" : "Notes API 未连接"
+            dotColor: notesController.isBusy ? "#4F7CFF" : notesController.apiConnected ? "#16A34A" : "#EF4444"
+            bgColor: notesController.isBusy ? "#EAF0FF" : notesController.apiConnected ? "#ECFDF3" : "#FEF2F2"
+            textColor: notesController.isBusy ? "#1E3A8A" : notesController.apiConnected ? "#166534" : "#991B1B"
         }
 
         StatusBadge {

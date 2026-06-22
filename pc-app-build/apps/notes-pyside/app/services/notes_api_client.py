@@ -1,5 +1,9 @@
 """
 HTTP client for the Notes API.
+
+Important:
+- Localhost requests must not use system proxy settings. Some Windows proxy/VPN
+  setups route 127.0.0.1 through the proxy and can return intermittent 502.
 """
 
 from __future__ import annotations
@@ -12,13 +16,21 @@ import httpx
 
 
 class NotesApiError(RuntimeError):
-    """Raised when Notes API communication fails."""
+    """Base error for Notes API communication."""
+
+
+class NotesApiConnectionError(NotesApiError):
+    """Raised when the app cannot connect to the Notes API."""
+
+
+class NotesApiHttpError(NotesApiError):
+    """Raised when the Notes API returns a non-2xx response."""
 
 
 class NotesApiClient:
     """Synchronous HTTP client used by the PySide6 controller."""
 
-    def __init__(self, base_url: str | None = None, timeout: float = 8.0) -> None:
+    def __init__(self, base_url: str | None = None, timeout: float = 4.0) -> None:
         self.base_url = (base_url or os.getenv("NOTES_API_BASE_URL") or "http://127.0.0.1:18080").rstrip("/")
         self.timeout = timeout
 
@@ -86,16 +98,25 @@ class NotesApiClient:
         url = urljoin(self.base_url + "/", path.lstrip("/"))
 
         try:
-            with httpx.Client(timeout=self.timeout) as client:
+            # trust_env=False prevents httpx from using HTTP_PROXY/HTTPS_PROXY
+            # for localhost calls. This is critical for stable local demo runs.
+            with httpx.Client(timeout=self.timeout, trust_env=False) as client:
                 response = client.request(method, url, **kwargs)
                 response.raise_for_status()
         except httpx.HTTPStatusError as exc:
-            detail = exc.response.text
-            raise NotesApiError(f"Notes API returned {exc.response.status_code}: {detail}") from exc
+            detail = _safe_response_text(exc.response.text)
+            raise NotesApiHttpError(f"Notes API returned {exc.response.status_code}: {detail}") from exc
         except httpx.RequestError as exc:
-            raise NotesApiError(f"Cannot connect to Notes API at {self.base_url}: {exc}") from exc
+            raise NotesApiConnectionError(f"无法连接 Notes API：{self.base_url}") from exc
 
         if response.content:
             return response.json()
 
         return None
+
+
+def _safe_response_text(text: str) -> str:
+    clean = (text or "").strip()
+    if not clean:
+        return "请求失败"
+    return clean[:240]
