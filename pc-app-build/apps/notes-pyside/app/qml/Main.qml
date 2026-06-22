@@ -143,6 +143,7 @@ ApplicationWindow {
             onCreateRequested: root.openPage("create")
             onEditRequested: root.openPage("edit")
             onDeleteRequested: root.openPage("deleteConfirm")
+            onPinRequested: notesController.toggleSelectedPin()
             onAssistantRequested: {
                 root.currentCategory = "assistantIdle"
                 root.openPage("assistantIdle")
@@ -224,7 +225,9 @@ ApplicationWindow {
                 notesController.loadAll()
                 root.openPage("home")
             }
+            onEditRequested: root.openPage("edit")
             onDeleteSelectedRequested: root.openPage("deleteConfirm")
+            onPinRequested: notesController.toggleSelectedPin()
         }
     }
 

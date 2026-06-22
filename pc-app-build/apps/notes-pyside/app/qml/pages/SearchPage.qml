@@ -12,7 +12,9 @@ Item {
 
     signal noteSelected(int index)
     signal backRequested()
+    signal editRequested()
     signal deleteSelectedRequested()
+    signal pinRequested()
 
     RowLayout {
         anchors.fill: parent
@@ -102,13 +104,15 @@ Item {
             Layout.fillWidth: true
             Layout.fillHeight: true
             hasSelection: notesController.hasSelection
+            isPinned: notesController.selectedIsPinned
             title: notesController.selectedTitle
             content: notesController.selectedContent
             tags: notesController.selectedTagsText
             updated: notesController.selectedUpdatedText
             source: notesController.selectedSourceText
-            onEditRequested: root.noteSelected(notesController.selectedIndex)
+            onEditRequested: root.editRequested()
             onDeleteRequested: root.deleteSelectedRequested()
+            onPinRequested: root.pinRequested()
         }
     }
 }

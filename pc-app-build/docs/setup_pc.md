@@ -22,11 +22,14 @@ copy .env.example .env
 scripts\start_notes_api.bat
 ```
 
-## Seed Demo Data
+## Seed Product Demo Data
 
 ```bat
 python scripts\seed_demo_data.py --reset
 ```
+
+The demo notes are product-facing examples such as screen samples, quotes, game
+controller testing, packaging, and customer delivery.
 
 ## Start PC App
 
@@ -36,21 +39,13 @@ scripts\start_pc_app.bat
 
 ## Verification
 
-Open these API URLs:
-
-```text
-http://127.0.0.1:18080/api/health
-http://127.0.0.1:18080/api/notes
-http://127.0.0.1:18080/api/notes/search?q=王总&limit=10
-```
-
-Then verify in the PC App:
-
 ```text
 1. Notes are loaded from the Notes API.
-2. Creating a note adds it to the list.
-3. Editing a note updates the list and detail panel.
-4. Deleting a note moves it out of the active list.
-5. Searching "王总" shows matching notes.
-6. The deleted list shows soft-deleted notes.
+2. Demo notes do not contain development/project implementation content.
+3. Clicking 置顶 on a note pins it.
+4. The 置顶 category shows pinned notes.
+5. Clicking 取消置顶 removes it from pinned notes.
+6. Deleting a note moves it to 已删除.
+7. Clicking 已删除 shows deleted notes.
+8. Clicking 还原 restores the deleted note to the normal list.
 ```

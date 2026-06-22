@@ -10,9 +10,11 @@ Rectangle {
     property string updated: ""
     property string source: ""
     property bool hasSelection: false
+    property bool isPinned: false
 
     signal editRequested()
     signal deleteRequested()
+    signal pinRequested()
 
     color: "#FFFFFF"
     radius: 20
@@ -34,13 +36,33 @@ Rectangle {
                     Layout.fillWidth: true
                     spacing: 6
 
-                    Text {
+                    RowLayout {
                         Layout.fillWidth: true
-                        text: root.title
-                        color: "#111827"
-                        font.pixelSize: 26
-                        font.bold: true
-                        wrapMode: Text.WordWrap
+                        spacing: 8
+
+                        Text {
+                            Layout.fillWidth: true
+                            text: root.title
+                            color: "#111827"
+                            font.pixelSize: 26
+                            font.bold: true
+                            wrapMode: Text.WordWrap
+                        }
+
+                        Rectangle {
+                            visible: root.isPinned
+                            radius: 999
+                            color: "#FFF7ED"
+                            implicitWidth: 48
+                            implicitHeight: 24
+
+                            Text {
+                                anchors.centerIn: parent
+                                text: "置顶"
+                                color: "#92400E"
+                                font.pixelSize: 12
+                            }
+                        }
                     }
 
                     Text {
@@ -48,6 +70,13 @@ Rectangle {
                         color: "#9CA3AF"
                         font.pixelSize: 12
                     }
+                }
+
+                AppButton {
+                    text: root.isPinned ? "取消置顶" : "置顶"
+                    variant: root.isPinned ? "ghost" : "secondary"
+                    compact: true
+                    onClicked: root.pinRequested()
                 }
 
                 AppButton {

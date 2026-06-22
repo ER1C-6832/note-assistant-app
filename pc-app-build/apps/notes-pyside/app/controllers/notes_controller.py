@@ -1,10 +1,8 @@
 """
 Notes controller exposed to QML.
 
-Phase 4.1 fixes local API stability and UI operation flow:
-- localhost requests no longer use system proxy settings
-- create/edit/delete return success state to QML
-- API connection state is not marked offline for ordinary HTTP errors
+This controller connects the PC UI to the Notes API for manual note operations:
+list, create, edit, soft delete, restore, pin/unpin, and fuzzy search.
 """
 
 from __future__ import annotations
@@ -31,7 +29,8 @@ class NotesController(QObject):
         "customer": "客户",
         "meeting": "会议",
         "todo": "待办",
-        "tech": "技术",
+        "screen": "屏幕",
+        "controller": "游戏手柄",
     }
 
     def __init__(self) -> None:
@@ -41,12 +40,14 @@ class NotesController(QObject):
         self.deleted_notes_model = NoteListModel()
 
         self._selected_index = -1
+        self._deleted_selected_index = -1
         self._active_category = "all"
         self._search_keyword = ""
         self._status_message = "准备就绪"
         self._error_message = ""
         self._api_connected = False
         self._result_count = 0
+        self._deleted_result_count = 0
         self._is_busy = False
 
     @Property(int, notify=selectedChanged)
@@ -82,6 +83,19 @@ class NotesController(QObject):
         note = self._selected_note()
         return note.updated_text if note else ""
 
+    @Property(bool, notify=selectedChanged)
+    def selectedIsPinned(self) -> bool:
+        note = self._selected_note()
+        return bool(note and note.is_pinned)
+
+    @Property(int, notify=selectedChanged)
+    def deletedSelectedIndex(self) -> int:
+        return self._deleted_selected_index
+
+    @Property(bool, notify=selectedChanged)
+    def hasDeletedSelection(self) -> bool:
+        return self._deleted_selected_note() is not None
+
     @Property(str, notify=statusChanged)
     def statusMessage(self) -> str:
         return self._status_message
@@ -109,6 +123,10 @@ class NotesController(QObject):
     @Property(int, notify=stateChanged)
     def resultCount(self) -> int:
         return self._result_count
+
+    @Property(int, notify=stateChanged)
+    def deletedResultCount(self) -> int:
+        return self._deleted_result_count
 
     @Slot()
     def refresh(self) -> None:
@@ -160,14 +178,18 @@ class NotesController(QObject):
             notes = self._fetch_notes(include_deleted=True)
             deleted = [note for note in notes if note.is_deleted]
             self.deleted_notes_model.set_notes(deleted)
+            self._deleted_result_count = len(deleted)
             self._result_count = len(deleted)
+            self._deleted_selected_index = 0 if deleted else -1
             self._selected_index = -1
             self._set_connected()
             self._set_status("已加载已删除便签")
             self.selectedChanged.emit()
         except NotesApiError as exc:
             self.deleted_notes_model.set_notes([])
+            self._deleted_result_count = 0
             self._result_count = 0
+            self._deleted_selected_index = -1
             self._handle_error(exc)
 
         self._set_busy(False)
@@ -201,6 +223,14 @@ class NotesController(QObject):
             self._selected_index = index
         else:
             self._selected_index = -1
+        self.selectedChanged.emit()
+
+    @Slot(int)
+    def selectDeletedNote(self, index: int) -> None:
+        if 0 <= index < self.deleted_notes_model.count():
+            self._deleted_selected_index = index
+        else:
+            self._deleted_selected_index = -1
         self.selectedChanged.emit()
 
     @Slot(str, str, str, result=bool)
@@ -281,6 +311,51 @@ class NotesController(QObject):
             self._set_busy(False)
 
     @Slot(result=bool)
+    def toggleSelectedPin(self) -> bool:
+        note = self._selected_note()
+        if note is None:
+            self._set_error("请先选择一条便签")
+            return False
+
+        self._set_busy(True)
+        try:
+            self._client.update_note(note.id, is_pinned=not note.is_pinned)
+            self._set_connected()
+            self._set_status("已置顶" if not note.is_pinned else "已取消置顶")
+            self.loadCategory(self._active_category or "all")
+            return True
+        except NotesApiError as exc:
+            self._handle_error(exc)
+            return False
+        finally:
+            self._set_busy(False)
+
+    @Slot(result=bool)
+    def restoreSelectedDeletedNote(self) -> bool:
+        note = self._deleted_selected_note()
+        if note is None:
+            self._set_error("请先选择一条已删除便签")
+            return False
+
+        self._set_busy(True)
+        try:
+            self._client.restore_note(note.id)
+            self._set_connected()
+            self._set_status("便签已还原")
+            self.loadDeleted()
+            return True
+        except NotesApiError as exc:
+            self._handle_error(exc)
+            return False
+        finally:
+            self._set_busy(False)
+
+    @Slot(int, result=bool)
+    def restoreDeletedNoteAt(self, index: int) -> bool:
+        self.selectDeletedNote(index)
+        return self.restoreSelectedDeletedNote()
+
+    @Slot(result=bool)
     def testConnection(self) -> bool:
         self._set_busy(True)
         try:
@@ -312,12 +387,16 @@ class NotesController(QObject):
         self.notes_model.set_notes(notes)
         self._result_count = len(notes)
         self._selected_index = 0 if notes else -1
+        self._deleted_selected_index = -1
         self._set_connected()
         self._set_status(status_message)
         self.selectedChanged.emit()
 
     def _selected_note(self) -> Note | None:
         return self.notes_model.get_note(self._selected_index)
+
+    def _deleted_selected_note(self) -> Note | None:
+        return self.deleted_notes_model.get_note(self._deleted_selected_index)
 
     def _set_busy(self, value: bool) -> None:
         if self._is_busy != value:
@@ -345,7 +424,6 @@ class NotesController(QObject):
         if isinstance(exc, NotesApiConnectionError):
             self._set_error(str(exc), mark_offline=True)
         elif isinstance(exc, NotesApiHttpError):
-            # HTTP errors mean the API responded; do not mark the service offline.
             self._api_connected = True
             self._set_error(str(exc), mark_offline=False)
         else:

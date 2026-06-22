@@ -1,9 +1,8 @@
 """
 HTTP client for the Notes API.
 
-Important:
-- Localhost requests must not use system proxy settings. Some Windows proxy/VPN
-  setups route 127.0.0.1 through the proxy and can return intermittent 502.
+Localhost requests must not use system proxy settings. Some Windows proxy/VPN
+setups route 127.0.0.1 through the proxy and can return intermittent 502.
 """
 
 from __future__ import annotations
@@ -91,6 +90,9 @@ class NotesApiClient:
     def delete_note(self, note_id: int) -> dict[str, Any]:
         return self._request("DELETE", f"/api/notes/{note_id}")
 
+    def restore_note(self, note_id: int) -> dict[str, Any]:
+        return self._request("POST", f"/api/notes/{note_id}/restore")
+
     def search_notes(self, *, query: str, limit: int = 100) -> dict[str, Any]:
         return self._request("GET", "/api/notes/search", params={"q": query, "limit": limit})
 
@@ -98,8 +100,6 @@ class NotesApiClient:
         url = urljoin(self.base_url + "/", path.lstrip("/"))
 
         try:
-            # trust_env=False prevents httpx from using HTTP_PROXY/HTTPS_PROXY
-            # for localhost calls. This is critical for stable local demo runs.
             with httpx.Client(timeout=self.timeout, trust_env=False) as client:
                 response = client.request(method, url, **kwargs)
                 response.raise_for_status()

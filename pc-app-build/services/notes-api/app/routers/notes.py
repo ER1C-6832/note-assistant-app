@@ -105,3 +105,13 @@ async def delete_note(note_id: int, db: Session = Depends(get_db)) -> NoteDelete
         note_id=note.id,
         is_deleted=note.is_deleted,
     )
+
+
+@router.post("/{note_id}/restore", response_model=NoteRead)
+async def restore_note(note_id: int, db: Session = Depends(get_db)) -> NoteRead:
+    """Restore a soft-deleted note."""
+
+    note = note_service.restore_note(db, note_id)
+    if note is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Note not found")
+    return note

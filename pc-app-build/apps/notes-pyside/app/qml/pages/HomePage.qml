@@ -14,6 +14,7 @@ Item {
     signal createRequested()
     signal editRequested()
     signal deleteRequested()
+    signal pinRequested()
     signal assistantRequested()
 
     RowLayout {
@@ -39,6 +40,7 @@ Item {
             DetailPanel {
                 anchors.fill: parent
                 hasSelection: notesController.hasSelection
+                isPinned: notesController.selectedIsPinned
                 title: notesController.selectedTitle
                 content: notesController.selectedContent
                 tags: notesController.selectedTagsText
@@ -46,6 +48,7 @@ Item {
                 source: notesController.selectedSourceText
                 onEditRequested: root.editRequested()
                 onDeleteRequested: root.deleteRequested()
+                onPinRequested: root.pinRequested()
             }
 
             VoiceButton {
