@@ -1,0 +1,4 @@
+# PC App — PySide6 runtime dependencies
+PySide6>=6.6
+httpx>=0.27
+websockets>=12.0

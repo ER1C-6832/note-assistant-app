@@ -1,0 +1,16 @@
+# PC Assistant Sidecar Configuration
+
+sidecar:
+  host: "127.0.0.1"
+  ws_port: 17890
+
+notes_api:
+  base_url: "http://127.0.0.1:18080"
+
+py_xiaozhi:
+  # Path to py-xiaozhi installation or executable
+  runtime_path: ""
+  config_file: ""
+
+logging:
+  level: "INFO"
