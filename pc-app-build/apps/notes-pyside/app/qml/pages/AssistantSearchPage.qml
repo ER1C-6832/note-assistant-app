@@ -62,8 +62,8 @@ Item {
             statusText: "已执行"
             transcript: "查一下王总相关便签"
             reply: "找到 2 条相关便签。"
-            resultTitle: "工具执行结果：search_notes 成功"
-            resultText: "query=王总，返回 2 条候选。"
+            resultTitle: "查询完成"
+            resultText: "你可以选择其中一条继续查看、编辑或删除。"
         }
     }
 

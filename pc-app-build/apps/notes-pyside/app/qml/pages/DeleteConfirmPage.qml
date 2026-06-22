@@ -6,7 +6,7 @@ import "../components"
 Item {
     id: root
 
-    property string noteTitle: "联系王总"
+    property string noteTitle: "便签"
 
     signal backRequested()
     signal deleted()
@@ -41,7 +41,7 @@ Item {
 
                 Text {
                     Layout.fillWidth: true
-                    text: "“" + root.noteTitle + "” 将被移入已删除，后续可做恢复入口。"
+                    text: "“" + root.noteTitle + "” 将被移入已删除。"
                     color: "#4B5563"
                     font.pixelSize: 15
                     wrapMode: Text.WordWrap

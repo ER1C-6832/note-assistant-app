@@ -54,8 +54,8 @@ Item {
             statusText: "已执行"
             transcript: "把王总那条改成下午三点联系"
             reply: "已将便签更新为：明天下午三点联系王总。"
-            resultTitle: "工具执行结果：search_notes + update_note 成功"
-            resultText: "先搜索候选，再按 note_id 更新。"
+            resultTitle: "便签已更新"
+            resultText: "修改后的内容已保存。"
         }
     }
 

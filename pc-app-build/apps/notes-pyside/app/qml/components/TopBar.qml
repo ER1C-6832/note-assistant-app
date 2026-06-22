@@ -65,14 +65,14 @@ Rectangle {
         }
 
         StatusBadge {
-            text: "Notes API 已连接"
-            dotColor: "#16A34A"
-            bgColor: "#ECFDF3"
-            textColor: "#166534"
+            text: notesController.apiConnected ? "Notes API 已连接" : "Notes API 未连接"
+            dotColor: notesController.apiConnected ? "#16A34A" : "#EF4444"
+            bgColor: notesController.apiConnected ? "#ECFDF3" : "#FEF2F2"
+            textColor: notesController.apiConnected ? "#166534" : "#991B1B"
         }
 
         StatusBadge {
-            text: "Sidecar 待接入"
+            text: "语音助手待接入"
             dotColor: "#F59E0B"
             bgColor: "#FFF7ED"
             textColor: "#92400E"

@@ -20,7 +20,7 @@ Item {
 
             Text {
                 anchors.centerIn: parent
-                text: "便签列表新增：明天上午十点联系王总（来自语音）"
+                text: "已创建便签：明天上午十点联系王总"
                 color: "#111827"
                 font.pixelSize: 22
                 font.bold: true
@@ -33,8 +33,8 @@ Item {
             statusText: "已执行"
             transcript: "帮我记录，明天上午十点联系王总，确认项目报价"
             reply: "已为你创建便签：明天上午十点联系王总，确认项目报价。"
-            resultTitle: "工具执行结果：create_note 成功"
-            resultText: "source=voice_pc，note_id=12。Phase 3.1 为静态演示，Phase 5/6 接入真实 Sidecar 和 Notes Tool。"
+            resultTitle: "便签已创建"
+            resultText: "你可以在便签列表中查看这条记录。"
         }
     }
 

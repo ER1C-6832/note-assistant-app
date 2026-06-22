@@ -12,7 +12,7 @@ Item {
     property string noteTags: ""
 
     signal backRequested()
-    signal saved()
+    signal saved(string titleText, string contentText, string tagsText)
 
     Rectangle {
         anchors.fill: parent
@@ -40,7 +40,7 @@ Item {
                     }
 
                     Text {
-                        text: "Phase 3.1 展示编辑 UI；Phase 4 接入 PATCH /api/notes/{id}。"
+                        text: "修改内容后点击保存。"
                         color: "#6B7280"
                         font.pixelSize: 13
                     }
@@ -57,11 +57,12 @@ Item {
                     text: "保存修改"
                     variant: "primary"
                     compact: true
-                    onClicked: root.saved()
+                    onClicked: root.saved(titleField.text, contentArea.text, tagsField.text)
                 }
             }
 
             TextField {
+                id: titleField
                 Layout.fillWidth: true
                 height: 48
                 text: root.noteTitle
@@ -73,9 +74,10 @@ Item {
             }
 
             TextArea {
+                id: contentArea
                 Layout.fillWidth: true
-                Layout.preferredHeight: 220
-                text: root.noteContent + "\n\n备注：这里是编辑后的静态演示内容。"
+                Layout.preferredHeight: 260
+                text: root.noteContent
                 wrapMode: TextArea.Wrap
                 background: Rectangle {
                     color: "#F7F8FA"
@@ -85,9 +87,11 @@ Item {
             }
 
             TextField {
+                id: tagsField
                 Layout.fillWidth: true
                 height: 48
                 text: root.noteTags
+                placeholderText: "标签，例如：客户、跟进"
                 background: Rectangle {
                     color: "#F7F8FA"
                     radius: 14
@@ -97,15 +101,16 @@ Item {
 
             Rectangle {
                 Layout.fillWidth: true
-                radius: 16
-                color: "#EAF0FF"
-                implicitHeight: 56
+                visible: notesController.errorMessage.length > 0
+                radius: 14
+                color: "#FEF2F2"
+                implicitHeight: 48
 
                 Text {
                     anchors.centerIn: parent
-                    text: "修改已保存（静态演示状态）"
-                    color: "#1E3A8A"
-                    font.pixelSize: 14
+                    text: notesController.errorMessage
+                    color: "#991B1B"
+                    font.pixelSize: 13
                 }
             }
 

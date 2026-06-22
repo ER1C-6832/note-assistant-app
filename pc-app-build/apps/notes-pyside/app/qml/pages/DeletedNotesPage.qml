@@ -40,7 +40,7 @@ Item {
                         }
 
                         Text {
-                            text: "软删除便签列表，Phase 4 后接入真实 is_deleted 数据。"
+                            text: notesController.resultCount + " 条便签"
                             color: "#9CA3AF"
                             font.pixelSize: 12
                         }
@@ -65,11 +65,37 @@ Item {
                         width: ListView.view.width
                         title: model.title
                         content: model.content
-                        tags: model.tags
-                        updated: model.updated
-                        source: model.source
+                        tags: model.tagsText
+                        updated: model.updatedText
+                        source: model.sourceText
                         cardColor: model.cardColor
                         selected: false
+                    }
+                }
+
+                Rectangle {
+                    Layout.fillWidth: true
+                    Layout.fillHeight: true
+                    visible: notesController.resultCount === 0
+                    radius: 18
+                    color: "#F7F8FA"
+
+                    ColumnLayout {
+                        anchors.centerIn: parent
+                        spacing: 10
+
+                        Text {
+                            text: "暂无已删除便签"
+                            color: "#111827"
+                            font.pixelSize: 18
+                            font.bold: true
+                        }
+
+                        Text {
+                            text: "删除后的便签会显示在这里。"
+                            color: "#6B7280"
+                            font.pixelSize: 13
+                        }
                     }
                 }
             }
@@ -82,39 +108,22 @@ Item {
             radius: 20
 
             ColumnLayout {
-                anchors.fill: parent
-                anchors.margins: 28
-                spacing: 16
+                anchors.centerIn: parent
+                spacing: 12
 
                 Text {
-                    text: "已删除不是删除确认页"
+                    text: "已删除便签"
                     color: "#111827"
                     font.pixelSize: 24
                     font.bold: true
+                    horizontalAlignment: Text.AlignHCenter
                 }
 
                 Text {
-                    Layout.fillWidth: true
-                    text: "这里展示被软删除的便签。点击右侧详情里的“删除”才会进入删除确认页。Phase 3.1 已将 deletedList 和 deleteConfirm 分开。"
-                    color: "#4B5563"
-                    font.pixelSize: 15
-                    wrapMode: Text.WordWrap
-                }
-
-                Rectangle {
-                    Layout.fillWidth: true
-                    radius: 16
-                    color: "#F7F8FA"
-                    implicitHeight: 130
-
-                    Text {
-                        anchors.fill: parent
-                        anchors.margins: 18
-                        text: "后续 Phase 4 可接入：\nGET /api/notes?include_deleted=true\nPATCH 恢复接口或单独 restore API。"
-                        color: "#374151"
-                        font.pixelSize: 15
-                        wrapMode: Text.WordWrap
-                    }
+                    text: "这里集中展示已删除的便签。"
+                    color: "#6B7280"
+                    font.pixelSize: 14
+                    horizontalAlignment: Text.AlignHCenter
                 }
             }
         }

@@ -10,6 +10,8 @@ from pathlib import Path
 from PySide6.QtGui import QGuiApplication
 from PySide6.QtQml import QQmlApplicationEngine
 
+from app.controllers.notes_controller import NotesController
+
 
 def run_app() -> int:
     """Create the Qt application, load QML, and start the event loop."""
@@ -18,7 +20,16 @@ def run_app() -> int:
     app.setApplicationDisplayName("小智便签")
     app.setOrganizationName("NoteAssistant")
 
+    notes_controller = NotesController()
+
     engine = QQmlApplicationEngine()
+    engine.rootContext().setContextProperty("notesController", notes_controller)
+    engine.rootContext().setContextProperty("notesListModel", notes_controller.notes_model)
+    engine.rootContext().setContextProperty("deletedNotesListModel", notes_controller.deleted_notes_model)
+
+    # Keep Python-side objects alive for the lifetime of the QML engine.
+    engine.notes_controller = notes_controller  # type: ignore[attr-defined]
+
     qml_path = Path(__file__).resolve().parent / "qml" / "Main.qml"
     engine.load(qml_path.as_uri())
 

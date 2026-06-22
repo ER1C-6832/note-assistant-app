@@ -7,14 +7,13 @@ Item {
     id: root
 
     property var notesModel
-    property int selectedIndex: 0
+    property int selectedIndex: -1
     property string activeCategory: "all"
 
     signal noteSelected(int index)
     signal createRequested()
     signal editRequested()
     signal deleteRequested()
-    signal searchRequested()
     signal assistantRequested()
 
     RowLayout {
@@ -31,7 +30,6 @@ Item {
                 root.noteSelected(index)
             }
             onCreateRequested: root.createRequested()
-            onSearchRequested: root.searchRequested()
         }
 
         Item {
@@ -40,11 +38,12 @@ Item {
 
             DetailPanel {
                 anchors.fill: parent
-                title: root.notesModel.get(root.selectedIndex).title
-                content: root.notesModel.get(root.selectedIndex).content
-                tags: root.notesModel.get(root.selectedIndex).tags
-                updated: root.notesModel.get(root.selectedIndex).updated
-                source: root.notesModel.get(root.selectedIndex).source
+                hasSelection: notesController.hasSelection
+                title: notesController.selectedTitle
+                content: notesController.selectedContent
+                tags: notesController.selectedTagsText
+                updated: notesController.selectedUpdatedText
+                source: notesController.selectedSourceText
                 onEditRequested: root.editRequested()
                 onDeleteRequested: root.deleteRequested()
             }

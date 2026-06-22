@@ -8,7 +8,7 @@ Item {
     id: root
 
     signal backRequested()
-    signal saved()
+    signal saved(string titleText, string contentText, string tagsText)
 
     Rectangle {
         anchors.fill: parent
@@ -36,7 +36,7 @@ Item {
                     }
 
                     Text {
-                        text: "填写标题、正文和标签后保存。Phase 3.1 仍为静态 UI，真实写入在 Phase 4 接入。"
+                        text: "记录新的想法、客户事项或待办。"
                         color: "#6B7280"
                         font.pixelSize: 13
                     }
@@ -53,15 +53,15 @@ Item {
                     text: "保存"
                     variant: "primary"
                     compact: true
-                    onClicked: root.saved()
+                    onClicked: root.saved(titleField.text, contentArea.text, tagsField.text)
                 }
             }
 
             TextField {
+                id: titleField
                 Layout.fillWidth: true
                 height: 48
                 placeholderText: "标题"
-                text: "屏幕校色记录"
                 background: Rectangle {
                     color: "#F7F8FA"
                     radius: 14
@@ -70,10 +70,10 @@ Item {
             }
 
             TextArea {
+                id: contentArea
                 Layout.fillWidth: true
-                Layout.preferredHeight: 180
+                Layout.preferredHeight: 220
                 placeholderText: "正文"
-                text: "记录 27 寸屏幕亮度、色温和边框间隙。"
                 wrapMode: TextArea.Wrap
                 background: Rectangle {
                     color: "#F7F8FA"
@@ -83,10 +83,10 @@ Item {
             }
 
             TextField {
+                id: tagsField
                 Layout.fillWidth: true
                 height: 48
                 placeholderText: "标签，例如：客户、跟进"
-                text: "屏幕, 待办"
                 background: Rectangle {
                     color: "#F7F8FA"
                     radius: 14
@@ -96,15 +96,16 @@ Item {
 
             Rectangle {
                 Layout.fillWidth: true
-                radius: 16
-                color: "#E8F9F1"
-                implicitHeight: 56
+                visible: notesController.errorMessage.length > 0
+                radius: 14
+                color: "#FEF2F2"
+                implicitHeight: 48
 
                 Text {
                     anchors.centerIn: parent
-                    text: "已写入：屏幕校色记录（静态演示状态）"
-                    color: "#166534"
-                    font.pixelSize: 14
+                    text: notesController.errorMessage
+                    color: "#991B1B"
+                    font.pixelSize: 13
                 }
             }
 

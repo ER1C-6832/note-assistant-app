@@ -18,93 +18,25 @@ ApplicationWindow {
 
     property string currentPage: "home"
     property string currentCategory: "all"
-    property int selectedIndex: 0
-    property string searchKeyword: "王总"
-
-    ListModel {
-        id: notesModel
-
-        ListElement {
-            title: "联系王总"
-            content: "明天上午十点联系王总，确认项目报价。"
-            tags: "客户 · 跟进"
-            updated: "今天 09:20"
-            source: "手动"
-            category: "customer"
-            cardColor: "#FFF6CC"
-        }
-
-        ListElement {
-            title: "王总项目报价"
-            content: "和王总确认 27 寸屏幕报价区间，以及演示安排。"
-            tags: "客户 · 报价"
-            updated: "昨天 18:40"
-            source: "手动"
-            category: "customer"
-            cardColor: "#E9F2FF"
-        }
-
-        ListElement {
-            title: "项目会议纪要"
-            content: "讨论 PC 端 PySide6 + QML 落地，以及 py-xiaozhi sidecar 接入方式。"
-            tags: "会议 · 语音助手"
-            updated: "昨天 11:05"
-            source: "手动"
-            category: "meeting"
-            cardColor: "#E8F9F1"
-        }
-
-        ListElement {
-            title: "报销材料"
-            content: "下周提交差旅报销单，需要整理发票。"
-            tags: "财务 · 待办"
-            updated: "6 月 20 日"
-            source: "手动"
-            category: "todo"
-            cardColor: "#FCE9F3"
-        }
-
-        ListElement {
-            title: "小智服务部署"
-            content: "后续内网部署 xiaozhi-esp32-server，测试 ASR、LLM、TTS 链路。"
-            tags: "技术 · 部署"
-            updated: "6 月 18 日"
-            source: "手动"
-            category: "tech"
-            cardColor: "#EEF2FF"
-        }
-    }
-
-    ListModel {
-        id: deletedNotesModel
-
-        ListElement {
-            title: "旧版演示文案"
-            content: "已废弃的旧版演示便签，当前仅用于展示已删除列表状态。"
-            tags: "已删除 · 演示"
-            updated: "6 月 15 日"
-            source: "手动"
-            category: "deleted"
-            cardColor: "#F3F4F6"
-        }
-    }
 
     function openPage(pageName) {
         currentPage = pageName
     }
 
-    function openCategory(categoryKey) {
-        currentCategory = categoryKey
-        if (categoryKey === "deleted") {
-            currentPage = "deletedList"
-        } else {
-            currentPage = "home"
-        }
+    function selectNote(index) {
+        notesController.selectNote(index)
+        currentPage = "home"
     }
 
-    function selectNote(index) {
-        selectedIndex = index
+    function openCategory(categoryKey) {
+        currentCategory = categoryKey
+        notesController.loadCategory(categoryKey)
         currentPage = "home"
+    }
+
+    Component.onCompleted: {
+        notesController.testConnection()
+        notesController.loadAll()
     }
 
     ColumnLayout {
@@ -113,10 +45,9 @@ ApplicationWindow {
         spacing: 20
 
         TopBar {
-            id: topBar
             Layout.fillWidth: true
             onSearchRequested: function(keyword) {
-                root.searchKeyword = keyword.length > 0 ? keyword : "王总"
+                notesController.searchNotes(keyword)
                 root.currentCategory = "search"
                 root.openPage("search")
             }
@@ -135,6 +66,12 @@ ApplicationWindow {
 
                 onCategoryRequested: function(categoryKey) {
                     root.openCategory(categoryKey)
+                }
+
+                onDeletedRequested: {
+                    root.currentCategory = "deleted"
+                    notesController.loadDeleted()
+                    root.openPage("deletedList")
                 }
 
                 onPageRequested: function(pageName) {
@@ -170,8 +107,8 @@ ApplicationWindow {
         id: homePage
 
         HomePage {
-            notesModel: notesModel
-            selectedIndex: root.selectedIndex
+            notesModel: notesListModel
+            selectedIndex: notesController.selectedIndex
             activeCategory: root.currentCategory
             onNoteSelected: function(index) {
                 root.selectNote(index)
@@ -179,10 +116,6 @@ ApplicationWindow {
             onCreateRequested: root.openPage("create")
             onEditRequested: root.openPage("edit")
             onDeleteRequested: root.openPage("deleteConfirm")
-            onSearchRequested: {
-                root.currentCategory = "search"
-                root.openPage("search")
-            }
             onAssistantRequested: {
                 root.currentCategory = "assistantIdle"
                 root.openPage("assistantIdle")
@@ -195,7 +128,11 @@ ApplicationWindow {
 
         CreateNotePage {
             onBackRequested: root.openPage("home")
-            onSaved: root.openPage("home")
+            onSaved: {
+                notesController.createNote(titleText, contentText, tagsText)
+                root.currentCategory = "all"
+                root.openPage("home")
+            }
         }
     }
 
@@ -203,11 +140,15 @@ ApplicationWindow {
         id: editPage
 
         EditNotePage {
-            noteTitle: notesModel.get(root.selectedIndex).title
-            noteContent: notesModel.get(root.selectedIndex).content
-            noteTags: notesModel.get(root.selectedIndex).tags
+            noteTitle: notesController.selectedTitle
+            noteContent: notesController.selectedContent
+            noteTags: notesController.selectedTagsText
             onBackRequested: root.openPage("home")
-            onSaved: root.openPage("home")
+            onSaved: function(titleText, contentText, tagsText) {
+                notesController.updateSelectedNote(titleText, contentText, tagsText)
+                root.currentCategory = "all"
+                root.openPage("home")
+            }
         }
     }
 
@@ -215,9 +156,13 @@ ApplicationWindow {
         id: deleteConfirmPage
 
         DeleteConfirmPage {
-            noteTitle: notesModel.get(root.selectedIndex).title
+            noteTitle: notesController.selectedTitle
             onBackRequested: root.openPage("home")
-            onDeleted: root.openPage("deletedList")
+            onDeleted: {
+                notesController.deleteSelectedNote()
+                root.currentCategory = "all"
+                root.openPage("home")
+            }
         }
     }
 
@@ -225,9 +170,10 @@ ApplicationWindow {
         id: deletedListPage
 
         DeletedNotesPage {
-            deletedNotesModel: deletedNotesModel
+            deletedNotesModel: deletedNotesListModel
             onBackRequested: {
                 root.currentCategory = "all"
+                notesController.loadAll()
                 root.openPage("home")
             }
         }
@@ -237,13 +183,15 @@ ApplicationWindow {
         id: searchPage
 
         SearchPage {
-            keyword: root.searchKeyword
-            notesModel: notesModel
+            keyword: notesController.searchKeyword
+            notesModel: notesListModel
+            selectedIndex: notesController.selectedIndex
             onNoteSelected: function(index) {
                 root.selectNote(index)
             }
             onBackRequested: {
                 root.currentCategory = "all"
+                notesController.loadAll()
                 root.openPage("home")
             }
             onDeleteSelectedRequested: root.openPage("deleteConfirm")

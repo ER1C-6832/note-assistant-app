@@ -5,12 +5,11 @@ Rectangle {
     id: root
 
     property var notesModel
-    property int selectedIndex: 0
+    property int selectedIndex: -1
     property string activeCategory: "all"
 
     signal noteSelected(int index)
     signal createRequested()
-    signal searchRequested()
 
     function categoryTitle() {
         if (activeCategory === "pinned") return "置顶便签"
@@ -45,7 +44,7 @@ Rectangle {
                 }
 
                 Text {
-                    text: notesModel ? notesModel.count + " 条便签" : "0 条便签"
+                    text: notesController.resultCount + " 条便签"
                     color: "#9CA3AF"
                     font.pixelSize: 12
                 }
@@ -56,6 +55,23 @@ Rectangle {
                 variant: "primary"
                 compact: true
                 onClicked: root.createRequested()
+            }
+        }
+
+        Rectangle {
+            Layout.fillWidth: true
+            visible: notesController.errorMessage.length > 0
+            radius: 14
+            color: "#FEF2F2"
+            implicitHeight: 44
+
+            Text {
+                anchors.centerIn: parent
+                text: notesController.errorMessage
+                color: "#991B1B"
+                font.pixelSize: 12
+                elide: Text.ElideRight
+                width: parent.width - 24
             }
         }
 
@@ -71,12 +87,40 @@ Rectangle {
                 width: ListView.view.width
                 title: model.title
                 content: model.content
-                tags: model.tags
-                updated: model.updated
-                source: model.source
+                tags: model.tagsText
+                updated: model.updatedText
+                source: model.sourceText
                 cardColor: model.cardColor
                 selected: index === root.selectedIndex
                 onClicked: root.noteSelected(index)
+            }
+        }
+
+        Rectangle {
+            Layout.fillWidth: true
+            Layout.fillHeight: true
+            visible: notesController.resultCount === 0
+            radius: 18
+            color: "#F7F8FA"
+
+            ColumnLayout {
+                anchors.centerIn: parent
+                spacing: 10
+
+                Text {
+                    text: "暂无便签"
+                    color: "#111827"
+                    font.pixelSize: 18
+                    font.bold: true
+                    horizontalAlignment: Text.AlignHCenter
+                }
+
+                Text {
+                    text: "点击“新建”创建第一条便签。"
+                    color: "#6B7280"
+                    font.pixelSize: 13
+                    horizontalAlignment: Text.AlignHCenter
+                }
             }
         }
     }

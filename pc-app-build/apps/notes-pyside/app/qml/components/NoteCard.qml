@@ -66,7 +66,7 @@ Rectangle {
             }
 
             Rectangle {
-                visible: root.source === "语音"
+                visible: root.source === "语音" || root.source === "移动端语音"
                 radius: 999
                 color: "#FFFFFF"
                 implicitWidth: 62
@@ -83,7 +83,6 @@ Rectangle {
     }
 
     MouseArea {
-        id: mouse
         anchors.fill: parent
         hoverEnabled: true
         cursorShape: Qt.PointingHandCursor

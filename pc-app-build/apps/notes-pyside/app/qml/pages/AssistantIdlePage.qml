@@ -28,7 +28,7 @@ Item {
                 spacing: 16
 
                 Text {
-                    text: "语音助手演示入口"
+                    text: "语音助手"
                     color: "#111827"
                     font.pixelSize: 26
                     font.bold: true
@@ -36,7 +36,7 @@ Item {
 
                 Text {
                     Layout.fillWidth: true
-                    text: "Phase 3.1 展示语音助手 UI 状态；Phase 5 后通过 Sidecar 接收真实 transcript / reply / tool_result。"
+                    text: "语音助手可以帮助你新增、查询、修改和删除便签。"
                     color: "#4B5563"
                     font.pixelSize: 14
                     wrapMode: Text.WordWrap

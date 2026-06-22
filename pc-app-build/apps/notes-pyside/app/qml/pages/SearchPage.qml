@@ -6,8 +6,9 @@ import "../components"
 Item {
     id: root
 
-    property string keyword: "王总"
+    property string keyword: ""
     property var notesModel
+    property int selectedIndex: -1
 
     signal noteSelected(int index)
     signal backRequested()
@@ -35,14 +36,14 @@ Item {
                         Layout.fillWidth: true
 
                         Text {
-                            text: "找到 2 条相关便签"
+                            text: "找到 " + notesController.resultCount + " 条相关便签"
                             color: "#111827"
                             font.pixelSize: 18
                             font.bold: true
                         }
 
                         Text {
-                            text: "搜索关键词：“" + root.keyword + "”，命中标题、正文、标签"
+                            text: "搜索关键词：“" + root.keyword + "”"
                             color: "#6B7280"
                             font.pixelSize: 12
                         }
@@ -61,17 +62,17 @@ Item {
                     Layout.fillHeight: true
                     spacing: 12
                     clip: true
-                    model: 2
+                    model: root.notesModel
 
                     delegate: NoteCard {
                         width: ListView.view.width
-                        title: root.notesModel.get(index).title
-                        content: root.notesModel.get(index).content
-                        tags: root.notesModel.get(index).tags
-                        updated: root.notesModel.get(index).updated
-                        source: root.notesModel.get(index).source
-                        cardColor: root.notesModel.get(index).cardColor
-                        selected: true
+                        title: model.title
+                        content: model.content
+                        tags: model.tagsText
+                        updated: model.updatedText
+                        source: model.sourceText
+                        cardColor: model.cardColor
+                        selected: index === root.selectedIndex
                         onClicked: root.noteSelected(index)
                     }
                 }
@@ -81,7 +82,7 @@ Item {
 
                     Text {
                         Layout.fillWidth: true
-                        text: "已勾选 2 条便签"
+                        text: notesController.hasSelection ? "已选择 1 条便签" : "请选择便签"
                         color: "#4B5563"
                         font.pixelSize: 13
                     }
@@ -90,54 +91,24 @@ Item {
                         text: "删除所选"
                         variant: "softDanger"
                         compact: true
+                        enabled: notesController.hasSelection
                         onClicked: root.deleteSelectedRequested()
                     }
                 }
             }
         }
 
-        Rectangle {
+        DetailPanel {
             Layout.fillWidth: true
             Layout.fillHeight: true
-            color: "#FFFFFF"
-            radius: 20
-
-            ColumnLayout {
-                anchors.fill: parent
-                anchors.margins: 24
-                spacing: 16
-
-                Text {
-                    text: "模糊查找说明"
-                    color: "#111827"
-                    font.pixelSize: 24
-                    font.bold: true
-                }
-
-                Text {
-                    Layout.fillWidth: true
-                    text: "Phase 3.1 先修正搜索结果 UI 和按钮风格。Phase 4 接入 GET /api/notes/search?q=" + root.keyword + " 后，列表将使用真实 Notes API 数据。"
-                    color: "#4B5563"
-                    font.pixelSize: 15
-                    wrapMode: Text.WordWrap
-                }
-
-                Rectangle {
-                    Layout.fillWidth: true
-                    radius: 16
-                    color: "#F7F8FA"
-                    implicitHeight: 160
-
-                    Text {
-                        anchors.fill: parent
-                        anchors.margins: 18
-                        text: "搜索范围：\n- 标题\n- 正文\n- 标签\n\n当前策略：SQLite LIKE 基础模糊查找"
-                        color: "#374151"
-                        font.pixelSize: 15
-                        wrapMode: Text.WordWrap
-                    }
-                }
-            }
+            hasSelection: notesController.hasSelection
+            title: notesController.selectedTitle
+            content: notesController.selectedContent
+            tags: notesController.selectedTagsText
+            updated: notesController.selectedUpdatedText
+            source: notesController.selectedSourceText
+            onEditRequested: root.noteSelected(notesController.selectedIndex)
+            onDeleteRequested: root.deleteSelectedRequested()
         }
     }
 }

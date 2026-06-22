@@ -24,7 +24,7 @@ Item {
                 spacing: 16
 
                 Text {
-                    text: "语音删除 / 多候选确认"
+                    text: "语音删除确认"
                     color: "#111827"
                     font.pixelSize: 24
                     font.bold: true
@@ -76,8 +76,8 @@ Item {
             statusText: "等待确认"
             transcript: "删除王总那条"
             reply: "我找到 3 条候选，请确认要删除哪一条。"
-            resultTitle: "安全规则"
-            resultText: "删除必须先 search_notes，再由用户确认，最后 delete_note。"
+            resultTitle: "等待确认"
+            resultText: "确认后将删除选中的便签。"
         }
     }
 

@@ -70,7 +70,7 @@ Item {
                     TextField {
                         Layout.fillWidth: true
                         text: "ws://127.0.0.1:17890/assistant"
-                        placeholderText: "PC Assistant Sidecar 地址"
+                        placeholderText: "语音助手地址"
                         background: Rectangle {
                             color: "#FFFFFF"
                             radius: 14
@@ -82,14 +82,14 @@ Item {
                         spacing: 12
 
                         StatusBadge {
-                            text: "Notes API 已连接"
-                            dotColor: "#16A34A"
-                            bgColor: "#ECFDF3"
-                            textColor: "#166534"
+                            text: notesController.apiConnected ? "Notes API 已连接" : "Notes API 未连接"
+                            dotColor: notesController.apiConnected ? "#16A34A" : "#EF4444"
+                            bgColor: notesController.apiConnected ? "#ECFDF3" : "#FEF2F2"
+                            textColor: notesController.apiConnected ? "#166534" : "#991B1B"
                         }
 
                         StatusBadge {
-                            text: "Sidecar 待接入"
+                            text: "语音助手待接入"
                             dotColor: "#F59E0B"
                             bgColor: "#FFF7ED"
                             textColor: "#92400E"
@@ -104,16 +104,24 @@ Item {
                     AppButton {
                         text: "测试连接"
                         variant: "secondary"
+                        onClicked: notesController.testConnection()
                     }
                 }
             }
 
-            Text {
+            Rectangle {
                 Layout.fillWidth: true
-                text: "Phase 3.1 为静态设置页。Phase 4 开始读取 Notes API 状态，Phase 5 接入 Sidecar 状态。"
-                color: "#6B7280"
-                font.pixelSize: 13
-                wrapMode: Text.WordWrap
+                visible: notesController.errorMessage.length > 0
+                radius: 14
+                color: "#FEF2F2"
+                implicitHeight: 48
+
+                Text {
+                    anchors.centerIn: parent
+                    text: notesController.errorMessage
+                    color: "#991B1B"
+                    font.pixelSize: 13
+                }
             }
 
             Item {
