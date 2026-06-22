@@ -33,9 +33,6 @@ pip install -r requirements.txt
 copy .env.example .env
 ```
 
-Edit `.env` if custom ports or paths are needed. The defaults are suitable for
-local development.
-
 ## Running the Notes API
 
 ```bat
@@ -51,31 +48,45 @@ python -m uvicorn app.main:app --host 127.0.0.1 --port 18080 --reload
 
 ## Seed Demo Data
 
-With the virtual environment activated:
-
 ```bat
 python scripts\seed_demo_data.py --reset
 ```
 
-This initializes `services\notes-api\data\notes.db` and inserts demo notes.
+## Running the PC App
+
+```bat
+scripts\start_pc_app.bat
+```
+
+Phase 3 PC App behavior:
+
+```text
+1. Opens a PySide6 + QML desktop window.
+2. Shows the bright card-style note UI.
+3. Supports static page switching between home, create, edit, delete, search,
+   assistant states, and settings.
+4. Uses mock QML note data only.
+```
 
 ## Verification
 
 1. Visit `http://127.0.0.1:18080/api/health`.
 2. Visit `http://127.0.0.1:18080/api/notes`.
 3. Visit `http://127.0.0.1:18080/api/notes/search?q=王总&limit=10`.
-
-Expected health response:
-
-```json
-{"status": "ok", "service": "notes-api", "version": "0.2.0"}
-```
+4. Run `scripts\start_pc_app.bat`.
+5. Confirm the PC App window appears.
+6. Click:
+   - 新建便签
+   - 编辑
+   - 删除
+   - 搜索
+   - 语音助手
+   - 设置
 
 ## Running All Components
-
-Phase 2 implements the Notes API. The Sidecar and PC App are still skeletons for
-later phases.
 
 ```bat
 scripts\start_all.bat
 ```
+
+The Sidecar remains a skeleton until Phase 5.
