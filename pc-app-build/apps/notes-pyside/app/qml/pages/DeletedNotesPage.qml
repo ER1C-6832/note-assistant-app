@@ -6,19 +6,16 @@ import "../components"
 Item {
     id: root
 
-    property string keyword: "王总"
-    property var notesModel
+    property var deletedNotesModel
 
-    signal noteSelected(int index)
     signal backRequested()
-    signal deleteSelectedRequested()
 
     RowLayout {
         anchors.fill: parent
         spacing: 20
 
         Rectangle {
-            Layout.preferredWidth: 560
+            Layout.preferredWidth: 540
             Layout.fillHeight: true
             color: "#FFFFFF"
             radius: 20
@@ -33,23 +30,24 @@ Item {
 
                     ColumnLayout {
                         Layout.fillWidth: true
+                        spacing: 4
 
                         Text {
-                            text: "找到 2 条相关便签"
+                            text: "已删除"
                             color: "#111827"
                             font.pixelSize: 18
                             font.bold: true
                         }
 
                         Text {
-                            text: "搜索关键词：“" + root.keyword + "”，命中标题、正文、标签"
-                            color: "#6B7280"
+                            text: "软删除便签列表，Phase 4 后接入真实 is_deleted 数据。"
+                            color: "#9CA3AF"
                             font.pixelSize: 12
                         }
                     }
 
                     AppButton {
-                        text: "重置搜索"
+                        text: "返回全部"
                         variant: "secondary"
                         compact: true
                         onClicked: root.backRequested()
@@ -59,38 +57,19 @@ Item {
                 ListView {
                     Layout.fillWidth: true
                     Layout.fillHeight: true
+                    model: root.deletedNotesModel
                     spacing: 12
                     clip: true
-                    model: 2
 
                     delegate: NoteCard {
                         width: ListView.view.width
-                        title: root.notesModel.get(index).title
-                        content: root.notesModel.get(index).content
-                        tags: root.notesModel.get(index).tags
-                        updated: root.notesModel.get(index).updated
-                        source: root.notesModel.get(index).source
-                        cardColor: root.notesModel.get(index).cardColor
-                        selected: true
-                        onClicked: root.noteSelected(index)
-                    }
-                }
-
-                RowLayout {
-                    Layout.fillWidth: true
-
-                    Text {
-                        Layout.fillWidth: true
-                        text: "已勾选 2 条便签"
-                        color: "#4B5563"
-                        font.pixelSize: 13
-                    }
-
-                    AppButton {
-                        text: "删除所选"
-                        variant: "softDanger"
-                        compact: true
-                        onClicked: root.deleteSelectedRequested()
+                        title: model.title
+                        content: model.content
+                        tags: model.tags
+                        updated: model.updated
+                        source: model.source
+                        cardColor: model.cardColor
+                        selected: false
                     }
                 }
             }
@@ -104,11 +83,11 @@ Item {
 
             ColumnLayout {
                 anchors.fill: parent
-                anchors.margins: 24
+                anchors.margins: 28
                 spacing: 16
 
                 Text {
-                    text: "模糊查找说明"
+                    text: "已删除不是删除确认页"
                     color: "#111827"
                     font.pixelSize: 24
                     font.bold: true
@@ -116,7 +95,7 @@ Item {
 
                 Text {
                     Layout.fillWidth: true
-                    text: "Phase 3.1 先修正搜索结果 UI 和按钮风格。Phase 4 接入 GET /api/notes/search?q=" + root.keyword + " 后，列表将使用真实 Notes API 数据。"
+                    text: "这里展示被软删除的便签。点击右侧详情里的“删除”才会进入删除确认页。Phase 3.1 已将 deletedList 和 deleteConfirm 分开。"
                     color: "#4B5563"
                     font.pixelSize: 15
                     wrapMode: Text.WordWrap
@@ -126,12 +105,12 @@ Item {
                     Layout.fillWidth: true
                     radius: 16
                     color: "#F7F8FA"
-                    implicitHeight: 160
+                    implicitHeight: 130
 
                     Text {
                         anchors.fill: parent
                         anchors.margins: 18
-                        text: "搜索范围：\n- 标题\n- 正文\n- 标签\n\n当前策略：SQLite LIKE 基础模糊查找"
+                        text: "后续 Phase 4 可接入：\nGET /api/notes?include_deleted=true\nPATCH 恢复接口或单独 restore API。"
                         color: "#374151"
                         font.pixelSize: 15
                         wrapMode: Text.WordWrap

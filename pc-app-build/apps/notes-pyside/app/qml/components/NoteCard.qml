@@ -1,5 +1,4 @@
 import QtQuick
-import QtQuick.Controls
 import QtQuick.Layouts
 
 Rectangle {
@@ -16,7 +15,7 @@ Rectangle {
     signal clicked()
 
     color: cardColor
-    radius: 16
+    radius: 18
     border.color: selected ? "#4F7CFF" : "transparent"
     border.width: selected ? 2 : 0
     implicitHeight: 118
@@ -32,7 +31,7 @@ Rectangle {
             Text {
                 Layout.fillWidth: true
                 text: root.title
-                color: "#1A1A1A"
+                color: "#111827"
                 font.pixelSize: 15
                 font.bold: true
                 elide: Text.ElideRight
@@ -84,7 +83,10 @@ Rectangle {
     }
 
     MouseArea {
+        id: mouse
         anchors.fill: parent
+        hoverEnabled: true
+        cursorShape: Qt.PointingHandCursor
         onClicked: root.clicked()
     }
 }

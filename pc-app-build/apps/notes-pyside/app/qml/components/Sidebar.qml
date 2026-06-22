@@ -1,15 +1,17 @@
 import QtQuick
-import QtQuick.Controls
 import QtQuick.Layouts
 
 Rectangle {
     id: root
 
     property string currentPage: "home"
+    property string activeCategory: "all"
+
+    signal categoryRequested(string categoryKey)
     signal pageRequested(string pageName)
 
     color: "#FFFFFF"
-    radius: 18
+    radius: 20
 
     ColumnLayout {
         anchors.fill: parent
@@ -22,49 +24,58 @@ Rectangle {
             font.pixelSize: 13
         }
 
-        Repeater {
-            model: [
-                {"label": "全部", "page": "home"},
-                {"label": "置顶", "page": "home"},
-                {"label": "客户", "page": "search"},
-                {"label": "会议", "page": "home"},
-                {"label": "待办", "page": "home"},
-                {"label": "已删除", "page": "delete"}
-            ]
+        SidebarItem {
+            Layout.fillWidth: true
+            text: "全部"
+            countText: "5"
+            iconText: "•"
+            active: root.activeCategory === "all"
+            onClicked: root.categoryRequested("all")
+        }
 
-            delegate: Rectangle {
-                Layout.fillWidth: true
-                height: 40
-                radius: 12
-                color: modelData.page === root.currentPage ? "#EAF0FF" : "transparent"
+        SidebarItem {
+            Layout.fillWidth: true
+            text: "置顶"
+            countText: "1"
+            iconText: "•"
+            active: root.activeCategory === "pinned"
+            onClicked: root.categoryRequested("pinned")
+        }
 
-                RowLayout {
-                    anchors.fill: parent
-                    anchors.leftMargin: 12
-                    anchors.rightMargin: 12
-                    spacing: 8
+        SidebarItem {
+            Layout.fillWidth: true
+            text: "客户"
+            countText: "2"
+            iconText: "•"
+            active: root.activeCategory === "customer"
+            onClicked: root.categoryRequested("customer")
+        }
 
-                    Text {
-                        Layout.fillWidth: true
-                        text: modelData.label
-                        color: "#374151"
-                        font.pixelSize: 14
-                    }
+        SidebarItem {
+            Layout.fillWidth: true
+            text: "会议"
+            countText: "1"
+            iconText: "•"
+            active: root.activeCategory === "meeting"
+            onClicked: root.categoryRequested("meeting")
+        }
 
-                    Rectangle {
-                        visible: modelData.page === root.currentPage
-                        width: 8
-                        height: 8
-                        radius: 4
-                        color: "#4F7CFF"
-                    }
-                }
+        SidebarItem {
+            Layout.fillWidth: true
+            text: "待办"
+            countText: "1"
+            iconText: "•"
+            active: root.activeCategory === "todo"
+            onClicked: root.categoryRequested("todo")
+        }
 
-                MouseArea {
-                    anchors.fill: parent
-                    onClicked: root.pageRequested(modelData.page)
-                }
-            }
+        SidebarItem {
+            Layout.fillWidth: true
+            text: "已删除"
+            countText: "1"
+            iconText: "•"
+            active: root.activeCategory === "deleted"
+            onClicked: root.categoryRequested("deleted")
         }
 
         Rectangle {
@@ -73,15 +84,19 @@ Rectangle {
             color: "#EEF2F7"
         }
 
-        Button {
+        SidebarItem {
             Layout.fillWidth: true
             text: "语音助手"
+            iconText: "●"
+            active: root.activeCategory === "assistantIdle" || root.currentPage.indexOf("assistant") === 0
             onClicked: root.pageRequested("assistantIdle")
         }
 
-        Button {
+        SidebarItem {
             Layout.fillWidth: true
             text: "设置"
+            iconText: "⚙"
+            active: root.activeCategory === "settings" || root.currentPage === "settings"
             onClicked: root.pageRequested("settings")
         }
 

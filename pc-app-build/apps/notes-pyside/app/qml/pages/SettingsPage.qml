@@ -12,7 +12,7 @@ Item {
     Rectangle {
         anchors.fill: parent
         color: "#FFFFFF"
-        radius: 18
+        radius: 20
 
         ColumnLayout {
             anchors.fill: parent
@@ -25,20 +25,22 @@ Item {
                 Text {
                     Layout.fillWidth: true
                     text: "设置"
-                    color: "#1A1A1A"
+                    color: "#111827"
                     font.pixelSize: 26
                     font.bold: true
                 }
 
-                Button {
+                AppButton {
                     text: "返回"
+                    variant: "ghost"
+                    compact: true
                     onClicked: root.backRequested()
                 }
             }
 
             Rectangle {
                 Layout.fillWidth: true
-                radius: 16
+                radius: 18
                 color: "#F7F8FA"
                 implicitHeight: 300
 
@@ -49,7 +51,7 @@ Item {
 
                     Text {
                         text: "服务地址"
-                        color: "#1A1A1A"
+                        color: "#111827"
                         font.pixelSize: 18
                         font.bold: true
                     }
@@ -58,12 +60,22 @@ Item {
                         Layout.fillWidth: true
                         text: "http://127.0.0.1:18080"
                         placeholderText: "Notes API 地址"
+                        background: Rectangle {
+                            color: "#FFFFFF"
+                            radius: 14
+                            border.color: "#E5E7EB"
+                        }
                     }
 
                     TextField {
                         Layout.fillWidth: true
                         text: "ws://127.0.0.1:17890/assistant"
                         placeholderText: "PC Assistant Sidecar 地址"
+                        background: Rectangle {
+                            color: "#FFFFFF"
+                            radius: 14
+                            border.color: "#E5E7EB"
+                        }
                     }
 
                     RowLayout {
@@ -71,12 +83,16 @@ Item {
 
                         StatusBadge {
                             text: "Notes API 已连接"
+                            dotColor: "#16A34A"
+                            bgColor: "#ECFDF3"
+                            textColor: "#166534"
                         }
 
                         StatusBadge {
                             text: "Sidecar 待接入"
                             dotColor: "#F59E0B"
                             bgColor: "#FFF7ED"
+                            textColor: "#92400E"
                         }
 
                         StatusBadge {
@@ -85,15 +101,16 @@ Item {
                         }
                     }
 
-                    Button {
+                    AppButton {
                         text: "测试连接"
+                        variant: "secondary"
                     }
                 }
             }
 
             Text {
                 Layout.fillWidth: true
-                text: "Phase 3 为静态设置页。Phase 4 开始读取 Notes API 状态，Phase 5 接入 Sidecar 状态。"
+                text: "Phase 3.1 为静态设置页。Phase 4 开始读取 Notes API 状态，Phase 5 接入 Sidecar 状态。"
                 color: "#6B7280"
                 font.pixelSize: 13
                 wrapMode: Text.WordWrap

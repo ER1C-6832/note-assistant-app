@@ -1,5 +1,4 @@
 import QtQuick
-import QtQuick.Controls
 import QtQuick.Layouts
 
 Rectangle {
@@ -15,7 +14,7 @@ Rectangle {
     signal deleteRequested()
 
     color: "#FFFFFF"
-    radius: 18
+    radius: 20
 
     ColumnLayout {
         anchors.fill: parent
@@ -24,14 +23,16 @@ Rectangle {
 
         RowLayout {
             Layout.fillWidth: true
+            spacing: 12
 
             ColumnLayout {
                 Layout.fillWidth: true
                 spacing: 6
 
                 Text {
+                    Layout.fillWidth: true
                     text: root.title
-                    color: "#1A1A1A"
+                    color: "#111827"
                     font.pixelSize: 26
                     font.bold: true
                     wrapMode: Text.WordWrap
@@ -44,13 +45,17 @@ Rectangle {
                 }
             }
 
-            Button {
+            AppButton {
                 text: "编辑"
+                variant: "secondary"
+                compact: true
                 onClicked: root.editRequested()
             }
 
-            Button {
+            AppButton {
                 text: "删除"
+                variant: "softDanger"
+                compact: true
                 onClicked: root.deleteRequested()
             }
         }
@@ -58,7 +63,7 @@ Rectangle {
         Rectangle {
             Layout.fillWidth: true
             Layout.fillHeight: true
-            radius: 16
+            radius: 18
             color: "#F7F8FA"
 
             Text {
@@ -82,17 +87,16 @@ Rectangle {
             }
 
             Text {
+                Layout.fillWidth: true
                 text: root.tags
                 color: "#4B5563"
                 font.pixelSize: 13
             }
 
-            Item {
-                Layout.fillWidth: true
-            }
-
-            Button {
+            AppButton {
                 text: "增加闹钟"
+                variant: "secondary"
+                compact: true
             }
         }
     }

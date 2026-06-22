@@ -1,5 +1,4 @@
 import QtQuick
-import QtQuick.Controls
 import QtQuick.Layouts
 
 Rectangle {
@@ -7,10 +6,23 @@ Rectangle {
 
     property var notesModel
     property int selectedIndex: 0
+    property string activeCategory: "all"
+
     signal noteSelected(int index)
+    signal createRequested()
+    signal searchRequested()
+
+    function categoryTitle() {
+        if (activeCategory === "pinned") return "置顶便签"
+        if (activeCategory === "customer") return "客户便签"
+        if (activeCategory === "meeting") return "会议便签"
+        if (activeCategory === "todo") return "待办便签"
+        if (activeCategory === "search") return "搜索结果"
+        return "全部便签"
+    }
 
     color: "#FFFFFF"
-    radius: 18
+    radius: 20
 
     ColumnLayout {
         anchors.fill: parent
@@ -19,19 +31,31 @@ Rectangle {
 
         RowLayout {
             Layout.fillWidth: true
+            spacing: 12
 
-            Text {
+            ColumnLayout {
                 Layout.fillWidth: true
-                text: "全部便签"
-                color: "#1A1A1A"
-                font.pixelSize: 18
-                font.bold: true
+                spacing: 4
+
+                Text {
+                    text: root.categoryTitle()
+                    color: "#111827"
+                    font.pixelSize: 18
+                    font.bold: true
+                }
+
+                Text {
+                    text: notesModel ? notesModel.count + " 条便签" : "0 条便签"
+                    color: "#9CA3AF"
+                    font.pixelSize: 12
+                }
             }
 
-            Text {
-                text: notesModel ? notesModel.count + " 条" : "0 条"
-                color: "#9CA3AF"
-                font.pixelSize: 13
+            AppButton {
+                text: "+ 新建"
+                variant: "primary"
+                compact: true
+                onClicked: root.createRequested()
             }
         }
 

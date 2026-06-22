@@ -1,6 +1,7 @@
 # PC UI Pages
 
-Phase 3 implements the static PySide6 + QML PC UI based on the Pencil prototype.
+Phase 3.1 refines the static PySide6 + QML PC UI based on the Pencil prototype
+and fixes the Phase 3 navigation / visual style issues.
 
 ## Implemented Pages
 
@@ -17,23 +18,39 @@ Phase 3 implements the static PySide6 + QML PC UI based on the Pencil prototype.
 | PC-09 语音修改便签 | `AssistantUpdatePage.qml` | ✅ |
 | PC-10 语音删除便签 / 多候选确认 | `AssistantDeletePage.qml` | ✅ |
 | PC-11 设置页 | `SettingsPage.qml` | ✅ |
+| 已删除列表 | `DeletedNotesPage.qml` | ✅ |
 
-## Implemented Components
+## Components
 
 | Component | Purpose |
 |---|---|
-| `TopBar.qml` | App title, search box, new note button, status badges |
-| `Sidebar.qml` | Categories, settings entry, voice assistant entry, service status |
-| `NoteList.qml` | Note card list |
+| `AppButton.qml` | Unified modern button replacing Qt default buttons |
+| `SidebarItem.qml` | Sidebar menu item with correct active state |
+| `SearchBox.qml` | Modern top search box |
+| `TopBar.qml` | App title, search box, service status badges |
+| `Sidebar.qml` | Category navigation, assistant/settings entry, service status |
+| `NoteList.qml` | Note list with list-level new note button |
 | `NoteCard.qml` | Note summary card |
-| `DetailPanel.qml` | Note detail panel |
+| `DetailPanel.qml` | Right-side note detail panel |
 | `AssistantPanel.qml` | Assistant status, transcript, reply, tool result |
 | `StatusBadge.qml` | Connection/status badge |
 | `VoiceButton.qml` | Floating voice assistant button |
 
+## Phase 3.1 Fixes
+
+```text
+1. Fixed sidebar active-state logic.
+2. Split deleted list from delete confirmation.
+3. Replaced default Qt buttons with AppButton.
+4. Replaced sidebar buttons with SidebarItem.
+5. Moved New Note from top search area to note list header.
+6. Removed top-right Settings button; left sidebar owns Settings navigation.
+7. Modernized edit/delete/search/new button styling.
+```
+
 ## Phase Boundary
 
-Phase 3 is a static UI and page-switching implementation.
+Phase 3.1 is still static UI only.
 
 Real data integration starts in Phase 4:
 

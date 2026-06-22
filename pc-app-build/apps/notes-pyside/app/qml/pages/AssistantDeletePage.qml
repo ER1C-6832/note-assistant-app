@@ -1,5 +1,4 @@
 import QtQuick
-import QtQuick.Controls
 import QtQuick.Layouts
 
 import "../components"
@@ -17,7 +16,7 @@ Item {
             Layout.fillWidth: true
             Layout.fillHeight: true
             color: "#FFFFFF"
-            radius: 18
+            radius: 20
 
             ColumnLayout {
                 anchors.fill: parent
@@ -26,7 +25,7 @@ Item {
 
                 Text {
                     text: "语音删除 / 多候选确认"
-                    color: "#1A1A1A"
+                    color: "#111827"
                     font.pixelSize: 24
                     font.bold: true
                 }
@@ -58,12 +57,14 @@ Item {
                 RowLayout {
                     spacing: 12
 
-                    Button {
+                    AppButton {
                         text: "取消"
+                        variant: "secondary"
                     }
 
-                    Button {
+                    AppButton {
                         text: "确认删除"
+                        variant: "danger"
                     }
                 }
             }
@@ -80,12 +81,13 @@ Item {
         }
     }
 
-    Button {
+    AppButton {
         anchors.left: parent.left
         anchors.bottom: parent.bottom
         anchors.leftMargin: 24
         anchors.bottomMargin: 24
         text: "返回语音助手"
+        variant: "secondary"
         onClicked: root.backRequested()
     }
 }

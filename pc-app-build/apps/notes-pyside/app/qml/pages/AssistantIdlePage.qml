@@ -1,5 +1,4 @@
 import QtQuick
-import QtQuick.Controls
 import QtQuick.Layouts
 
 import "../components"
@@ -21,7 +20,7 @@ Item {
             Layout.fillWidth: true
             Layout.fillHeight: true
             color: "#FFFFFF"
-            radius: 18
+            radius: 20
 
             ColumnLayout {
                 anchors.fill: parent
@@ -30,14 +29,14 @@ Item {
 
                 Text {
                     text: "语音助手演示入口"
-                    color: "#1A1A1A"
+                    color: "#111827"
                     font.pixelSize: 26
                     font.bold: true
                 }
 
                 Text {
                     Layout.fillWidth: true
-                    text: "Phase 3 展示语音助手 UI 状态；Phase 5 后通过 Sidecar 接收真实 transcript / reply / tool_result。"
+                    text: "Phase 3.1 展示语音助手 UI 状态；Phase 5 后通过 Sidecar 接收真实 transcript / reply / tool_result。"
                     color: "#4B5563"
                     font.pixelSize: 14
                     wrapMode: Text.WordWrap
@@ -46,29 +45,34 @@ Item {
                 RowLayout {
                     spacing: 12
 
-                    Button {
-                        text: "演示语音新增"
+                    AppButton {
+                        text: "语音新增"
+                        variant: "primary"
                         onClicked: root.demoCreateRequested()
                     }
 
-                    Button {
-                        text: "演示语音查询"
+                    AppButton {
+                        text: "语音查询"
+                        variant: "secondary"
                         onClicked: root.demoSearchRequested()
                     }
 
-                    Button {
-                        text: "演示语音修改"
+                    AppButton {
+                        text: "语音修改"
+                        variant: "secondary"
                         onClicked: root.demoUpdateRequested()
                     }
 
-                    Button {
-                        text: "演示语音删除"
+                    AppButton {
+                        text: "语音删除"
+                        variant: "softDanger"
                         onClicked: root.demoDeleteRequested()
                     }
                 }
 
-                Button {
+                AppButton {
                     text: "返回首页"
+                    variant: "ghost"
                     onClicked: root.backRequested()
                 }
             }

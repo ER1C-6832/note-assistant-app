@@ -1,5 +1,4 @@
 import QtQuick
-import QtQuick.Controls
 import QtQuick.Layouts
 
 Rectangle {
@@ -13,7 +12,7 @@ Rectangle {
     property string resultText: ""
 
     color: "#FFFFFF"
-    radius: 18
+    radius: 20
 
     ColumnLayout {
         anchors.fill: parent
@@ -26,14 +25,15 @@ Rectangle {
             Text {
                 Layout.fillWidth: true
                 text: root.title
-                color: "#1A1A1A"
+                color: "#111827"
                 font.pixelSize: 22
                 font.bold: true
             }
 
             StatusBadge {
                 text: root.statusText
-                dotColor: root.statusText === "待机中" ? "#19B7A8" : "#4F7CFF"
+                dotColor: root.statusText === "待机中" ? "#19B7A8" : root.statusText === "等待确认" ? "#F59E0B" : "#4F7CFF"
+                bgColor: root.statusText === "等待确认" ? "#FFF7ED" : "#EAF0FF"
             }
         }
 
@@ -65,7 +65,7 @@ Rectangle {
         Rectangle {
             Layout.fillWidth: true
             visible: root.transcript.length > 0
-            radius: 14
+            radius: 16
             color: "#F7F8FA"
             implicitHeight: transcriptText.implicitHeight + 28
 
@@ -83,7 +83,7 @@ Rectangle {
         Rectangle {
             Layout.fillWidth: true
             visible: root.reply.length > 0
-            radius: 14
+            radius: 16
             color: "#EAF0FF"
             implicitHeight: replyText.implicitHeight + 28
 
@@ -101,7 +101,7 @@ Rectangle {
         Rectangle {
             Layout.fillWidth: true
             visible: root.resultTitle.length > 0
-            radius: 14
+            radius: 16
             color: "#E8F9F1"
             implicitHeight: resultColumn.implicitHeight + 28
 

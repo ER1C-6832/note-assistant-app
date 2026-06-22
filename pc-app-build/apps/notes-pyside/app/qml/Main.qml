@@ -14,10 +14,10 @@ ApplicationWindow {
     minimumHeight: 760
     visible: true
     title: "小智便签"
-
     color: "#F4F7FB"
 
     property string currentPage: "home"
+    property string currentCategory: "all"
     property int selectedIndex: 0
     property string searchKeyword: "王总"
 
@@ -30,6 +30,7 @@ ApplicationWindow {
             tags: "客户 · 跟进"
             updated: "今天 09:20"
             source: "手动"
+            category: "customer"
             cardColor: "#FFF6CC"
         }
 
@@ -39,6 +40,7 @@ ApplicationWindow {
             tags: "客户 · 报价"
             updated: "昨天 18:40"
             source: "手动"
+            category: "customer"
             cardColor: "#E9F2FF"
         }
 
@@ -48,6 +50,7 @@ ApplicationWindow {
             tags: "会议 · 语音助手"
             updated: "昨天 11:05"
             source: "手动"
+            category: "meeting"
             cardColor: "#E8F9F1"
         }
 
@@ -57,6 +60,7 @@ ApplicationWindow {
             tags: "财务 · 待办"
             updated: "6 月 20 日"
             source: "手动"
+            category: "todo"
             cardColor: "#FCE9F3"
         }
 
@@ -66,12 +70,36 @@ ApplicationWindow {
             tags: "技术 · 部署"
             updated: "6 月 18 日"
             source: "手动"
+            category: "tech"
             cardColor: "#EEF2FF"
+        }
+    }
+
+    ListModel {
+        id: deletedNotesModel
+
+        ListElement {
+            title: "旧版演示文案"
+            content: "已废弃的旧版演示便签，当前仅用于展示已删除列表状态。"
+            tags: "已删除 · 演示"
+            updated: "6 月 15 日"
+            source: "手动"
+            category: "deleted"
+            cardColor: "#F3F4F6"
         }
     }
 
     function openPage(pageName) {
         currentPage = pageName
+    }
+
+    function openCategory(categoryKey) {
+        currentCategory = categoryKey
+        if (categoryKey === "deleted") {
+            currentPage = "deletedList"
+        } else {
+            currentPage = "home"
+        }
     }
 
     function selectNote(index) {
@@ -87,12 +115,11 @@ ApplicationWindow {
         TopBar {
             id: topBar
             Layout.fillWidth: true
-            onNewRequested: root.openPage("create")
             onSearchRequested: function(keyword) {
                 root.searchKeyword = keyword.length > 0 ? keyword : "王总"
+                root.currentCategory = "search"
                 root.openPage("search")
             }
-            onSettingsRequested: root.openPage("settings")
         }
 
         RowLayout {
@@ -104,7 +131,14 @@ ApplicationWindow {
                 Layout.preferredWidth: 220
                 Layout.fillHeight: true
                 currentPage: root.currentPage
+                activeCategory: root.currentCategory
+
+                onCategoryRequested: function(categoryKey) {
+                    root.openCategory(categoryKey)
+                }
+
                 onPageRequested: function(pageName) {
+                    root.currentCategory = pageName
                     root.openPage(pageName)
                 }
             }
@@ -115,36 +149,17 @@ ApplicationWindow {
                 Layout.fillHeight: true
 
                 sourceComponent: {
-                    if (root.currentPage === "create") {
-                        return createPage
-                    }
-                    if (root.currentPage === "edit") {
-                        return editPage
-                    }
-                    if (root.currentPage === "delete") {
-                        return deletePage
-                    }
-                    if (root.currentPage === "search") {
-                        return searchPage
-                    }
-                    if (root.currentPage === "assistantIdle") {
-                        return assistantIdlePage
-                    }
-                    if (root.currentPage === "assistantCreate") {
-                        return assistantCreatePage
-                    }
-                    if (root.currentPage === "assistantSearch") {
-                        return assistantSearchPage
-                    }
-                    if (root.currentPage === "assistantUpdate") {
-                        return assistantUpdatePage
-                    }
-                    if (root.currentPage === "assistantDelete") {
-                        return assistantDeletePage
-                    }
-                    if (root.currentPage === "settings") {
-                        return settingsPage
-                    }
+                    if (root.currentPage === "create") return createPage
+                    if (root.currentPage === "edit") return editPage
+                    if (root.currentPage === "deleteConfirm") return deleteConfirmPage
+                    if (root.currentPage === "deletedList") return deletedListPage
+                    if (root.currentPage === "search") return searchPage
+                    if (root.currentPage === "assistantIdle") return assistantIdlePage
+                    if (root.currentPage === "assistantCreate") return assistantCreatePage
+                    if (root.currentPage === "assistantSearch") return assistantSearchPage
+                    if (root.currentPage === "assistantUpdate") return assistantUpdatePage
+                    if (root.currentPage === "assistantDelete") return assistantDeletePage
+                    if (root.currentPage === "settings") return settingsPage
                     return homePage
                 }
             }
@@ -153,22 +168,31 @@ ApplicationWindow {
 
     Component {
         id: homePage
+
         HomePage {
             notesModel: notesModel
             selectedIndex: root.selectedIndex
+            activeCategory: root.currentCategory
             onNoteSelected: function(index) {
                 root.selectNote(index)
             }
             onCreateRequested: root.openPage("create")
             onEditRequested: root.openPage("edit")
-            onDeleteRequested: root.openPage("delete")
-            onSearchRequested: root.openPage("search")
-            onAssistantRequested: root.openPage("assistantIdle")
+            onDeleteRequested: root.openPage("deleteConfirm")
+            onSearchRequested: {
+                root.currentCategory = "search"
+                root.openPage("search")
+            }
+            onAssistantRequested: {
+                root.currentCategory = "assistantIdle"
+                root.openPage("assistantIdle")
+            }
         }
     }
 
     Component {
         id: createPage
+
         CreateNotePage {
             onBackRequested: root.openPage("home")
             onSaved: root.openPage("home")
@@ -177,6 +201,7 @@ ApplicationWindow {
 
     Component {
         id: editPage
+
         EditNotePage {
             noteTitle: notesModel.get(root.selectedIndex).title
             noteContent: notesModel.get(root.selectedIndex).content
@@ -187,31 +212,52 @@ ApplicationWindow {
     }
 
     Component {
-        id: deletePage
+        id: deleteConfirmPage
+
         DeleteConfirmPage {
             noteTitle: notesModel.get(root.selectedIndex).title
             onBackRequested: root.openPage("home")
-            onDeleted: root.openPage("home")
+            onDeleted: root.openPage("deletedList")
+        }
+    }
+
+    Component {
+        id: deletedListPage
+
+        DeletedNotesPage {
+            deletedNotesModel: deletedNotesModel
+            onBackRequested: {
+                root.currentCategory = "all"
+                root.openPage("home")
+            }
         }
     }
 
     Component {
         id: searchPage
+
         SearchPage {
             keyword: root.searchKeyword
             notesModel: notesModel
             onNoteSelected: function(index) {
                 root.selectNote(index)
             }
-            onBackRequested: root.openPage("home")
-            onDeleteSelectedRequested: root.openPage("delete")
+            onBackRequested: {
+                root.currentCategory = "all"
+                root.openPage("home")
+            }
+            onDeleteSelectedRequested: root.openPage("deleteConfirm")
         }
     }
 
     Component {
         id: assistantIdlePage
+
         AssistantIdlePage {
-            onBackRequested: root.openPage("home")
+            onBackRequested: {
+                root.currentCategory = "all"
+                root.openPage("home")
+            }
             onDemoCreateRequested: root.openPage("assistantCreate")
             onDemoSearchRequested: root.openPage("assistantSearch")
             onDemoUpdateRequested: root.openPage("assistantUpdate")
@@ -221,36 +267,32 @@ ApplicationWindow {
 
     Component {
         id: assistantCreatePage
-        AssistantCreatePage {
-            onBackRequested: root.openPage("assistantIdle")
-        }
+        AssistantCreatePage { onBackRequested: root.openPage("assistantIdle") }
     }
 
     Component {
         id: assistantSearchPage
-        AssistantSearchPage {
-            onBackRequested: root.openPage("assistantIdle")
-        }
+        AssistantSearchPage { onBackRequested: root.openPage("assistantIdle") }
     }
 
     Component {
         id: assistantUpdatePage
-        AssistantUpdatePage {
-            onBackRequested: root.openPage("assistantIdle")
-        }
+        AssistantUpdatePage { onBackRequested: root.openPage("assistantIdle") }
     }
 
     Component {
         id: assistantDeletePage
-        AssistantDeletePage {
-            onBackRequested: root.openPage("assistantIdle")
-        }
+        AssistantDeletePage { onBackRequested: root.openPage("assistantIdle") }
     }
 
     Component {
         id: settingsPage
+
         SettingsPage {
-            onBackRequested: root.openPage("home")
+            onBackRequested: {
+                root.currentCategory = "all"
+                root.openPage("home")
+            }
         }
     }
 }

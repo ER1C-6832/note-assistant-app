@@ -1,5 +1,4 @@
 import QtQuick
-import QtQuick.Controls
 import QtQuick.Layouts
 
 Rectangle {
@@ -7,10 +6,12 @@ Rectangle {
 
     signal clicked()
 
-    width: 138
-    height: 48
-    radius: 24
+    width: 142
+    height: 50
+    radius: 25
     color: "#FFFFFF"
+    border.color: "#E5E7EB"
+    border.width: 1
 
     RowLayout {
         anchors.centerIn: parent
@@ -25,14 +26,17 @@ Rectangle {
 
         Text {
             text: "语音助手"
-            color: "#1A1A1A"
+            color: "#111827"
             font.pixelSize: 14
             font.bold: true
         }
     }
 
     MouseArea {
+        id: mouse
         anchors.fill: parent
+        hoverEnabled: true
+        cursorShape: Qt.PointingHandCursor
         onClicked: root.clicked()
     }
 }

@@ -1,5 +1,4 @@
 import QtQuick
-import QtQuick.Controls
 import QtQuick.Layouts
 
 Rectangle {
@@ -8,6 +7,7 @@ Rectangle {
     property string text: "已连接"
     property color dotColor: "#16A34A"
     property color bgColor: "#EAF0FF"
+    property color textColor: "#374151"
 
     color: bgColor
     radius: 999
@@ -28,7 +28,7 @@ Rectangle {
 
         Text {
             text: root.text
-            color: "#1A1A1A"
+            color: root.textColor
             font.pixelSize: 12
         }
     }

@@ -1,5 +1,4 @@
 import QtQuick
-import QtQuick.Controls
 import QtQuick.Layouts
 
 import "../components"
@@ -9,6 +8,7 @@ Item {
 
     property var notesModel
     property int selectedIndex: 0
+    property string activeCategory: "all"
 
     signal noteSelected(int index)
     signal createRequested()
@@ -26,9 +26,12 @@ Item {
             Layout.fillHeight: true
             notesModel: root.notesModel
             selectedIndex: root.selectedIndex
+            activeCategory: root.activeCategory
             onNoteSelected: function(index) {
                 root.noteSelected(index)
             }
+            onCreateRequested: root.createRequested()
+            onSearchRequested: root.searchRequested()
         }
 
         Item {

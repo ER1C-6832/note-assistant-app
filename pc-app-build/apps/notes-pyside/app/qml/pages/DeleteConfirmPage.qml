@@ -1,6 +1,7 @@
 import QtQuick
-import QtQuick.Controls
 import QtQuick.Layouts
+
+import "../components"
 
 Item {
     id: root
@@ -13,16 +14,16 @@ Item {
     Rectangle {
         anchors.fill: parent
         color: "#FFFFFF"
-        radius: 18
+        radius: 20
 
         Rectangle {
             width: 520
             height: 300
             anchors.centerIn: parent
             color: "#FFFFFF"
-            radius: 22
-            border.color: "#FEE2E2"
-            border.width: 2
+            radius: 24
+            border.color: "#FECACA"
+            border.width: 1
 
             ColumnLayout {
                 anchors.fill: parent
@@ -32,7 +33,7 @@ Item {
                 Text {
                     Layout.fillWidth: true
                     text: "确认删除这条便签吗？"
-                    color: "#1A1A1A"
+                    color: "#111827"
                     font.pixelSize: 24
                     font.bold: true
                     horizontalAlignment: Text.AlignHCenter
@@ -55,13 +56,15 @@ Item {
                     Layout.alignment: Qt.AlignHCenter
                     spacing: 14
 
-                    Button {
+                    AppButton {
                         text: "取消"
+                        variant: "secondary"
                         onClicked: root.backRequested()
                     }
 
-                    Button {
+                    AppButton {
                         text: "确认删除"
+                        variant: "danger"
                         onClicked: root.deleted()
                     }
                 }

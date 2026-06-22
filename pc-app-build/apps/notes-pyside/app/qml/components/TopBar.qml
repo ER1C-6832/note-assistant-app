@@ -1,32 +1,29 @@
 import QtQuick
-import QtQuick.Controls
 import QtQuick.Layouts
 
 Rectangle {
     id: root
 
-    signal newRequested()
     signal searchRequested(string keyword)
-    signal settingsRequested()
 
     color: "#FFFFFF"
-    radius: 18
+    radius: 20
     height: 76
 
     RowLayout {
         anchors.fill: parent
         anchors.leftMargin: 20
         anchors.rightMargin: 20
-        spacing: 16
+        spacing: 18
 
         RowLayout {
-            Layout.preferredWidth: 260
+            Layout.preferredWidth: 282
             spacing: 12
 
             Rectangle {
-                width: 34
-                height: 34
-                radius: 17
+                width: 36
+                height: 36
+                radius: 18
                 color: "#4F7CFF"
 
                 Rectangle {
@@ -43,61 +40,24 @@ Rectangle {
 
                 Text {
                     text: "小智便签"
-                    color: "#1A1A1A"
+                    color: "#111827"
                     font.pixelSize: 18
                     font.bold: true
                 }
 
                 Text {
                     text: "便签 App 与语音助手"
-                    color: "#4B5563"
+                    color: "#6B7280"
                     font.pixelSize: 12
                 }
             }
         }
 
-        Rectangle {
-            Layout.preferredWidth: 520
-            height: 44
-            color: "#F7F8FA"
-            radius: 14
-
-            RowLayout {
-                anchors.fill: parent
-                anchors.leftMargin: 14
-                anchors.rightMargin: 8
-                spacing: 10
-
-                Rectangle {
-                    width: 18
-                    height: 18
-                    radius: 9
-                    border.color: "#9CA3AF"
-                    border.width: 1
-                    color: "transparent"
-                }
-
-                TextField {
-                    id: searchField
-                    Layout.fillWidth: true
-                    placeholderText: "搜索标题、正文、标签……"
-                    text: ""
-                    background: null
-                    font.pixelSize: 13
-                    color: "#1A1A1A"
-                    onAccepted: root.searchRequested(searchField.text)
-                }
-
-                Button {
-                    text: "搜索"
-                    onClicked: root.searchRequested(searchField.text)
-                }
+        SearchBox {
+            Layout.preferredWidth: 560
+            onSearchRequested: function(keyword) {
+                root.searchRequested(keyword)
             }
-        }
-
-        Button {
-            text: "+ 新建便签"
-            onClicked: root.newRequested()
         }
 
         Item {
@@ -106,17 +66,16 @@ Rectangle {
 
         StatusBadge {
             text: "Notes API 已连接"
+            dotColor: "#16A34A"
+            bgColor: "#ECFDF3"
+            textColor: "#166534"
         }
 
         StatusBadge {
-            text: "语音助手待接入"
+            text: "Sidecar 待接入"
             dotColor: "#F59E0B"
             bgColor: "#FFF7ED"
-        }
-
-        Button {
-            text: "设置"
-            onClicked: root.settingsRequested()
+            textColor: "#92400E"
         }
     }
 }
