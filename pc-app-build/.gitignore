@@ -1,33 +1,58 @@
 # Python
 __pycache__/
 *.py[cod]
-*.egg-info/
+*.pyo
+*.pyd
+.Python
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Virtual environments
+venv/
+.venv/
+env/
+ENV/
+
+# Local env
+.env
+.env.local
+.env.*.local
+
+# Runtime data
+runtime/
+cache/
+logs/
+*.log
+
+# Notes API local database
+services/notes-api/data/
+*.db
+*.db-shm
+*.db-wal
+
+# External upstream runtimes / repos
+py-xiaozhi/
+py-xiaozhi-tao/
+third_party/py-xiaozhi/
+external/py-xiaozhi/
+
+# Large local model/runtime files
+models/
+*.gguf
+*.onnx
+*.pt
+*.pth
+*.bin
+*.safetensors
+
+# Build output
 dist/
 build/
-*.egg
-.venv/
-venv/
+*.spec
 
-# Environment
-.env
-
-# IDE
-.vscode/
-.idea/
-*.swp
-*.swo
-
-# OS
+# OS/editor
 .DS_Store
 Thumbs.db
-
-# Database (SQLite)
-*.db
-*.db-journal
-*.db-wal
-*.db-shm
-
-# Packaging
-*.spec
-*.exe
-*.msi
+.vscode/
+.idea/

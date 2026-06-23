@@ -1,96 +1,35 @@
 # Notes API
 
-RESTful note management service built with FastAPI + SQLite.
+The Notes API is the only backend entry point for notes data.
 
-This service is the single source of truth for all note data. Both the PySide6
-desktop app and the voice assistant tool layer operate through this API.
-
-## Current Phase
-
-Phase 2 implements:
-
-- SQLite initialization
-- `notes` table ORM model
-- CRUD endpoints
-- Soft delete
-- LIKE-based fuzzy search across title, content, and tags
-- Demo data seeding script
-
-## Endpoints
-
-| Method | Path | Description |
-|---|---|---|
-| POST | `/api/notes` | Create a note |
-| GET | `/api/notes` | List notes |
-| GET | `/api/notes/{id}` | Get a note by ID |
-| PATCH | `/api/notes/{id}` | Update a note |
-| DELETE | `/api/notes/{id}` | Soft-delete a note |
-| GET | `/api/notes/search?q=王总&limit=10` | Fuzzy search across notes |
-| GET | `/api/health` | Health check |
-
-## Quick Start
-
-From the repository root:
+## Start
 
 ```bat
-cd pc-app-build\services\notes-api
-python -m uvicorn app.main:app --host 127.0.0.1 --port 18080 --reload
-```
-
-Or from `pc-app-build`:
-
-```bat
+cd /d C:\yuyinzhushou\note-assistant-app\pc-app-build
+venv\Scripts\activate
 scripts\start_notes_api.bat
 ```
 
-Then open:
+## Health
 
 ```text
-http://127.0.0.1:18080/api/health
+GET /api/health
 ```
 
-## Data
-
-SQLite database is stored at:
+## Main endpoints
 
 ```text
-services/notes-api/data/notes.db
+POST   /api/notes
+GET    /api/notes
+GET    /api/notes/search?q=关键词
+GET    /api/notes/{id}
+PATCH  /api/notes/{id}
+DELETE /api/notes/{id}
+POST   /api/notes/{id}/restore
+DELETE /api/notes/{id}/hard
 ```
 
-The path is configurable via the `NOTES_DB_PATH` environment variable.
+## py-xiaozhi integration rule
 
-## Example Requests
-
-Create a note:
-
-```bat
-curl -X POST http://127.0.0.1:18080/api/notes ^
-  -H "Content-Type: application/json" ^
-  -d "{\"title\":\"联系王总\",\"content\":\"明天上午十点联系王总，确认项目报价。\",\"tags\":[\"客户\",\"跟进\"],\"source\":\"manual\"}"
-```
-
-List notes:
-
-```bat
-curl http://127.0.0.1:18080/api/notes
-```
-
-Search notes:
-
-```bat
-curl "http://127.0.0.1:18080/api/notes/search?q=王总&limit=10"
-```
-
-Update a note:
-
-```bat
-curl -X PATCH http://127.0.0.1:18080/api/notes/1 ^
-  -H "Content-Type: application/json" ^
-  -d "{\"content\":\"明天下午三点联系王总，确认项目报价。\"}"
-```
-
-Soft-delete a note:
-
-```bat
-curl -X DELETE http://127.0.0.1:18080/api/notes/1
-```
+py-xiaozhi tools must call this API. They must not read or write the SQLite
+database directly.
