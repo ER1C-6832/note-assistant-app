@@ -1,23 +1,51 @@
 # PC Assistant Sidecar
 
-The Sidecar is reserved for Phase 5.1+.
+A lightweight local bridge between the Note Assistant PC App and the external
+py-xiaozhi runtime.
 
-## Phase 5.0 status
+## Phase 5.1 scope
 
-Phase 5.0 does not start the Sidecar yet. It only validates:
+Phase 5.1 does not embed py-xiaozhi and does not control its GUI.
+
+It provides:
 
 ```text
-py-xiaozhi CLI
-  -> local MCP notes tool
-  -> Notes API
+1. WebSocket endpoint: ws://127.0.0.1:17890/assistant
+2. HTTP health endpoint: http://127.0.0.1:17891/api/health
+3. Notes API status check
+4. py-xiaozhi root / notes MCP tool status check
+5. notes_changed events by polling Notes API snapshots
 ```
 
-## Future responsibilities
+## Start
+
+From `pc-app-build`:
+
+```bat
+scripts\start_sidecar.bat
+```
+
+## WebSocket messages
+
+Client to sidecar:
+
+```json
+{"type": "ping"}
+{"type": "refresh_status"}
+{"type": "refresh_notes"}
+```
+
+Sidecar to client:
+
+```json
+{"type": "sidecar_connected"}
+{"type": "sidecar_status"}
+{"type": "notes_changed"}
+{"type": "error"}
+```
+
+## Health
 
 ```text
-1. Start or detect the py-xiaozhi process
-2. Expose ws://127.0.0.1:17890/assistant
-3. Push assistant status to the PC App
-4. Push notes_changed events
-5. Later, bridge transcript / assistant_reply / tool_result
+GET http://127.0.0.1:17891/api/health
 ```
