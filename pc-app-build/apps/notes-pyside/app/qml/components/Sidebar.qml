@@ -110,15 +110,15 @@ Rectangle {
                 spacing: 6
 
                 Repeater {
-                    model: notesController.tagNames
+                    model: notesController.tagItems
 
                     SidebarTagItem {
                         Layout.fillWidth: true
-                        text: modelData
-                        active: root.activeCategory === "tag:" + modelData
-                        deletable: notesController.tagCanDelete(modelData)
-                        onClicked: root.tagRequested(modelData)
-                        onDeleteRequested: notesController.deleteTag(modelData)
+                        text: modelData.name
+                        active: root.activeCategory === "tag:" + modelData.name
+                        deletable: modelData.deletable
+                        onClicked: root.tagRequested(modelData.name)
+                        onDeleteRequested: notesController.deleteTag(modelData.name)
                     }
                 }
             }

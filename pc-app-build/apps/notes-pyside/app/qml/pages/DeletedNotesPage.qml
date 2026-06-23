@@ -33,6 +33,18 @@ Item {
         selectedIds = arr
     }
 
+    function allVisibleSelected() {
+        return notesController.deletedResultCount > 0 && selectedIds.length === notesController.deletedResultCount
+    }
+
+    function toggleSelectAll() {
+        if (allVisibleSelected()) {
+            selectedIds = []
+        } else {
+            selectedIds = notesController.currentDeletedNoteIds()
+        }
+    }
+
     function exitMultiSelect() {
         multiSelectMode = false
         selectedIds = []
@@ -61,7 +73,7 @@ Item {
 
                 RowLayout {
                     Layout.fillWidth: true
-                    spacing: 12
+                    spacing: 8
 
                     ColumnLayout {
                         Layout.fillWidth: true
@@ -102,7 +114,16 @@ Item {
 
                     AppButton {
                         visible: root.multiSelectMode
-                        text: "还原所选"
+                        text: root.allVisibleSelected() ? "全不选" : "全选"
+                        variant: "secondary"
+                        compact: true
+                        enabled: notesController.deletedResultCount > 0
+                        onClicked: root.toggleSelectAll()
+                    }
+
+                    AppButton {
+                        visible: root.multiSelectMode
+                        text: "还原"
                         variant: "secondary"
                         compact: true
                         enabled: root.selectedIds.length > 0

@@ -17,6 +17,7 @@ Item {
     signal pinRequested()
     signal bulkDeleteRequested(var noteIds)
     signal bulkPinRequested(var noteIds)
+    signal bulkUnpinRequested(var noteIds)
 
     RowLayout {
         anchors.fill: parent
@@ -40,6 +41,10 @@ Item {
 
             onBulkPinRequested: function(noteIds) {
                 root.bulkPinRequested(noteIds)
+            }
+
+            onBulkUnpinRequested: function(noteIds) {
+                root.bulkUnpinRequested(noteIds)
             }
         }
 

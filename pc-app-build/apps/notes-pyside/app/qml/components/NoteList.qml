@@ -16,6 +16,7 @@ Rectangle {
     signal createRequested()
     signal bulkDeleteRequested(var noteIds)
     signal bulkPinRequested(var noteIds)
+    signal bulkUnpinRequested(var noteIds)
 
     function categoryTitle() {
         if (activeCategory === "pinned") {
@@ -50,6 +51,18 @@ Rectangle {
         selectedIds = arr
     }
 
+    function allVisibleSelected() {
+        return notesController.resultCount > 0 && selectedIds.length === notesController.resultCount
+    }
+
+    function toggleSelectAll() {
+        if (allVisibleSelected()) {
+            selectedIds = []
+        } else {
+            selectedIds = notesController.currentNoteIds()
+        }
+    }
+
     function exitMultiSelect() {
         multiSelectMode = false
         selectedIds = []
@@ -65,7 +78,7 @@ Rectangle {
 
         RowLayout {
             Layout.fillWidth: true
-            spacing: 12
+            spacing: 8
 
             ColumnLayout {
                 Layout.fillWidth: true
@@ -106,7 +119,16 @@ Rectangle {
 
             AppButton {
                 visible: root.multiSelectMode
-                text: "置顶所选"
+                text: root.allVisibleSelected() ? "全不选" : "全选"
+                variant: "secondary"
+                compact: true
+                enabled: notesController.resultCount > 0
+                onClicked: root.toggleSelectAll()
+            }
+
+            AppButton {
+                visible: root.multiSelectMode
+                text: "置顶"
                 variant: "secondary"
                 compact: true
                 enabled: root.selectedIds.length > 0
@@ -118,7 +140,19 @@ Rectangle {
 
             AppButton {
                 visible: root.multiSelectMode
-                text: "删除所选"
+                text: "取消置顶"
+                variant: "secondary"
+                compact: true
+                enabled: root.selectedIds.length > 0
+                onClicked: {
+                    root.bulkUnpinRequested(root.selectedIds)
+                    root.exitMultiSelect()
+                }
+            }
+
+            AppButton {
+                visible: root.multiSelectMode
+                text: "删除"
                 variant: "softDanger"
                 compact: true
                 enabled: root.selectedIds.length > 0

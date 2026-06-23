@@ -43,13 +43,16 @@ Rectangle {
                         Layout.fillWidth: true
                         spacing: 8
 
-                        Text {
+                        TextEdit {
                             Layout.fillWidth: true
                             text: root.title
+                            readOnly: true
+                            selectByMouse: true
                             color: "#111827"
                             font.pixelSize: 26
                             font.bold: true
-                            wrapMode: Text.WordWrap
+                            wrapMode: TextEdit.Wrap
+                            activeFocusOnPress: true
                         }
 
                         Rectangle {
@@ -108,7 +111,7 @@ Rectangle {
                     anchors.fill: parent
                     anchors.margins: 18
                     contentWidth: width
-                    contentHeight: detailText.implicitHeight
+                    contentHeight: detailText.contentHeight
                     clip: true
                     boundsBehavior: Flickable.DragOverBounds
 
@@ -116,13 +119,16 @@ Rectangle {
                         policy: ScrollBar.AsNeeded
                     }
 
-                    Text {
+                    TextEdit {
                         id: detailText
                         width: parent.width
                         text: root.content
+                        readOnly: true
+                        selectByMouse: true
                         color: "#374151"
                         font.pixelSize: 16
-                        wrapMode: Text.WordWrap
+                        wrapMode: TextEdit.Wrap
+                        activeFocusOnPress: true
                     }
                 }
             }
@@ -137,11 +143,15 @@ Rectangle {
                     font.pixelSize: 13
                 }
 
-                Text {
+                TextEdit {
                     Layout.fillWidth: true
                     text: root.tags
+                    readOnly: true
+                    selectByMouse: true
                     color: "#4B5563"
                     font.pixelSize: 13
+                    wrapMode: TextEdit.Wrap
+                    activeFocusOnPress: true
                 }
             }
         }

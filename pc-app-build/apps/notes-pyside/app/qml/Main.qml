@@ -224,6 +224,10 @@ ApplicationWindow {
                 notesController.bulkPinNotesByIds(noteIds)
             }
 
+            onBulkUnpinRequested: function(noteIds) {
+                notesController.bulkUnpinNotesByIds(noteIds)
+            }
+
             onAssistantRequested: {
                 root.currentCategory = "assistantIdle"
                 root.openPage("assistantIdle")
@@ -338,6 +342,10 @@ ApplicationWindow {
 
             onBulkPinRequested: function(noteIds) {
                 notesController.bulkPinNotesByIds(noteIds)
+            }
+
+            onBulkUnpinRequested: function(noteIds) {
+                notesController.bulkUnpinNotesByIds(noteIds)
             }
         }
     }
