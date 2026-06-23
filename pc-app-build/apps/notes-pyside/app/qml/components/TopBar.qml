@@ -4,6 +4,12 @@ import QtQuick.Layouts
 Rectangle {
     id: root
 
+    property var notesControllerRef: null
+    property var sidecarClientRef: null
+    readonly property bool apiBusy: notesControllerRef !== null && notesControllerRef.isBusy
+    readonly property bool apiConnected: notesControllerRef !== null && notesControllerRef.apiConnected
+    readonly property bool sidecarConnected: sidecarClientRef !== null && sidecarClientRef.connected
+
     signal searchRequested(string keyword)
     signal searchTextChanged(string keyword)
 
@@ -71,17 +77,17 @@ Rectangle {
         }
 
         StatusBadge {
-            text: notesController.isBusy ? "正在同步" : notesController.apiConnected ? "Notes API 已连接" : "Notes API 未连接"
-            dotColor: notesController.isBusy ? "#4F7CFF" : notesController.apiConnected ? "#16A34A" : "#EF4444"
-            bgColor: notesController.isBusy ? "#EAF0FF" : notesController.apiConnected ? "#ECFDF3" : "#FEF2F2"
-            textColor: notesController.isBusy ? "#1E3A8A" : notesController.apiConnected ? "#166534" : "#991B1B"
+            text: root.apiBusy ? "正在同步" : root.apiConnected ? "Notes API 已连接" : "Notes API 未连接"
+            dotColor: root.apiBusy ? "#4F7CFF" : root.apiConnected ? "#16A34A" : "#EF4444"
+            bgColor: root.apiBusy ? "#EAF0FF" : root.apiConnected ? "#ECFDF3" : "#FEF2F2"
+            textColor: root.apiBusy ? "#1E3A8A" : root.apiConnected ? "#166534" : "#991B1B"
         }
 
         StatusBadge {
-            text: sidecarClient.assistantStatusText
-            dotColor: sidecarClient.connected ? "#16A34A" : "#F59E0B"
-            bgColor: sidecarClient.connected ? "#ECFDF3" : "#FFF7ED"
-            textColor: sidecarClient.connected ? "#166534" : "#92400E"
+            text: sidecarClientRef !== null ? sidecarClientRef.assistantStatusText : "语音助手未连接"
+            dotColor: root.sidecarConnected ? "#16A34A" : "#F59E0B"
+            bgColor: root.sidecarConnected ? "#ECFDF3" : "#FFF7ED"
+            textColor: root.sidecarConnected ? "#166534" : "#92400E"
         }
     }
 }

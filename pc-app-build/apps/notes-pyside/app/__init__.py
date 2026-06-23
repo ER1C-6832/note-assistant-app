@@ -35,6 +35,12 @@ def _load_env_file(path: Path) -> None:
 def run_app() -> int:
     """Launch the PySide6 desktop application."""
 
+    # Must be set before QGuiApplication is created. Without this, the Windows
+    # native Qt Quick Controls style rejects custom background/contentItem
+    # delegates used by TextField and ScrollBar.
+    os.environ.setdefault("QT_QUICK_CONTROLS_STYLE", "Basic")
+    os.environ.setdefault("QT_API", "pyside6")
+
     from PySide6.QtGui import QGuiApplication
     from PySide6.QtQml import QQmlApplicationEngine
 
@@ -45,6 +51,7 @@ def run_app() -> int:
     _load_env_file(pc_build_root / ".env")
 
     app = QGuiApplication(sys.argv)
+    app.setApplicationDisplayName("小智便签")
     app.setApplicationName("Note Assistant")
     app.setOrganizationName("NoteAssistant")
 
@@ -57,15 +64,25 @@ def run_app() -> int:
 
     engine = QQmlApplicationEngine()
     context = engine.rootContext()
+
+    # Old QML pages use notesModel/deletedNotesModel. Some earlier bootstrap
+    # versions exposed notesListModel/deletedNotesListModel. Keep both names.
     context.setContextProperty("notesController", notes_controller)
+    context.setContextProperty("notesModel", notes_controller.notes_model)
+    context.setContextProperty("deletedNotesModel", notes_controller.deleted_notes_model)
     context.setContextProperty("notesListModel", notes_controller.notes_model)
     context.setContextProperty("deletedNotesListModel", notes_controller.deleted_notes_model)
     context.setContextProperty("sidecarClient", sidecar_client)
 
-    qml_path = os.path.join(os.path.dirname(__file__), "qml", "Main.qml")
-    engine.load(qml_path)
+    # Keep Python-side QObjects alive for the lifetime of the QML engine.
+    engine.notes_controller = notes_controller  # type: ignore[attr-defined]
+    engine.sidecar_client = sidecar_client  # type: ignore[attr-defined]
+
+    qml_path = Path(__file__).resolve().parent / "qml" / "Main.qml"
+    engine.load(qml_path.as_uri())
 
     if not engine.rootObjects():
-        return -1
+        sidecar_client.stop()
+        return 1
 
     return app.exec()

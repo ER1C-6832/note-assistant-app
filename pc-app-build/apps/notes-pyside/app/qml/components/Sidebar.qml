@@ -7,6 +7,12 @@ Rectangle {
 
     property string currentPage: "home"
     property string activeCategory: "all"
+    property var notesControllerRef: null
+    property var sidecarClientRef: null
+
+    readonly property bool apiBusy: notesControllerRef !== null && notesControllerRef.isBusy
+    readonly property bool apiConnected: notesControllerRef !== null && notesControllerRef.apiConnected
+    readonly property bool sidecarConnected: sidecarClientRef !== null && sidecarClientRef.connected
 
     signal categoryRequested(string categoryKey)
     signal tagRequested(string tagName)
@@ -84,7 +90,7 @@ Rectangle {
                 }
 
                 onAccepted: {
-                    if (notesController.addCustomTag(tagInput.text)) {
+                    if (root.notesControllerRef !== null && root.notesControllerRef.addCustomTag(tagInput.text)) {
                         tagInput.text = ""
                     }
                 }
@@ -96,7 +102,7 @@ Rectangle {
                 variant: "secondary"
 
                 onClicked: {
-                    if (notesController.addCustomTag(tagInput.text)) {
+                    if (root.notesControllerRef !== null && root.notesControllerRef.addCustomTag(tagInput.text)) {
                         tagInput.text = ""
                     }
                 }
@@ -113,7 +119,7 @@ Rectangle {
                 spacing: 6
 
                 Repeater {
-                    model: notesController.tagItems
+                    model: root.notesControllerRef !== null ? root.notesControllerRef.tagItems : []
 
                     SidebarTagItem {
                         Layout.fillWidth: true
@@ -121,7 +127,11 @@ Rectangle {
                         active: root.activeCategory === "tag:" + modelData.name
                         deletable: modelData.deletable
                         onClicked: root.tagRequested(modelData.name)
-                        onDeleteRequested: notesController.deleteTag(modelData.name)
+                        onDeleteRequested: {
+                            if (root.notesControllerRef !== null) {
+                                root.notesControllerRef.deleteTag(modelData.name)
+                            }
+                        }
                     }
                 }
             }
@@ -173,11 +183,11 @@ Rectangle {
                         width: 8
                         height: 8
                         radius: 4
-                        color: notesController.isBusy ? "#4F7CFF" : notesController.apiConnected ? "#16A34A" : "#EF4444"
+                        color: root.apiBusy ? "#4F7CFF" : root.apiConnected ? "#16A34A" : "#EF4444"
                     }
 
                     Text {
-                        text: notesController.isBusy ? "正在同步" : notesController.apiConnected ? "Notes API 已连接" : "Notes API 未连接"
+                        text: root.apiBusy ? "正在同步" : root.apiConnected ? "Notes API 已连接" : "Notes API 未连接"
                         color: "#4B5563"
                         font.pixelSize: 12
                     }
@@ -190,11 +200,11 @@ Rectangle {
                         width: 8
                         height: 8
                         radius: 4
-                        color: sidecarClient.connected ? "#16A34A" : "#F59E0B"
+                        color: root.sidecarConnected ? "#16A34A" : "#F59E0B"
                     }
 
                     Text {
-                        text: sidecarClient.assistantStatusText
+                        text: root.sidecarClientRef !== null ? root.sidecarClientRef.assistantStatusText : "语音助手未连接"
                         color: "#4B5563"
                         font.pixelSize: 12
                         elide: Text.ElideRight
@@ -203,7 +213,9 @@ Rectangle {
 
                 Text {
                     Layout.fillWidth: true
-                    text: sidecarClient.lastEventText.length > 0 ? sidecarClient.lastEventText : notesController.statusMessage
+                    text: root.sidecarClientRef !== null && root.sidecarClientRef.lastEventText.length > 0
+                          ? root.sidecarClientRef.lastEventText
+                          : root.notesControllerRef !== null ? root.notesControllerRef.statusMessage : "准备就绪"
                     color: "#9CA3AF"
                     font.pixelSize: 11
                     elide: Text.ElideRight

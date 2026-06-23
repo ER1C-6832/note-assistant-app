@@ -1,9 +1,5 @@
 """
 WebSocket client for the PC Assistant Sidecar.
-
-This client runs in a background Python thread and exposes simple Qt properties
-for QML. It listens for notes_changed and lets the app refresh notes
-automatically when py-xiaozhi updates Notes API through MCP tools.
 """
 
 from __future__ import annotations
@@ -96,8 +92,6 @@ class SidecarClient(QObject):
 
     @Slot()
     def refreshStatus(self) -> None:
-        # The background loop sends refresh_status right after connect.
-        # This slot remains for QML buttons; reconnecting is enough in 5.1.1.
         if not self._connected:
             self.start()
 

@@ -7,6 +7,7 @@ Item {
     id: root
 
     property var notesModel
+    property var notesControllerRef: null
     property int selectedIndex: -1
     property string activeCategory: "all"
 
@@ -56,13 +57,13 @@ Item {
 
             DetailPanel {
                 anchors.fill: parent
-                hasSelection: notesController.hasSelection
-                isPinned: notesController.selectedIsPinned
-                title: notesController.selectedTitle
-                content: notesController.selectedContent
-                tags: notesController.selectedTagsText
-                updated: notesController.selectedUpdatedText
-                source: notesController.selectedSourceText
+                hasSelection: root.notesControllerRef !== null && root.notesControllerRef.hasSelection
+                isPinned: root.notesControllerRef !== null && root.notesControllerRef.selectedIsPinned
+                title: root.notesControllerRef !== null ? root.notesControllerRef.selectedTitle : ""
+                content: root.notesControllerRef !== null ? root.notesControllerRef.selectedContent : ""
+                tags: root.notesControllerRef !== null ? root.notesControllerRef.selectedTagsText : ""
+                updated: root.notesControllerRef !== null ? root.notesControllerRef.selectedUpdatedText : ""
+                source: root.notesControllerRef !== null ? root.notesControllerRef.selectedSourceText : ""
 
                 onEditRequested: root.editRequested()
                 onDeleteRequested: root.deleteRequested()

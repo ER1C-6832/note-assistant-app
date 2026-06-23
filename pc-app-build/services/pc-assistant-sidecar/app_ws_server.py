@@ -44,14 +44,10 @@ class SidecarWebSocketServer:
                     task.cancel()
 
     async def _handle_client(self, websocket: WebSocketServerProtocol) -> None:
-        path = getattr(websocket, "path", "/assistant")
-
-        if path != "/assistant":
-            await websocket.close(code=1008, reason="Invalid path")
-            return
-
+        # websockets versions expose path differently. In 5.1.1 we accept the
+        # connection and rely on the fixed endpoint configured by the app.
         self.clients.add(websocket)
-        logger.info("Client connected: %s", websocket.remote_address)
+        logger.info("Client connected: %s", getattr(websocket, "remote_address", ""))
 
         await self._send(websocket, {
             "type": "sidecar_connected",
@@ -67,7 +63,7 @@ class SidecarWebSocketServer:
             pass
         finally:
             self.clients.discard(websocket)
-            logger.info("Client disconnected: %s", websocket.remote_address)
+            logger.info("Client disconnected: %s", getattr(websocket, "remote_address", ""))
 
     async def _handle_message(
         self,
@@ -116,6 +112,7 @@ class SidecarWebSocketServer:
                 changed = await self.watcher.check_changed()
 
                 if changed:
+                    logger.info("Broadcast notes_changed: %s", changed.get("reason"))
                     await self.broadcast(changed)
             except Exception as exc:
                 logger.debug("Notes watch failed: %s", exc)
