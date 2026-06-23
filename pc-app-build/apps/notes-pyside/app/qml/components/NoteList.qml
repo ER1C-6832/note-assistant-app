@@ -6,11 +6,16 @@ Rectangle {
     id: root
 
     property var notesModel
+    property var notesControllerRef: null
     property int selectedIndex: -1
     property string activeCategory: "all"
     property bool showCreateButton: true
     property bool multiSelectMode: false
     property var selectedIds: []
+
+    readonly property bool controllerReady: root.notesControllerRef !== null
+    readonly property int safeResultCount: root.controllerReady ? root.notesControllerRef.resultCount : 0
+    readonly property string safeErrorMessage: root.controllerReady ? root.notesControllerRef.errorMessage : ""
 
     signal noteSelected(int index)
     signal createRequested()
@@ -52,14 +57,16 @@ Rectangle {
     }
 
     function allVisibleSelected() {
-        return notesController.resultCount > 0 && selectedIds.length === notesController.resultCount
+        return root.safeResultCount > 0 && selectedIds.length === root.safeResultCount
     }
 
     function toggleSelectAll() {
         if (allVisibleSelected()) {
             selectedIds = []
+        } else if (root.controllerReady) {
+            selectedIds = root.notesControllerRef.currentNoteIds()
         } else {
-            selectedIds = notesController.currentNoteIds()
+            selectedIds = []
         }
     }
 
@@ -92,7 +99,7 @@ Rectangle {
                 }
 
                 Text {
-                    text: root.multiSelectMode ? "已选择 " + root.selectedIds.length + " 条便签" : notesController.resultCount + " 条便签"
+                    text: root.multiSelectMode ? "已选择 " + root.selectedIds.length + " 条便签" : root.safeResultCount + " 条便签"
                     color: "#9CA3AF"
                     font.pixelSize: 12
                 }
@@ -103,6 +110,7 @@ Rectangle {
                 text: "多选"
                 variant: "secondary"
                 compact: true
+                enabled: root.controllerReady
                 onClicked: {
                     root.multiSelectMode = true
                     root.selectedIds = []
@@ -122,7 +130,7 @@ Rectangle {
                 text: root.allVisibleSelected() ? "全不选" : "全选"
                 variant: "secondary"
                 compact: true
-                enabled: notesController.resultCount > 0
+                enabled: root.safeResultCount > 0
                 onClicked: root.toggleSelectAll()
             }
 
@@ -173,14 +181,14 @@ Rectangle {
 
         Rectangle {
             Layout.fillWidth: true
-            visible: notesController.errorMessage.length > 0
+            visible: root.safeErrorMessage.length > 0
             radius: 14
             color: "#FEF2F2"
             implicitHeight: 44
 
             Text {
                 anchors.centerIn: parent
-                text: notesController.errorMessage
+                text: root.safeErrorMessage
                 color: "#991B1B"
                 font.pixelSize: 12
                 elide: Text.ElideRight
@@ -228,7 +236,7 @@ Rectangle {
         Rectangle {
             Layout.fillWidth: true
             Layout.fillHeight: true
-            visible: notesController.resultCount === 0
+            visible: root.safeResultCount === 0
             radius: 18
             color: "#F7F8FA"
 

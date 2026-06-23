@@ -15,7 +15,6 @@ Item {
     signal createRequested()
     signal editRequested()
     signal deleteRequested()
-    signal searchRequested()
     signal pinRequested()
     signal bulkDeleteRequested(var noteIds)
     signal bulkPinRequested(var noteIds)
@@ -30,6 +29,7 @@ Item {
             Layout.preferredWidth: 500
             Layout.fillHeight: true
             notesModel: root.notesModel
+            notesControllerRef: root.notesControllerRef
             selectedIndex: root.selectedIndex
             activeCategory: root.activeCategory
 

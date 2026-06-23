@@ -199,7 +199,7 @@ ApplicationWindow {
         HomePage {
             notesModel: notesListModel
             notesControllerRef: notesController
-            selectedIndex: notesController.selectedIndex
+            selectedIndex: notesController !== null ? notesController.selectedIndex : -1
             activeCategory: root.currentCategory
 
             onNoteSelected: function(index) {
@@ -321,7 +321,7 @@ ApplicationWindow {
         SearchPage {
             keyword: notesController.searchKeyword
             notesModel: notesListModel
-            selectedIndex: notesController.selectedIndex
+            selectedIndex: notesController !== null ? notesController.selectedIndex : -1
 
             onNoteSelected: function(index) {
                 root.selectNote(index)
