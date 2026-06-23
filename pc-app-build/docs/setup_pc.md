@@ -1,49 +1,30 @@
 # PC Setup Guide
 
-## Start Notes API
+## Start services
 
 ```bat
 cd /d C:\yuyinzhushou\note-assistant-app\pc-app-build
 venv\Scripts\activate
 scripts\start_notes_api.bat
-```
-
-## Start Sidecar
-
-```bat
-cd /d C:\yuyinzhushou\note-assistant-app\pc-app-build
-venv\Scripts\activate
 scripts\start_sidecar.bat
-```
-
-Check:
-
-```bat
-scripts\check_sidecar.bat
-```
-
-## Start PC App
-
-```bat
-cd /d C:\yuyinzhushou\note-assistant-app\pc-app-build
-venv\Scripts\activate
 scripts\start_pc_app.bat
 ```
 
-## Install py-xiaozhi notes MCP tool
+Start py-xiaozhi GUI separately.
+
+## Phase 5.3 test
 
 ```bat
-integrations\py-xiaozhi\scripts\install_notes_tool.bat
+integrations\py-xiaozhi\scripts\test_assistant_runtime_event.bat
 ```
 
-Restart py-xiaozhi after installing the tool.
+The Voice Assistant panel should show transcript / reply / runtime state test
+events.
 
-## Phase 5.2 event bridge test
+## Optional log path override
 
-Start Notes API, Sidecar, and PC App, then run:
+Edit `.env`:
 
-```bat
-integrations\py-xiaozhi\scripts\test_sidecar_event.bat
+```text
+PY_XIAOZHI_LOG_PATH=C:\Users\111\AppData\Local\py-xiaozhi\py-xiaozhi\logs\app.log
 ```
-
-The PC App Voice Assistant panel should show the test tool result.

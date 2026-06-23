@@ -6,8 +6,8 @@ Rectangle {
 
     property string title: "小智语音助手"
     property string statusText: sidecarClient !== null ? sidecarClient.assistantStatusText : "待机中"
-    property string transcript: ""
-    property string reply: ""
+    property string transcript: sidecarClient !== null && sidecarClient.lastTranscriptText.length > 0 ? sidecarClient.lastTranscriptText : ""
+    property string reply: sidecarClient !== null && sidecarClient.lastAssistantReplyText.length > 0 ? sidecarClient.lastAssistantReplyText : ""
     property string resultTitle: ""
     property string resultText: ""
 
@@ -61,6 +61,24 @@ Rectangle {
             font.pixelSize: 14
             wrapMode: Text.WordWrap
             horizontalAlignment: Text.AlignHCenter
+        }
+
+        Rectangle {
+            Layout.fillWidth: true
+            visible: sidecarClient !== null && sidecarClient.lastRuntimeStateText.length > 0
+            radius: 16
+            color: "#F0F9FF"
+            implicitHeight: stateText.implicitHeight + 28
+
+            Text {
+                id: stateText
+                anchors.fill: parent
+                anchors.margins: 14
+                text: "运行状态：" + (sidecarClient !== null ? sidecarClient.lastRuntimeStateText : "")
+                color: "#075985"
+                font.pixelSize: 13
+                wrapMode: Text.WordWrap
+            }
         }
 
         Rectangle {

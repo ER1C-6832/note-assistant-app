@@ -6,7 +6,6 @@ from pathlib import Path
 
 
 def _pc_build_root() -> Path:
-    # services/pc-assistant-sidecar/config.py -> pc-app-build
     return Path(__file__).resolve().parents[2]
 
 
@@ -35,11 +34,13 @@ class SidecarConfig:
     py_xiaozhi_root: Path
     py_xiaozhi_python: str
     py_xiaozhi_protocol: str
+    py_xiaozhi_log_path: Path | None
     ws_host: str
     ws_port: int
     health_host: str
     health_port: int
     poll_interval_seconds: float
+    log_poll_interval_seconds: float
 
     @property
     def ws_url(self) -> str:
@@ -48,6 +49,27 @@ class SidecarConfig:
     @property
     def health_url(self) -> str:
         return f"http://{self.health_host}:{self.health_port}/api/health"
+
+
+def _default_py_xiaozhi_log_path() -> Path | None:
+    explicit = os.getenv("PY_XIAOZHI_LOG_PATH", "").strip()
+    if explicit:
+        return Path(explicit)
+
+    local_app_data = os.getenv("LOCALAPPDATA", "").strip()
+    candidates: list[Path] = []
+
+    if local_app_data:
+        candidates.extend([
+            Path(local_app_data) / "py-xiaozhi" / "py-xiaozhi" / "logs" / "app.log",
+            Path(local_app_data) / "py-xiaozhi" / "logs" / "app.log",
+        ])
+
+    for candidate in candidates:
+        if candidate.exists():
+            return candidate
+
+    return candidates[0] if candidates else None
 
 
 def load_config() -> SidecarConfig:
@@ -67,9 +89,11 @@ def load_config() -> SidecarConfig:
         py_xiaozhi_root=py_root,
         py_xiaozhi_python=os.getenv("PY_XIAOZHI_PYTHON", ""),
         py_xiaozhi_protocol=os.getenv("PY_XIAOZHI_PROTOCOL", "websocket"),
+        py_xiaozhi_log_path=_default_py_xiaozhi_log_path(),
         ws_host=os.getenv("SIDECAR_HOST", "127.0.0.1"),
         ws_port=int(os.getenv("SIDECAR_PORT", os.getenv("SIDECAR_WS_PORT", "17890"))),
         health_host=os.getenv("SIDECAR_HEALTH_HOST", "127.0.0.1"),
         health_port=int(os.getenv("SIDECAR_HEALTH_PORT", "17891")),
         poll_interval_seconds=float(os.getenv("SIDECAR_NOTES_POLL_SECONDS", "2.0")),
+        log_poll_interval_seconds=float(os.getenv("SIDECAR_LOG_POLL_SECONDS", "1.0")),
     )

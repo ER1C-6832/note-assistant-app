@@ -15,6 +15,7 @@ from app_ws_server import SidecarWebSocketServer
 from config import SidecarConfig, load_config
 from event_store import SidecarEventHub
 from health_server import start_health_server
+from py_xiaozhi_log_watcher import PyXiaozhiLogWatcher
 
 logging.basicConfig(
     level=logging.INFO,
@@ -51,16 +52,19 @@ async def main() -> None:
     logger.info("PC build root: %s", config.pc_build_root)
     logger.info("Notes API: %s", config.notes_api_base_url)
     logger.info("py-xiaozhi root: %s", config.py_xiaozhi_root)
+    logger.info("py-xiaozhi log: %s", config.py_xiaozhi_log_path)
     logger.info("WebSocket: %s", config.ws_url)
     logger.info("Health: %s", config.health_url)
 
     event_hub = SidecarEventHub()
     ws_server = SidecarWebSocketServer(config, event_hub=event_hub)
+    log_watcher = PyXiaozhiLogWatcher(config, event_hub)
 
     try:
         await asyncio.gather(
             ws_server.start(),
             start_health_server(config, event_hub=event_hub),
+            log_watcher.run(),
         )
     except OSError as exc:
         if getattr(exc, "winerror", None) == 10048 or getattr(exc, "errno", None) == 10048:

@@ -65,6 +65,8 @@ async def _handle_http(
 
         if method == "GET" and path in {"/api/health", "/health", "/"}:
             status = await collect_status(config)
+            status["py_xiaozhi"]["log_path"] = str(config.py_xiaozhi_log_path or "")
+            status["py_xiaozhi"]["log_path_exists"] = bool(config.py_xiaozhi_log_path and config.py_xiaozhi_log_path.exists())
             await _write_json(writer, 200, {
                 "ok": True,
                 "type": "sidecar_health",
@@ -118,11 +120,7 @@ async def _handle_http(
         await writer.wait_closed()
 
 
-async def _write_json(
-    writer: asyncio.StreamWriter,
-    status_code: int,
-    payload: dict,
-) -> None:
+async def _write_json(writer: asyncio.StreamWriter, status_code: int, payload: dict) -> None:
     reason = {
         200: "OK",
         400: "Bad Request",

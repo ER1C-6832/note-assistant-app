@@ -37,6 +37,10 @@ class SidecarClient(QObject):
         self._last_tool_result_text = ""
         self._last_tool_name = ""
         self._last_tool_status = ""
+        self._last_transcript_text = ""
+        self._last_assistant_reply_text = ""
+        self._last_runtime_log_text = ""
+        self._last_runtime_state_text = ""
         self._error_message = ""
         self._thread: threading.Thread | None = None
         self._stop_event = threading.Event()
@@ -92,6 +96,22 @@ class SidecarClient(QObject):
     @Property(str, notify=statusChanged)
     def lastToolStatus(self) -> str:
         return self._last_tool_status
+
+    @Property(str, notify=statusChanged)
+    def lastTranscriptText(self) -> str:
+        return self._last_transcript_text
+
+    @Property(str, notify=statusChanged)
+    def lastAssistantReplyText(self) -> str:
+        return self._last_assistant_reply_text
+
+    @Property(str, notify=statusChanged)
+    def lastRuntimeLogText(self) -> str:
+        return self._last_runtime_log_text
+
+    @Property(str, notify=statusChanged)
+    def lastRuntimeStateText(self) -> str:
+        return self._last_runtime_state_text
 
     @Property(str, notify=statusChanged)
     def errorMessage(self) -> str:
@@ -206,8 +226,27 @@ class SidecarClient(QObject):
             self._handle_tool_result(payload)
             return
 
-        if event_type == "assistant_activity":
-            self._last_event_text = payload.get("message", "语音助手活动")
+        if event_type == "assistant_transcript":
+            self._last_transcript_text = payload.get("text", "")
+            self._last_event_text = payload.get("message", "收到语音识别文本")
+            self.statusChanged.emit()
+            return
+
+        if event_type == "assistant_reply":
+            self._last_assistant_reply_text = payload.get("text", "")
+            self._last_event_text = payload.get("message", "收到助手回复")
+            self.statusChanged.emit()
+            return
+
+        if event_type == "assistant_state":
+            self._last_runtime_state_text = payload.get("message", payload.get("state", ""))
+            self._last_event_text = self._last_runtime_state_text
+            self.statusChanged.emit()
+            return
+
+        if event_type == "assistant_log":
+            self._last_runtime_log_text = payload.get("message", payload.get("raw", ""))
+            self._last_event_text = self._last_runtime_log_text
             self.statusChanged.emit()
             return
 
@@ -221,14 +260,7 @@ class SidecarClient(QObject):
         self.statusChanged.emit()
 
     def _apply_recent_event(self, event: dict[str, Any]) -> None:
-        event_type = event.get("type", "")
-        if event_type == "tool_call":
-            self._handle_tool_call(event)
-        elif event_type == "tool_result":
-            self._handle_tool_result(event)
-        elif event_type:
-            self._last_event_text = event.get("message", f"最近事件：{event_type}")
-            self.statusChanged.emit()
+        self._handle_raw_message(json.dumps(event, ensure_ascii=False))
 
     def _handle_tool_call(self, payload: dict[str, Any]) -> None:
         tool_name = payload.get("tool_name", "unknown")

@@ -1,8 +1,5 @@
 # PC Assistant Sidecar
 
-A lightweight local bridge between the Note Assistant PC App and the external
-py-xiaozhi runtime.
-
 ## Endpoints
 
 ```text
@@ -11,20 +8,18 @@ Health:    http://127.0.0.1:17891/api/health
 Events:    http://127.0.0.1:17891/api/events
 ```
 
-## Phase 5.2
+## Phase 5.3
 
-Phase 5.2 adds event intake:
+Phase 5.3 adds `PyXiaozhiLogWatcher`, a non-invasive runtime log bridge.
 
-```text
-POST /api/events
-GET  /api/events?limit=20
-```
-
-py-xiaozhi notes MCP tools submit:
+It tails py-xiaozhi's app log and emits:
 
 ```text
-tool_call
-tool_result
+assistant_state
+assistant_transcript
+assistant_reply
+assistant_log
 ```
 
-The Sidecar stores recent events and broadcasts them to WebSocket clients.
+This is best-effort and depends on log content. The more stable notes MCP tool
+events from Phase 5.2 continue to work independently.

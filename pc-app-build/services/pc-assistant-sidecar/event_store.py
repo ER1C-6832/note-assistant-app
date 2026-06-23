@@ -9,13 +9,13 @@ from typing import Any
 class SidecarEventHub:
     """In-memory event hub shared by HTTP event intake and WebSocket broadcast."""
 
-    def __init__(self, max_events: int = 100) -> None:
+    def __init__(self, max_events: int = 200) -> None:
         self._events: deque[dict[str, Any]] = deque(maxlen=max_events)
         self._subscribers: set[asyncio.Queue] = set()
         self._next_id = 1
 
     def recent_events(self, limit: int = 20) -> list[dict[str, Any]]:
-        limit = max(1, min(int(limit or 20), 100))
+        limit = max(1, min(int(limit or 20), 200))
         return list(self._events)[-limit:]
 
     async def publish(self, event: dict[str, Any]) -> dict[str, Any]:
@@ -37,7 +37,7 @@ class SidecarEventHub:
         return normalized
 
     def subscribe(self) -> asyncio.Queue:
-        queue: asyncio.Queue = asyncio.Queue(maxsize=100)
+        queue: asyncio.Queue = asyncio.Queue(maxsize=200)
         self._subscribers.add(queue)
         return queue
 
