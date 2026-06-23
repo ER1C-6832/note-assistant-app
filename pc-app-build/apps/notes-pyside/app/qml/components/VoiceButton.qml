@@ -12,7 +12,7 @@ Rectangle {
     color: mouse.containsMouse ? "#F7F8FA" : "#FFFFFF"
     border.color: "#E5E7EB"
     border.width: 1
-    z: 20
+    z: 50
     clip: true
 
     RowLayout {

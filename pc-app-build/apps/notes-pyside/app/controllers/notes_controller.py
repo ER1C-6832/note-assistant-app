@@ -1,5 +1,10 @@
 """
 Notes controller exposed to QML.
+
+Hotfix focus:
+- Stable sidebar tag list that does not shrink after filtering.
+- Tags discovered from notes are persisted locally, so they remain visible even
+  after all related notes are permanently deleted.
 """
 
 from __future__ import annotations
@@ -29,6 +34,16 @@ class NotesController(QObject):
     _asyncError = Signal(int, object)
 
     _PROTECTED_TAGS = {"待办"}
+    _DEFAULT_TAGS = [
+        "客户",
+        "报价",
+        "屏幕",
+        "样机",
+        "游戏手柄",
+        "测试",
+        "包装",
+        "跟进",
+    ]
 
     def __init__(self) -> None:
         super().__init__()
@@ -48,8 +63,9 @@ class NotesController(QObject):
         self._is_busy = False
         self._request_token = 0
         self._all_known_notes: list[Note] = []
-        self._visible_tags: list[str] = []
         self._custom_tags = self._load_custom_tags()
+        self._ensure_default_tags()
+        self._visible_tags = self._build_tag_list()
 
         self._asyncSuccess.connect(self._handle_async_success)
         self._asyncError.connect(self._handle_async_error)
@@ -141,8 +157,8 @@ class NotesController(QObject):
         self._active_category = "all"
         self._search_keyword = ""
         self._start_fetch(
-            "notes",
-            lambda: self._client.list_notes(include_deleted=False),
+            "all",
+            lambda: self._client.list_notes(include_deleted=True),
             "已加载全部便签",
         )
         self.stateChanged.emit()
@@ -159,7 +175,7 @@ class NotesController(QObject):
         if category_key == "pinned":
             self._start_fetch(
                 "pinned",
-                lambda: self._client.list_notes(include_deleted=False),
+                lambda: self._client.list_notes(include_deleted=True),
                 "已加载置顶便签",
             )
             self.stateChanged.emit()
@@ -185,8 +201,8 @@ class NotesController(QObject):
         self._active_category = f"tag:{clean_tag}"
         self._search_keyword = ""
         self._start_fetch(
-            "notes",
-            lambda: self._client.list_notes(include_deleted=False, tag=clean_tag),
+            f"tag:{clean_tag}",
+            lambda: self._client.list_notes(include_deleted=True),
             f"已加载{clean_tag}便签",
         )
         self.stateChanged.emit()
@@ -377,14 +393,6 @@ class NotesController(QObject):
         finally:
             self._set_busy(False)
 
-    @Slot(int, result=bool)
-    def hardDeleteDeletedNoteAt(self, index: int) -> bool:
-        note = self.deleted_notes_model.get_note(index)
-        if note is None:
-            self._set_error("请先选择一条已删除便签")
-            return False
-        return self.bulkHardDeleteDeletedNotesByIds([note.id])
-
     @Slot("QVariantList", result=bool)
     def bulkHardDeleteDeletedNotesByIds(self, note_ids) -> bool:
         ids = _normalize_ids(note_ids)
@@ -419,9 +427,10 @@ class NotesController(QObject):
 
         if clean_tag not in self._custom_tags:
             self._custom_tags.append(clean_tag)
-            self._custom_tags.sort()
+            self._custom_tags = sorted(set(self._custom_tags))
             self._save_custom_tags()
-            self._rebuild_visible_tags(self._all_known_notes)
+            self._visible_tags = self._build_tag_list()
+            self.tagsChanged.emit()
             self._set_status("标签已添加")
         return True
 
@@ -435,16 +444,7 @@ class NotesController(QObject):
             self._set_error("该标签不能删除")
             return False
 
-        try:
-            notes = [
-                note_from_api(item)
-                for item in self._client.list_notes(include_deleted=True, limit=200)
-            ]
-        except NotesApiError as exc:
-            self._handle_error(exc)
-            return False
-
-        for note in notes:
+        for note in self._all_known_notes:
             if clean_tag in note.tags:
                 self._set_error("该标签下还有便签，不能删除")
                 return False
@@ -453,7 +453,8 @@ class NotesController(QObject):
             self._custom_tags.remove(clean_tag)
             self._save_custom_tags()
 
-        self._rebuild_visible_tags(notes)
+        self._visible_tags = self._build_tag_list()
+        self.tagsChanged.emit()
         self._set_status("标签已删除")
         return True
 
@@ -508,31 +509,37 @@ class NotesController(QObject):
                 payload = result if isinstance(result, dict) else {}
                 notes = [note_from_api(item) for item in payload.get("items", [])]
                 self._set_notes(notes, f"找到 {len(notes)} 条相关便签")
-            elif kind == "deleted":
-                items = result if isinstance(result, list) else []
-                notes = [note_from_api(item) for item in items]
-                self._all_known_notes = notes
-                deleted = [note for note in notes if note.is_deleted]
-                self.deleted_notes_model.set_notes(deleted)
-                self._deleted_result_count = len(deleted)
-                self._result_count = len(deleted)
-                self._deleted_selected_index = 0 if deleted else -1
-                self._selected_index = -1
-                self._rebuild_visible_tags(notes)
-                self._set_status(success_message)
-                self.selectedChanged.emit()
-            elif kind == "pinned":
-                items = result if isinstance(result, list) else []
-                notes = [note_from_api(item) for item in items]
-                self._all_known_notes = notes
-                self._set_notes([note for note in notes if note.is_pinned], success_message)
-                self._rebuild_visible_tags(notes)
             else:
                 items = result if isinstance(result, list) else []
-                notes = [note_from_api(item) for item in items]
-                self._all_known_notes = notes
-                self._set_notes(notes, success_message)
-                self._rebuild_visible_tags(notes)
+                all_notes = [note_from_api(item) for item in items]
+                self._all_known_notes = all_notes
+                self._persist_observed_tags(all_notes)
+
+                if kind == "deleted":
+                    deleted = [note for note in all_notes if note.is_deleted]
+                    self.deleted_notes_model.set_notes(deleted)
+                    self._deleted_result_count = len(deleted)
+                    self._result_count = len(deleted)
+                    self._deleted_selected_index = 0 if deleted else -1
+                    self._selected_index = -1
+                    self._set_status(success_message)
+                    self.selectedChanged.emit()
+                elif kind == "pinned":
+                    self._set_notes(
+                        [note for note in all_notes if not note.is_deleted and note.is_pinned],
+                        success_message,
+                    )
+                elif kind.startswith("tag:"):
+                    tag = kind[4:]
+                    self._set_notes(
+                        [note for note in all_notes if not note.is_deleted and tag in note.tags],
+                        success_message,
+                    )
+                else:
+                    self._set_notes(
+                        [note for note in all_notes if not note.is_deleted],
+                        success_message,
+                    )
 
             self._set_connected()
         finally:
@@ -617,18 +624,39 @@ class NotesController(QObject):
         else:
             self._set_error(str(exc), mark_offline=False)
 
-    def _rebuild_visible_tags(self, notes: list[Note]) -> None:
-        tag_set = set(self._custom_tags)
+    def _persist_observed_tags(self, notes: list[Note]) -> None:
+        observed = set(self._custom_tags)
 
         for note in notes:
-            if note.is_deleted:
-                continue
             for tag in note.tags:
-                if tag not in self._PROTECTED_TAGS:
-                    tag_set.add(tag)
+                clean_tag = tag.strip()
+                if clean_tag and clean_tag not in self._PROTECTED_TAGS:
+                    observed.add(clean_tag)
 
-        self._visible_tags = sorted(tag_set)
+        new_custom_tags = sorted(observed)
+
+        if new_custom_tags != self._custom_tags:
+            self._custom_tags = new_custom_tags
+            self._save_custom_tags()
+
+        self._visible_tags = self._build_tag_list()
         self.tagsChanged.emit()
+
+    def _build_tag_list(self) -> list[str]:
+        return sorted(
+            tag for tag in set(self._custom_tags)
+            if tag and tag not in self._PROTECTED_TAGS
+        )
+
+    def _ensure_default_tags(self) -> None:
+        merged = set(self._custom_tags)
+
+        for tag in self._DEFAULT_TAGS:
+            if tag not in self._PROTECTED_TAGS:
+                merged.add(tag)
+
+        self._custom_tags = sorted(merged)
+        self._save_custom_tags()
 
     def _tag_store_path(self) -> Path:
         app_root = Path(__file__).resolve().parents[1]

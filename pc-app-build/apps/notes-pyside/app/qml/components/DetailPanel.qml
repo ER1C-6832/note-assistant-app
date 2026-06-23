@@ -19,9 +19,11 @@ Rectangle {
 
     color: "#FFFFFF"
     radius: 20
+    clip: true
 
     Item {
         anchors.fill: parent
+        clip: true
 
         ColumnLayout {
             anchors.fill: parent
@@ -100,6 +102,7 @@ Rectangle {
                 Layout.fillHeight: true
                 radius: 18
                 color: "#F7F8FA"
+                clip: true
 
                 Flickable {
                     anchors.fill: parent

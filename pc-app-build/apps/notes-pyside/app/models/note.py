@@ -48,43 +48,22 @@ class Note:
     def card_color(self) -> str:
         if self.is_deleted:
             return "#F3F4F6"
-        if self.is_pinned:
-            return "#FFF4C2"
 
+        # Final card palette: at least 8 clearly different soft colors.
+        # This intentionally does not depend only on tag names; otherwise several
+        # notes with similar tags collapse back to the same two or three colors.
         palette = [
-            "#FFF4C2",
-            "#DBEAFE",
-            "#DCFCE7",
-            "#FCE7F3",
-            "#EDE9FE",
-            "#CCFBF1",
-            "#FFEDD5",
-            "#FFE4E6",
-            "#E0F2FE",
-            "#FEF3C7",
-            "#ECFDF5",
-            "#F3E8FF",
+            "#FFF4C2",  # yellow
+            "#DBEAFE",  # blue
+            "#DCFCE7",  # green
+            "#FCE7F3",  # pink
+            "#EDE9FE",  # purple
+            "#FEE2E2",  # red
+            "#CCFBF1",  # teal
+            "#FFEDD5",  # orange
         ]
 
-        tag_palette = {
-            "客户": 1,
-            "报价": 8,
-            "屏幕": 2,
-            "样机": 9,
-            "游戏手柄": 4,
-            "测试": 6,
-            "包装": 7,
-            "待办": 3,
-            "财务": 10,
-            "会议": 5,
-            "跟进": 0,
-        }
-
-        for tag in self.tags:
-            if tag in tag_palette:
-                return palette[tag_palette[tag]]
-
-        return palette[self.id % len(palette)]
+        return palette[(self.id - 1) % len(palette)]
 
 
 def _format_datetime_gmt8(value: str) -> str:
