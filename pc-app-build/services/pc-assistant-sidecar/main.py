@@ -13,6 +13,7 @@ if str(CURRENT_DIR) not in sys.path:
 
 from app_ws_server import SidecarWebSocketServer
 from config import SidecarConfig, load_config
+from event_store import SidecarEventHub
 from health_server import start_health_server
 
 logging.basicConfig(
@@ -53,12 +54,13 @@ async def main() -> None:
     logger.info("WebSocket: %s", config.ws_url)
     logger.info("Health: %s", config.health_url)
 
-    ws_server = SidecarWebSocketServer(config)
+    event_hub = SidecarEventHub()
+    ws_server = SidecarWebSocketServer(config, event_hub=event_hub)
 
     try:
         await asyncio.gather(
             ws_server.start(),
-            start_health_server(config),
+            start_health_server(config, event_hub=event_hub),
         )
     except OSError as exc:
         if getattr(exc, "winerror", None) == 10048 or getattr(exc, "errno", None) == 10048:

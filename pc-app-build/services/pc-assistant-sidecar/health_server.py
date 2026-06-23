@@ -3,17 +3,24 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-from typing import Callable, Awaitable
+from urllib.parse import parse_qs, urlparse
 
 from config import SidecarConfig
+from event_store import SidecarEventHub
 from status_checker import collect_status
 
 logger = logging.getLogger("sidecar.health")
 
 
-async def start_health_server(config: SidecarConfig) -> None:
+async def start_health_server(
+    config: SidecarConfig,
+    event_hub: SidecarEventHub | None = None,
+) -> None:
+    if event_hub is None:
+        event_hub = SidecarEventHub()
+
     server = await asyncio.start_server(
-        lambda reader, writer: _handle_http(reader, writer, config),
+        lambda reader, writer: _handle_http(reader, writer, config, event_hub),
         config.health_host,
         config.health_port,
     )
@@ -28,27 +35,82 @@ async def _handle_http(
     reader: asyncio.StreamReader,
     writer: asyncio.StreamWriter,
     config: SidecarConfig,
+    event_hub: SidecarEventHub,
 ) -> None:
     try:
         request_line = await reader.readline()
         request = request_line.decode("utf-8", errors="ignore").strip()
-        path = request.split(" ")[1] if " " in request else "/"
 
+        if not request:
+            await _write_json(writer, 400, {"ok": False, "error": "empty request"})
+            return
+
+        parts = request.split(" ")
+        method = parts[0].upper() if parts else "GET"
+        raw_path = parts[1] if len(parts) > 1 else "/"
+        parsed = urlparse(raw_path)
+        path = parsed.path
+        query = parse_qs(parsed.query)
+
+        headers: dict[str, str] = {}
         while True:
             line = await reader.readline()
             if line in {b"\r\n", b"\n", b""}:
                 break
 
-        if path not in {"/api/health", "/health", "/"}:
-            await _write_json(writer, 404, {"ok": False, "error": "not found"})
+            decoded = line.decode("utf-8", errors="ignore")
+            if ":" in decoded:
+                key, value = decoded.split(":", 1)
+                headers[key.strip().lower()] = value.strip()
+
+        if method == "GET" and path in {"/api/health", "/health", "/"}:
+            status = await collect_status(config)
+            await _write_json(writer, 200, {
+                "ok": True,
+                "type": "sidecar_health",
+                "status": status,
+            })
             return
 
-        status = await collect_status(config)
-        await _write_json(writer, 200, {
-            "ok": True,
-            "type": "sidecar_health",
-            "status": status,
-        })
+        if method == "GET" and path == "/api/events":
+            limit = int((query.get("limit") or ["20"])[0])
+            await _write_json(writer, 200, {
+                "ok": True,
+                "type": "sidecar_events",
+                "items": event_hub.recent_events(limit=limit),
+            })
+            return
+
+        if method == "POST" and path == "/api/events":
+            content_length = int(headers.get("content-length") or "0")
+            raw_body = await reader.readexactly(content_length) if content_length > 0 else b"{}"
+
+            try:
+                payload = json.loads(raw_body.decode("utf-8"))
+            except json.JSONDecodeError as exc:
+                await _write_json(writer, 400, {
+                    "ok": False,
+                    "error": f"invalid json: {exc}",
+                })
+                return
+
+            if not isinstance(payload, dict):
+                await _write_json(writer, 400, {
+                    "ok": False,
+                    "error": "event payload must be an object",
+                })
+                return
+
+            stored = await event_hub.publish(payload)
+            await _write_json(writer, 200, {
+                "ok": True,
+                "type": "sidecar_event_accepted",
+                "event": stored,
+            })
+            return
+
+        await _write_json(writer, 404, {"ok": False, "error": "not found"})
+
     except Exception as exc:
         await _write_json(writer, 500, {"ok": False, "error": str(exc)})
     finally:
@@ -63,6 +125,7 @@ async def _write_json(
 ) -> None:
     reason = {
         200: "OK",
+        400: "Bad Request",
         404: "Not Found",
         500: "Internal Server Error",
     }.get(status_code, "OK")

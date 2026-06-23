@@ -30,20 +30,20 @@ venv\Scripts\activate
 scripts\start_pc_app.bat
 ```
 
-## One-click start
+## Install py-xiaozhi notes MCP tool
 
 ```bat
-scripts\start_all.bat
+integrations\py-xiaozhi\scripts\install_notes_tool.bat
 ```
 
-## Phase 5.1.1 verification
+Restart py-xiaozhi after installing the tool.
 
-```text
-1. Start Notes API.
-2. Start Sidecar.
-3. Start PC App.
-4. Open the Voice Assistant page or Settings page.
-5. Confirm Sidecar shows connected.
-6. Use py-xiaozhi GUI to create or update a note.
-7. Keep PC App open. The note list should refresh automatically after Sidecar emits notes_changed.
+## Phase 5.2 event bridge test
+
+Start Notes API, Sidecar, and PC App, then run:
+
+```bat
+integrations\py-xiaozhi\scripts\test_sidecar_event.bat
 ```
+
+The PC App Voice Assistant panel should show the test tool result.

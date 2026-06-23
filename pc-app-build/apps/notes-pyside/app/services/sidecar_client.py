@@ -33,6 +33,10 @@ class SidecarClient(QObject):
         self._py_xiaozhi_status_text = "py-xiaozhi 未确认"
         self._notes_tool_status_text = "notes 工具未确认"
         self._last_event_text = ""
+        self._last_tool_event_text = ""
+        self._last_tool_result_text = ""
+        self._last_tool_name = ""
+        self._last_tool_status = ""
         self._error_message = ""
         self._thread: threading.Thread | None = None
         self._stop_event = threading.Event()
@@ -74,6 +78,22 @@ class SidecarClient(QObject):
         return self._last_event_text
 
     @Property(str, notify=statusChanged)
+    def lastToolEventText(self) -> str:
+        return self._last_tool_event_text
+
+    @Property(str, notify=statusChanged)
+    def lastToolResultText(self) -> str:
+        return self._last_tool_result_text
+
+    @Property(str, notify=statusChanged)
+    def lastToolName(self) -> str:
+        return self._last_tool_name
+
+    @Property(str, notify=statusChanged)
+    def lastToolStatus(self) -> str:
+        return self._last_tool_status
+
+    @Property(str, notify=statusChanged)
     def errorMessage(self) -> str:
         return self._error_message
 
@@ -108,6 +128,7 @@ class SidecarClient(QObject):
                 ) as websocket:
                     self._connection_changed.emit(True)
                     await websocket.send(json.dumps({"type": "refresh_status"}, ensure_ascii=False))
+                    await websocket.send(json.dumps({"type": "refresh_events"}, ensure_ascii=False))
 
                     async for message in websocket:
                         if self._stop_event.is_set():
@@ -164,11 +185,30 @@ class SidecarClient(QObject):
             self._apply_status(payload)
             return
 
+        if event_type == "sidecar_events":
+            items = payload.get("items", []) or []
+            if items:
+                self._apply_recent_event(items[-1])
+            return
+
         if event_type == "notes_changed":
             reason = payload.get("reason", "changed")
             self._last_event_text = f"检测到便签变化：{reason}"
             self.statusChanged.emit()
             self.notesChanged.emit()
+            return
+
+        if event_type == "tool_call":
+            self._handle_tool_call(payload)
+            return
+
+        if event_type == "tool_result":
+            self._handle_tool_result(payload)
+            return
+
+        if event_type == "assistant_activity":
+            self._last_event_text = payload.get("message", "语音助手活动")
+            self.statusChanged.emit()
             return
 
         if event_type == "error":
@@ -179,6 +219,38 @@ class SidecarClient(QObject):
 
         self._last_event_text = f"收到 Sidecar 事件：{event_type or 'unknown'}"
         self.statusChanged.emit()
+
+    def _apply_recent_event(self, event: dict[str, Any]) -> None:
+        event_type = event.get("type", "")
+        if event_type == "tool_call":
+            self._handle_tool_call(event)
+        elif event_type == "tool_result":
+            self._handle_tool_result(event)
+        elif event_type:
+            self._last_event_text = event.get("message", f"最近事件：{event_type}")
+            self.statusChanged.emit()
+
+    def _handle_tool_call(self, payload: dict[str, Any]) -> None:
+        tool_name = payload.get("tool_name", "unknown")
+        message = payload.get("message") or f"开始调用 {tool_name}"
+        self._last_tool_name = tool_name
+        self._last_tool_status = "运行中"
+        self._last_tool_event_text = message
+        self._last_event_text = message
+        self.statusChanged.emit()
+
+    def _handle_tool_result(self, payload: dict[str, Any]) -> None:
+        tool_name = payload.get("tool_name", "unknown")
+        status = payload.get("status", "")
+        message = payload.get("message") or f"{tool_name} 执行完成"
+        self._last_tool_name = tool_name
+        self._last_tool_status = "成功" if status == "success" else "失败" if status == "error" else str(status)
+        self._last_tool_result_text = message
+        self._last_event_text = message
+        self.statusChanged.emit()
+
+        if bool(payload.get("note_changed")):
+            self.notesChanged.emit()
 
     def _apply_status(self, payload: dict[str, Any]) -> None:
         notes_api = payload.get("notes_api", {}) or {}

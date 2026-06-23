@@ -4,7 +4,6 @@ import QtQuick.Layouts
 Rectangle {
     id: root
 
-    // Compatibility properties used by AssistantCreate/Search/Update/Delete pages.
     property string title: "小智语音助手"
     property string statusText: sidecarClient !== null ? sidecarClient.assistantStatusText : "待机中"
     property string transcript: ""
@@ -111,31 +110,63 @@ Rectangle {
 
         Rectangle {
             Layout.fillWidth: true
-            visible: root.transcript.length > 0
+            visible: sidecarClient !== null && (sidecarClient.lastToolEventText.length > 0 || sidecarClient.lastToolResultText.length > 0)
             radius: 16
-            color: "#F8FAFC"
-            implicitHeight: transcriptColumn.implicitHeight + 28
+            color: "#EAF0FF"
+            implicitHeight: toolColumn.implicitHeight + 28
 
             ColumnLayout {
-                id: transcriptColumn
+                id: toolColumn
                 anchors.fill: parent
                 anchors.margins: 14
                 spacing: 6
 
                 Text {
-                    text: "用户指令"
-                    color: "#64748B"
-                    font.pixelSize: 12
+                    Layout.fillWidth: true
+                    text: sidecarClient !== null && sidecarClient.lastToolName.length > 0
+                          ? "工具调用：" + sidecarClient.lastToolName + " · " + sidecarClient.lastToolStatus
+                          : "工具调用"
+                    color: "#1E3A8A"
+                    font.pixelSize: 14
                     font.bold: true
+                    wrapMode: Text.WordWrap
                 }
 
                 Text {
                     Layout.fillWidth: true
-                    text: root.transcript
-                    color: "#111827"
+                    visible: sidecarClient !== null && sidecarClient.lastToolEventText.length > 0
+                    text: sidecarClient !== null ? sidecarClient.lastToolEventText : ""
+                    color: "#1E3A8A"
                     font.pixelSize: 13
                     wrapMode: Text.WordWrap
                 }
+
+                Text {
+                    Layout.fillWidth: true
+                    visible: sidecarClient !== null && sidecarClient.lastToolResultText.length > 0
+                    text: sidecarClient !== null ? sidecarClient.lastToolResultText : ""
+                    color: "#1E3A8A"
+                    font.pixelSize: 13
+                    wrapMode: Text.WordWrap
+                }
+            }
+        }
+
+        Rectangle {
+            Layout.fillWidth: true
+            visible: root.transcript.length > 0
+            radius: 16
+            color: "#F8FAFC"
+            implicitHeight: transcriptText.implicitHeight + 28
+
+            Text {
+                id: transcriptText
+                anchors.fill: parent
+                anchors.margins: 14
+                text: "识别文本：" + root.transcript
+                color: "#374151"
+                font.pixelSize: 13
+                wrapMode: Text.WordWrap
             }
         }
 
@@ -144,28 +175,16 @@ Rectangle {
             visible: root.reply.length > 0
             radius: 16
             color: "#F7F8FA"
-            implicitHeight: replyColumn.implicitHeight + 28
+            implicitHeight: replyText.implicitHeight + 28
 
-            ColumnLayout {
-                id: replyColumn
+            Text {
+                id: replyText
                 anchors.fill: parent
                 anchors.margins: 14
-                spacing: 6
-
-                Text {
-                    text: "助手回复"
-                    color: "#64748B"
-                    font.pixelSize: 12
-                    font.bold: true
-                }
-
-                Text {
-                    Layout.fillWidth: true
-                    text: root.reply
-                    color: "#374151"
-                    font.pixelSize: 13
-                    wrapMode: Text.WordWrap
-                }
+                text: "助手回复：" + root.reply
+                color: "#374151"
+                font.pixelSize: 13
+                wrapMode: Text.WordWrap
             }
         }
 
@@ -173,7 +192,7 @@ Rectangle {
             Layout.fillWidth: true
             visible: root.resultTitle.length > 0 || root.resultText.length > 0
             radius: 16
-            color: "#EAF0FF"
+            color: "#ECFDF3"
             implicitHeight: resultColumn.implicitHeight + 28
 
             ColumnLayout {
@@ -185,7 +204,7 @@ Rectangle {
                 Text {
                     Layout.fillWidth: true
                     text: root.resultTitle.length > 0 ? root.resultTitle : "执行结果"
-                    color: "#1E3A8A"
+                    color: "#166534"
                     font.pixelSize: 14
                     font.bold: true
                     wrapMode: Text.WordWrap
@@ -194,7 +213,7 @@ Rectangle {
                 Text {
                     Layout.fillWidth: true
                     text: root.resultText
-                    color: "#1E3A8A"
+                    color: "#166534"
                     font.pixelSize: 13
                     wrapMode: Text.WordWrap
                 }
@@ -205,7 +224,7 @@ Rectangle {
             Layout.fillWidth: true
             visible: sidecarClient !== null && sidecarClient.lastEventText.length > 0
             radius: 16
-            color: "#ECFDF3"
+            color: "#FFF7ED"
             implicitHeight: eventText.implicitHeight + 28
 
             Text {
@@ -213,7 +232,7 @@ Rectangle {
                 anchors.fill: parent
                 anchors.margins: 14
                 text: "最近事件：" + (sidecarClient !== null ? sidecarClient.lastEventText : "")
-                color: "#166534"
+                color: "#92400E"
                 font.pixelSize: 13
                 wrapMode: Text.WordWrap
             }

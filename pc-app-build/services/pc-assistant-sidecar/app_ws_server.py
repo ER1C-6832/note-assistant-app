@@ -9,6 +9,7 @@ import websockets
 from websockets.server import WebSocketServerProtocol
 
 from config import SidecarConfig
+from event_store import SidecarEventHub
 from notes_watcher import NotesSnapshotWatcher
 from status_checker import collect_status
 
@@ -16,10 +17,15 @@ logger = logging.getLogger("sidecar.ws")
 
 
 class SidecarWebSocketServer:
-    def __init__(self, config: SidecarConfig) -> None:
+    def __init__(
+        self,
+        config: SidecarConfig,
+        event_hub: SidecarEventHub | None = None,
+    ) -> None:
         self.config = config
         self.clients: set[WebSocketServerProtocol] = set()
         self.watcher = NotesSnapshotWatcher(config)
+        self.event_hub = event_hub or SidecarEventHub()
         self._stop = asyncio.Event()
 
     async def start(self) -> None:
@@ -35,6 +41,7 @@ class SidecarWebSocketServer:
             tasks = [
                 asyncio.create_task(self._status_loop()),
                 asyncio.create_task(self._notes_watch_loop()),
+                asyncio.create_task(self._event_loop()),
             ]
 
             try:
@@ -63,11 +70,18 @@ class SidecarWebSocketServer:
             self.clients.discard(websocket)
             logger.info("Client disconnected: %s", getattr(websocket, "remote_address", ""))
 
-    async def _handle_message(self, websocket: WebSocketServerProtocol, raw_message: str) -> None:
+    async def _handle_message(
+        self,
+        websocket: WebSocketServerProtocol,
+        raw_message: str,
+    ) -> None:
         try:
             message = json.loads(raw_message)
         except json.JSONDecodeError:
-            await self._send(websocket, {"type": "error", "message": "Invalid JSON message"})
+            await self._send(websocket, {
+                "type": "error",
+                "message": "Invalid JSON message",
+            })
             return
 
         message_type = message.get("type")
@@ -80,8 +94,18 @@ class SidecarWebSocketServer:
             await self._send(websocket, await collect_status(self.config))
             return
 
+        if message_type == "refresh_events":
+            await self._send(websocket, {
+                "type": "sidecar_events",
+                "items": self.event_hub.recent_events(limit=20),
+            })
+            return
+
         if message_type == "refresh_notes":
-            await self.broadcast({"type": "notes_changed", "reason": "manual_refresh"})
+            await self.broadcast({
+                "type": "notes_changed",
+                "reason": "manual_refresh",
+            })
             return
 
         await self._send(websocket, {
@@ -98,6 +122,7 @@ class SidecarWebSocketServer:
         while True:
             try:
                 changed = await self.watcher.check_changed()
+
                 if changed:
                     logger.info("Broadcast notes_changed: %s", changed.get("reason"))
                     await self.broadcast(changed)
@@ -105,6 +130,17 @@ class SidecarWebSocketServer:
                 logger.debug("Notes watch failed: %s", exc)
 
             await asyncio.sleep(self.config.poll_interval_seconds)
+
+    async def _event_loop(self) -> None:
+        queue = self.event_hub.subscribe()
+
+        try:
+            while True:
+                event = await queue.get()
+                logger.info("Broadcast sidecar event: %s", event.get("type"))
+                await self.broadcast(event)
+        finally:
+            self.event_hub.unsubscribe(queue)
 
     async def broadcast(self, payload: dict[str, Any]) -> None:
         if not self.clients:
@@ -122,5 +158,9 @@ class SidecarWebSocketServer:
         for client in closed:
             self.clients.discard(client)
 
-    async def _send(self, websocket: WebSocketServerProtocol, payload: dict[str, Any]) -> None:
+    async def _send(
+        self,
+        websocket: WebSocketServerProtocol,
+        payload: dict[str, Any],
+    ) -> None:
         await websocket.send(json.dumps(payload, ensure_ascii=False))

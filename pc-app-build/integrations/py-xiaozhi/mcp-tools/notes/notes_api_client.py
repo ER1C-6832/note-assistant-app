@@ -54,6 +54,7 @@ class NotesApiClient:
         is_pinned: bool | None = None,
     ) -> dict[str, Any]:
         payload: dict[str, Any] = {}
+
         if title is not None and title != "":
             payload["title"] = title
         if content is not None:
@@ -62,8 +63,10 @@ class NotesApiClient:
             payload["tags"] = tags
         if is_pinned is not None:
             payload["is_pinned"] = bool(is_pinned)
+
         if not payload:
             raise RuntimeError("No fields to update")
+
         return self._request("PATCH", f"/api/notes/{int(note_id)}", payload)
 
     def delete_note(self, note_id: int) -> dict[str, Any]:
@@ -73,10 +76,13 @@ class NotesApiClient:
         url = self.base_url + path
         data = None
         headers = {"Accept": "application/json"}
+
         if payload is not None:
             data = json.dumps(payload, ensure_ascii=False).encode("utf-8")
             headers["Content-Type"] = "application/json"
+
         request = Request(url, data=data, headers=headers, method=method)
+
         try:
             with urlopen(request, timeout=self.timeout) as response:
                 raw = response.read().decode("utf-8")
@@ -85,17 +91,21 @@ class NotesApiClient:
             raise RuntimeError(f"Notes API HTTP {exc.code}: {detail}") from exc
         except URLError as exc:
             raise RuntimeError(f"Cannot connect to Notes API at {self.base_url}: {exc}") from exc
+
         return json.loads(raw) if raw else None
 
 
 def parse_tags(tags: str | list[str] | None) -> list[str]:
     if not tags:
         return []
+
     if isinstance(tags, list):
         return [str(item).strip() for item in tags if str(item).strip()]
+
     normalized = str(tags)
     for sep in ["，", "、", "；", ";", "|", " "]:
         normalized = normalized.replace(sep, ",")
+
     return [item.strip() for item in normalized.split(",") if item.strip()]
 
 

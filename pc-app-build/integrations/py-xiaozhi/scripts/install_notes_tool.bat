@@ -49,7 +49,5 @@ echo Installed files:
 dir "%TARGET_DIR%" /b
 echo.
 echo OK: notes MCP tool installed.
-echo Restart py-xiaozhi and check logs for:
-echo   Add tool: notes.create
-echo   Add tool: notes.search
+echo Restart py-xiaozhi after installing this Phase 5.2 tool package.
 exit /b 0
