@@ -12,9 +12,9 @@ py-xiaozhi
   -> PC App displays "来自语音"
 ```
 
-## Phase 5.1
+Phase 5.1 added the Sidecar lightweight bridge.
 
-Phase 5.1 adds the PC Assistant Sidecar lightweight bridge:
+Phase 5.1.1 connects the PC App to Sidecar WebSocket:
 
 ```text
 PC App
@@ -25,7 +25,7 @@ Sidecar
   -> notes_changed polling events
 ```
 
-This phase still does not modify py-xiaozhi internals.
+When Sidecar emits `notes_changed`, the PC App calls `notesController.refresh()`.
 
 ## Start
 

@@ -76,11 +76,13 @@ Rectangle {
                 placeholderText: "新增标签"
                 font.pixelSize: 12
                 selectByMouse: true
+
                 background: Rectangle {
                     color: "#F7F8FA"
                     radius: 12
                     border.color: "#E5E7EB"
                 }
+
                 onAccepted: {
                     if (notesController.addCustomTag(tagInput.text)) {
                         tagInput.text = ""
@@ -92,6 +94,7 @@ Rectangle {
                 text: "+"
                 compact: true
                 variant: "secondary"
+
                 onClicked: {
                     if (notesController.addCustomTag(tagInput.text)) {
                         tagInput.text = ""
@@ -150,7 +153,7 @@ Rectangle {
             Layout.fillWidth: true
             radius: 16
             color: "#F7F8FA"
-            implicitHeight: 116
+            implicitHeight: 146
 
             ColumnLayout {
                 anchors.fill: parent
@@ -187,14 +190,23 @@ Rectangle {
                         width: 8
                         height: 8
                         radius: 4
-                        color: "#F59E0B"
+                        color: sidecarClient.connected ? "#16A34A" : "#F59E0B"
                     }
 
                     Text {
-                        text: "语音助手待接入"
+                        text: sidecarClient.assistantStatusText
                         color: "#4B5563"
                         font.pixelSize: 12
+                        elide: Text.ElideRight
                     }
+                }
+
+                Text {
+                    Layout.fillWidth: true
+                    text: sidecarClient.lastEventText.length > 0 ? sidecarClient.lastEventText : notesController.statusMessage
+                    color: "#9CA3AF"
+                    font.pixelSize: 11
+                    elide: Text.ElideRight
                 }
             }
         }

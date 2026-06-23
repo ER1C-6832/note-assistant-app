@@ -32,8 +32,9 @@ Rectangle {
 
             StatusBadge {
                 text: root.statusText
-                dotColor: root.statusText === "待机中" ? "#19B7A8" : root.statusText === "等待确认" ? "#F59E0B" : "#4F7CFF"
-                bgColor: root.statusText === "等待确认" ? "#FFF7ED" : "#EAF0FF"
+                dotColor: sidecarClient.connected ? "#16A34A" : "#F59E0B"
+                bgColor: sidecarClient.connected ? "#ECFDF3" : "#FFF7ED"
+                textColor: sidecarClient.connected ? "#166534" : "#92400E"
             }
         }
 
@@ -41,13 +42,13 @@ Rectangle {
             width: 96
             height: 96
             radius: 48
-            color: "#DBEAFE"
+            color: sidecarClient.connected ? "#DBEAFE" : "#F3F4F6"
             Layout.alignment: Qt.AlignHCenter
 
             Text {
                 anchors.centerIn: parent
                 text: "语音"
-                color: "#2563EB"
+                color: sidecarClient.connected ? "#2563EB" : "#6B7280"
                 font.pixelSize: 18
                 font.bold: true
             }
@@ -55,7 +56,7 @@ Rectangle {
 
         Text {
             Layout.fillWidth: true
-            text: "可以说：帮我记录、查一下王总、修改或删除。"
+            text: "可以继续在 py-xiaozhi 中说：帮我记录、查一下王总、修改或删除便签。"
             color: "#4B5563"
             font.pixelSize: 14
             wrapMode: Text.WordWrap
@@ -64,34 +65,61 @@ Rectangle {
 
         Rectangle {
             Layout.fillWidth: true
-            visible: root.transcript.length > 0
             radius: 16
             color: "#F7F8FA"
-            implicitHeight: transcriptText.implicitHeight + 28
+            implicitHeight: statusColumn.implicitHeight + 28
 
-            Text {
-                id: transcriptText
+            ColumnLayout {
+                id: statusColumn
                 anchors.fill: parent
                 anchors.margins: 14
-                text: "识别文本：" + root.transcript
-                color: "#374151"
-                font.pixelSize: 13
-                wrapMode: Text.WordWrap
+                spacing: 8
+
+                Text {
+                    text: "连接状态"
+                    color: "#111827"
+                    font.pixelSize: 14
+                    font.bold: true
+                }
+
+                Text {
+                    Layout.fillWidth: true
+                    text: sidecarClient.statusText + " · " + sidecarClient.wsUrl
+                    color: "#374151"
+                    font.pixelSize: 13
+                    wrapMode: Text.WordWrap
+                }
+
+                Text {
+                    Layout.fillWidth: true
+                    text: sidecarClient.notesApiStatusText
+                    color: "#374151"
+                    font.pixelSize: 13
+                    wrapMode: Text.WordWrap
+                }
+
+                Text {
+                    Layout.fillWidth: true
+                    text: sidecarClient.pyXiaozhiStatusText + " · " + sidecarClient.notesToolStatusText
+                    color: "#374151"
+                    font.pixelSize: 13
+                    wrapMode: Text.WordWrap
+                }
             }
         }
 
         Rectangle {
             Layout.fillWidth: true
-            visible: root.reply.length > 0
+            visible: sidecarClient.lastEventText.length > 0
             radius: 16
             color: "#EAF0FF"
-            implicitHeight: replyText.implicitHeight + 28
+            implicitHeight: eventText.implicitHeight + 28
 
             Text {
-                id: replyText
+                id: eventText
                 anchors.fill: parent
                 anchors.margins: 14
-                text: "助手回复：" + root.reply
+                text: "最近事件：" + sidecarClient.lastEventText
                 color: "#1E3A8A"
                 font.pixelSize: 13
                 wrapMode: Text.WordWrap
@@ -100,31 +128,19 @@ Rectangle {
 
         Rectangle {
             Layout.fillWidth: true
-            visible: root.resultTitle.length > 0
+            visible: sidecarClient.errorMessage.length > 0
             radius: 16
-            color: "#E8F9F1"
-            implicitHeight: resultColumn.implicitHeight + 28
+            color: "#FEF2F2"
+            implicitHeight: errorText.implicitHeight + 28
 
-            ColumnLayout {
-                id: resultColumn
+            Text {
+                id: errorText
                 anchors.fill: parent
                 anchors.margins: 14
-                spacing: 6
-
-                Text {
-                    text: root.resultTitle
-                    color: "#166534"
-                    font.pixelSize: 14
-                    font.bold: true
-                }
-
-                Text {
-                    Layout.fillWidth: true
-                    text: root.resultText
-                    color: "#166534"
-                    font.pixelSize: 13
-                    wrapMode: Text.WordWrap
-                }
+                text: "错误：" + sidecarClient.errorMessage
+                color: "#991B1B"
+                font.pixelSize: 13
+                wrapMode: Text.WordWrap
             }
         }
 

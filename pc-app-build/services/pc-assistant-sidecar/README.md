@@ -3,9 +3,9 @@
 A lightweight local bridge between the Note Assistant PC App and the external
 py-xiaozhi runtime.
 
-## Phase 5.1 scope
+## Phase 5.1.1 scope
 
-Phase 5.1 does not embed py-xiaozhi and does not control its GUI.
+Phase 5.1.1 connects the PC App to the Sidecar WebSocket.
 
 It provides:
 
@@ -15,6 +15,7 @@ It provides:
 3. Notes API status check
 4. py-xiaozhi root / notes MCP tool status check
 5. notes_changed events by polling Notes API snapshots
+6. PC App auto-refresh when notes_changed is received
 ```
 
 ## Start
@@ -22,26 +23,15 @@ It provides:
 From `pc-app-build`:
 
 ```bat
+scripts\start_notes_api.bat
 scripts\start_sidecar.bat
+scripts\start_pc_app.bat
 ```
 
-## WebSocket messages
+Or:
 
-Client to sidecar:
-
-```json
-{"type": "ping"}
-{"type": "refresh_status"}
-{"type": "refresh_notes"}
-```
-
-Sidecar to client:
-
-```json
-{"type": "sidecar_connected"}
-{"type": "sidecar_status"}
-{"type": "notes_changed"}
-{"type": "error"}
+```bat
+scripts\start_all.bat
 ```
 
 ## Health

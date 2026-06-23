@@ -17,6 +17,13 @@ logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s %(levelname)-8s [%(name)s] %(message)s",
 )
+
+# Reduce noisy polling logs. Sidecar still logs startup, client connect/disconnect,
+# and meaningful bridge events.
+logging.getLogger("httpx").setLevel(logging.WARNING)
+logging.getLogger("httpcore").setLevel(logging.WARNING)
+logging.getLogger("websockets.server").setLevel(logging.WARNING)
+
 logger = logging.getLogger("sidecar")
 
 
