@@ -126,7 +126,9 @@ Rectangle {
                         text: modelData.name
                         active: root.activeCategory === "tag:" + modelData.name
                         deletable: modelData.deletable
+
                         onClicked: root.tagRequested(modelData.name)
+
                         onDeleteRequested: {
                             if (root.notesControllerRef !== null) {
                                 root.notesControllerRef.deleteTag(modelData.name)

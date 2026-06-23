@@ -4,8 +4,9 @@ import QtQuick.Layouts
 Rectangle {
     id: root
 
+    // Compatibility properties used by AssistantCreate/Search/Update/Delete pages.
     property string title: "小智语音助手"
-    property string statusText: "待机中"
+    property string statusText: sidecarClient !== null ? sidecarClient.assistantStatusText : "待机中"
     property string transcript: ""
     property string reply: ""
     property string resultTitle: ""
@@ -32,9 +33,9 @@ Rectangle {
 
             StatusBadge {
                 text: root.statusText
-                dotColor: sidecarClient.connected ? "#16A34A" : "#F59E0B"
-                bgColor: sidecarClient.connected ? "#ECFDF3" : "#FFF7ED"
-                textColor: sidecarClient.connected ? "#166534" : "#92400E"
+                dotColor: sidecarClient !== null && sidecarClient.connected ? "#16A34A" : "#F59E0B"
+                bgColor: sidecarClient !== null && sidecarClient.connected ? "#ECFDF3" : "#FFF7ED"
+                textColor: sidecarClient !== null && sidecarClient.connected ? "#166534" : "#92400E"
             }
         }
 
@@ -42,13 +43,13 @@ Rectangle {
             width: 96
             height: 96
             radius: 48
-            color: sidecarClient.connected ? "#DBEAFE" : "#F3F4F6"
+            color: sidecarClient !== null && sidecarClient.connected ? "#DBEAFE" : "#F3F4F6"
             Layout.alignment: Qt.AlignHCenter
 
             Text {
                 anchors.centerIn: parent
                 text: "语音"
-                color: sidecarClient.connected ? "#2563EB" : "#6B7280"
+                color: sidecarClient !== null && sidecarClient.connected ? "#2563EB" : "#6B7280"
                 font.pixelSize: 18
                 font.bold: true
             }
@@ -84,7 +85,7 @@ Rectangle {
 
                 Text {
                     Layout.fillWidth: true
-                    text: sidecarClient.statusText + " · " + sidecarClient.wsUrl
+                    text: sidecarClient !== null ? sidecarClient.statusText + " · " + sidecarClient.wsUrl : "Sidecar 未连接"
                     color: "#374151"
                     font.pixelSize: 13
                     wrapMode: Text.WordWrap
@@ -92,7 +93,7 @@ Rectangle {
 
                 Text {
                     Layout.fillWidth: true
-                    text: sidecarClient.notesApiStatusText
+                    text: sidecarClient !== null ? sidecarClient.notesApiStatusText : "Notes API 未确认"
                     color: "#374151"
                     font.pixelSize: 13
                     wrapMode: Text.WordWrap
@@ -100,7 +101,7 @@ Rectangle {
 
                 Text {
                     Layout.fillWidth: true
-                    text: sidecarClient.pyXiaozhiStatusText + " · " + sidecarClient.notesToolStatusText
+                    text: sidecarClient !== null ? sidecarClient.pyXiaozhiStatusText + " · " + sidecarClient.notesToolStatusText : "py-xiaozhi 未确认"
                     color: "#374151"
                     font.pixelSize: 13
                     wrapMode: Text.WordWrap
@@ -110,17 +111,109 @@ Rectangle {
 
         Rectangle {
             Layout.fillWidth: true
-            visible: sidecarClient.lastEventText.length > 0
+            visible: root.transcript.length > 0
+            radius: 16
+            color: "#F8FAFC"
+            implicitHeight: transcriptColumn.implicitHeight + 28
+
+            ColumnLayout {
+                id: transcriptColumn
+                anchors.fill: parent
+                anchors.margins: 14
+                spacing: 6
+
+                Text {
+                    text: "用户指令"
+                    color: "#64748B"
+                    font.pixelSize: 12
+                    font.bold: true
+                }
+
+                Text {
+                    Layout.fillWidth: true
+                    text: root.transcript
+                    color: "#111827"
+                    font.pixelSize: 13
+                    wrapMode: Text.WordWrap
+                }
+            }
+        }
+
+        Rectangle {
+            Layout.fillWidth: true
+            visible: root.reply.length > 0
+            radius: 16
+            color: "#F7F8FA"
+            implicitHeight: replyColumn.implicitHeight + 28
+
+            ColumnLayout {
+                id: replyColumn
+                anchors.fill: parent
+                anchors.margins: 14
+                spacing: 6
+
+                Text {
+                    text: "助手回复"
+                    color: "#64748B"
+                    font.pixelSize: 12
+                    font.bold: true
+                }
+
+                Text {
+                    Layout.fillWidth: true
+                    text: root.reply
+                    color: "#374151"
+                    font.pixelSize: 13
+                    wrapMode: Text.WordWrap
+                }
+            }
+        }
+
+        Rectangle {
+            Layout.fillWidth: true
+            visible: root.resultTitle.length > 0 || root.resultText.length > 0
             radius: 16
             color: "#EAF0FF"
+            implicitHeight: resultColumn.implicitHeight + 28
+
+            ColumnLayout {
+                id: resultColumn
+                anchors.fill: parent
+                anchors.margins: 14
+                spacing: 6
+
+                Text {
+                    Layout.fillWidth: true
+                    text: root.resultTitle.length > 0 ? root.resultTitle : "执行结果"
+                    color: "#1E3A8A"
+                    font.pixelSize: 14
+                    font.bold: true
+                    wrapMode: Text.WordWrap
+                }
+
+                Text {
+                    Layout.fillWidth: true
+                    text: root.resultText
+                    color: "#1E3A8A"
+                    font.pixelSize: 13
+                    wrapMode: Text.WordWrap
+                }
+            }
+        }
+
+        Rectangle {
+            Layout.fillWidth: true
+            visible: sidecarClient !== null && sidecarClient.lastEventText.length > 0
+            radius: 16
+            color: "#ECFDF3"
             implicitHeight: eventText.implicitHeight + 28
 
             Text {
                 id: eventText
                 anchors.fill: parent
                 anchors.margins: 14
-                text: "最近事件：" + sidecarClient.lastEventText
-                color: "#1E3A8A"
+                text: "最近事件：" + (sidecarClient !== null ? sidecarClient.lastEventText : "")
+                color: "#166534"
                 font.pixelSize: 13
                 wrapMode: Text.WordWrap
             }
@@ -128,7 +221,7 @@ Rectangle {
 
         Rectangle {
             Layout.fillWidth: true
-            visible: sidecarClient.errorMessage.length > 0
+            visible: sidecarClient !== null && sidecarClient.errorMessage.length > 0
             radius: 16
             color: "#FEF2F2"
             implicitHeight: errorText.implicitHeight + 28
@@ -137,7 +230,7 @@ Rectangle {
                 id: errorText
                 anchors.fill: parent
                 anchors.margins: 14
-                text: "错误：" + sidecarClient.errorMessage
+                text: "错误：" + (sidecarClient !== null ? sidecarClient.errorMessage : "")
                 color: "#991B1B"
                 font.pixelSize: 13
                 wrapMode: Text.WordWrap

@@ -6,6 +6,7 @@ Rectangle {
 
     property var notesControllerRef: null
     property var sidecarClientRef: null
+
     readonly property bool apiBusy: notesControllerRef !== null && notesControllerRef.isBusy
     readonly property bool apiConnected: notesControllerRef !== null && notesControllerRef.apiConnected
     readonly property bool sidecarConnected: sidecarClientRef !== null && sidecarClientRef.connected
@@ -84,7 +85,7 @@ Rectangle {
         }
 
         StatusBadge {
-            text: sidecarClientRef !== null ? sidecarClientRef.assistantStatusText : "语音助手未连接"
+            text: root.sidecarClientRef !== null ? root.sidecarClientRef.assistantStatusText : "语音助手未连接"
             dotColor: root.sidecarConnected ? "#16A34A" : "#F59E0B"
             bgColor: root.sidecarConnected ? "#ECFDF3" : "#FFF7ED"
             textColor: root.sidecarConnected ? "#166534" : "#92400E"

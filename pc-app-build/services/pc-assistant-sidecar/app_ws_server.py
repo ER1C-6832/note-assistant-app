@@ -44,8 +44,6 @@ class SidecarWebSocketServer:
                     task.cancel()
 
     async def _handle_client(self, websocket: WebSocketServerProtocol) -> None:
-        # websockets versions expose path differently. In 5.1.1 we accept the
-        # connection and rely on the fixed endpoint configured by the app.
         self.clients.add(websocket)
         logger.info("Client connected: %s", getattr(websocket, "remote_address", ""))
 
@@ -65,18 +63,11 @@ class SidecarWebSocketServer:
             self.clients.discard(websocket)
             logger.info("Client disconnected: %s", getattr(websocket, "remote_address", ""))
 
-    async def _handle_message(
-        self,
-        websocket: WebSocketServerProtocol,
-        raw_message: str,
-    ) -> None:
+    async def _handle_message(self, websocket: WebSocketServerProtocol, raw_message: str) -> None:
         try:
             message = json.loads(raw_message)
         except json.JSONDecodeError:
-            await self._send(websocket, {
-                "type": "error",
-                "message": "Invalid JSON message",
-            })
+            await self._send(websocket, {"type": "error", "message": "Invalid JSON message"})
             return
 
         message_type = message.get("type")
@@ -90,10 +81,7 @@ class SidecarWebSocketServer:
             return
 
         if message_type == "refresh_notes":
-            await self.broadcast({
-                "type": "notes_changed",
-                "reason": "manual_refresh",
-            })
+            await self.broadcast({"type": "notes_changed", "reason": "manual_refresh"})
             return
 
         await self._send(websocket, {
@@ -110,7 +98,6 @@ class SidecarWebSocketServer:
         while True:
             try:
                 changed = await self.watcher.check_changed()
-
                 if changed:
                     logger.info("Broadcast notes_changed: %s", changed.get("reason"))
                     await self.broadcast(changed)
@@ -135,9 +122,5 @@ class SidecarWebSocketServer:
         for client in closed:
             self.clients.discard(client)
 
-    async def _send(
-        self,
-        websocket: WebSocketServerProtocol,
-        payload: dict[str, Any],
-    ) -> None:
+    async def _send(self, websocket: WebSocketServerProtocol, payload: dict[str, Any]) -> None:
         await websocket.send(json.dumps(payload, ensure_ascii=False))

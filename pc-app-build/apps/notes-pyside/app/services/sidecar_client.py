@@ -81,7 +81,6 @@ class SidecarClient(QObject):
     def start(self) -> None:
         if self._thread and self._thread.is_alive():
             return
-
         self._stop_event.clear()
         self._thread = threading.Thread(target=self._run_thread, daemon=True)
         self._thread.start()
@@ -141,7 +140,6 @@ class SidecarClient(QObject):
     def _set_error(self, message: str) -> None:
         if not message:
             return
-
         self._error_message = message
         self._last_event_text = f"Sidecar 连接失败：{message[:80]}"
         self.statusChanged.emit()

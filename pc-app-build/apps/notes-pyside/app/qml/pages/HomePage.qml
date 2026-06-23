@@ -15,6 +15,7 @@ Item {
     signal createRequested()
     signal editRequested()
     signal deleteRequested()
+    signal searchRequested()
     signal pinRequested()
     signal bulkDeleteRequested(var noteIds)
     signal bulkPinRequested(var noteIds)

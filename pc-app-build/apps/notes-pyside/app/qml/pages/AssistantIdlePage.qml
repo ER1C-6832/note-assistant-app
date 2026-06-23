@@ -108,7 +108,6 @@ Item {
         AssistantPanel {
             Layout.preferredWidth: 460
             Layout.fillHeight: true
-            statusText: sidecarClient.assistantStatusText
         }
     }
 }

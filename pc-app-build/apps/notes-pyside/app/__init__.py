@@ -1,5 +1,5 @@
 """
-Note Assistant — PySide6 + QML Application Package.
+PySide6 + QML application bootstrap.
 """
 
 from __future__ import annotations
@@ -9,7 +9,6 @@ import sys
 from pathlib import Path
 
 _PKG_DIR = os.path.dirname(os.path.abspath(__file__))
-
 if _PKG_DIR not in sys.path:
     sys.path.insert(0, _PKG_DIR)
 
@@ -20,24 +19,20 @@ def _load_env_file(path: Path) -> None:
 
     for raw_line in path.read_text(encoding="utf-8").splitlines():
         line = raw_line.strip()
-
         if not line or line.startswith("#") or "=" not in line:
             continue
 
         key, value = line.split("=", 1)
         key = key.strip()
         value = value.strip().strip('"').strip("'")
-
         if key and key not in os.environ:
             os.environ[key] = value
 
 
 def run_app() -> int:
-    """Launch the PySide6 desktop application."""
+    """Create the Qt application, load QML, and start the event loop."""
 
-    # Must be set before QGuiApplication is created. Without this, the Windows
-    # native Qt Quick Controls style rejects custom background/contentItem
-    # delegates used by TextField and ScrollBar.
+    # Must be set before QGuiApplication is created.
     os.environ.setdefault("QT_QUICK_CONTROLS_STYLE", "Basic")
     os.environ.setdefault("QT_API", "pyside6")
 
@@ -52,7 +47,6 @@ def run_app() -> int:
 
     app = QGuiApplication(sys.argv)
     app.setApplicationDisplayName("小智便签")
-    app.setApplicationName("Note Assistant")
     app.setOrganizationName("NoteAssistant")
 
     notes_controller = NotesController()
@@ -65,8 +59,6 @@ def run_app() -> int:
     engine = QQmlApplicationEngine()
     context = engine.rootContext()
 
-    # Old QML pages use notesModel/deletedNotesModel. Some earlier bootstrap
-    # versions exposed notesListModel/deletedNotesListModel. Keep both names.
     context.setContextProperty("notesController", notes_controller)
     context.setContextProperty("notesModel", notes_controller.notes_model)
     context.setContextProperty("deletedNotesModel", notes_controller.deleted_notes_model)

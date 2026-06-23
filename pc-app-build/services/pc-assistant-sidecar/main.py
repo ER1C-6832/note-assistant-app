@@ -5,7 +5,6 @@ import json
 import logging
 import sys
 from pathlib import Path
-from urllib.error import URLError
 from urllib.request import urlopen
 
 CURRENT_DIR = Path(__file__).resolve().parent
@@ -33,8 +32,7 @@ def _existing_sidecar_is_healthy(config: SidecarConfig) -> bool:
         with urlopen(config.health_url, timeout=1.0) as response:
             if response.status != 200:
                 return False
-            raw = response.read().decode("utf-8", errors="replace")
-            payload = json.loads(raw)
+            payload = json.loads(response.read().decode("utf-8", errors="replace"))
             return bool(payload.get("ok"))
     except Exception:
         return False
