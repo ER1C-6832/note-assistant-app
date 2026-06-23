@@ -55,6 +55,7 @@ Rectangle {
 
             RowLayout {
                 Layout.fillWidth: true
+                spacing: 10
 
                 Text {
                     Layout.fillWidth: true
@@ -66,9 +67,12 @@ Rectangle {
                 }
 
                 Text {
+                    Layout.preferredWidth: 118
                     text: root.updated
-                    color: "#9CA3AF"
+                    color: "#8A94A6"
                     font.pixelSize: 11
+                    horizontalAlignment: Text.AlignRight
+                    elide: Text.ElideRight
                 }
             }
 
@@ -84,6 +88,7 @@ Rectangle {
 
             RowLayout {
                 Layout.fillWidth: true
+                spacing: 10
 
                 Text {
                     Layout.fillWidth: true

@@ -7,8 +7,11 @@ import "../components"
 Item {
     id: root
 
+    property string initialTags: ""
+    property bool initialPinned: false
+
     signal backRequested()
-    signal saved(string titleText, string contentText, string tagsText)
+    signal saved(string titleText, string contentText, string tagsText, bool isPinned)
 
     Rectangle {
         anchors.fill: parent
@@ -36,7 +39,7 @@ Item {
                     }
 
                     Text {
-                        text: "记录新的想法、客户事项或待办。"
+                        text: root.initialTags.length > 0 || root.initialPinned ? "已根据当前分类预填默认属性。" : "记录新的想法、客户事项或待办。"
                         color: "#6B7280"
                         font.pixelSize: 13
                     }
@@ -53,7 +56,7 @@ Item {
                     text: "保存"
                     variant: "primary"
                     compact: true
-                    onClicked: root.saved(titleField.text, contentArea.text, tagsField.text)
+                    onClicked: root.saved(titleField.text, contentArea.text, tagsField.text, pinnedCheck.checked)
                 }
             }
 
@@ -86,12 +89,20 @@ Item {
                 id: tagsField
                 Layout.fillWidth: true
                 height: 48
+                text: root.initialTags
                 placeholderText: "标签，例如：客户、跟进"
                 background: Rectangle {
                     color: "#F7F8FA"
                     radius: 14
                     border.color: "#E5E7EB"
                 }
+            }
+
+            CheckBox {
+                id: pinnedCheck
+                text: "置顶"
+                checked: root.initialPinned
+                font.pixelSize: 14
             }
 
             Rectangle {

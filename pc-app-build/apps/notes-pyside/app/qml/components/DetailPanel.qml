@@ -115,13 +115,13 @@ Rectangle {
                     clip: true
                     boundsBehavior: Flickable.DragOverBounds
 
-                    ScrollBar.vertical: ScrollBar {
-                        policy: ScrollBar.AsNeeded
+                    ScrollBar.vertical: SlimScrollBar {
+                        anchors.right: parent.right
                     }
 
                     TextEdit {
                         id: detailText
-                        width: parent.width
+                        width: parent.width - 12
                         text: root.content
                         readOnly: true
                         selectByMouse: true

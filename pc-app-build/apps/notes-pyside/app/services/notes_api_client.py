@@ -1,5 +1,8 @@
 """
 HTTP client for the Notes API.
+
+Localhost requests must not use system proxy settings. Some Windows proxy/VPN
+setups route 127.0.0.1 through the proxy and can return intermittent 502.
 """
 
 from __future__ import annotations
@@ -12,18 +15,20 @@ import httpx
 
 
 class NotesApiError(RuntimeError):
-    pass
+    """Base error for Notes API communication."""
 
 
 class NotesApiConnectionError(NotesApiError):
-    pass
+    """Raised when the app cannot connect to the Notes API."""
 
 
 class NotesApiHttpError(NotesApiError):
-    pass
+    """Raised when the Notes API returns a non-2xx response."""
 
 
 class NotesApiClient:
+    """Synchronous HTTP client used by the PySide6 controller."""
+
     def __init__(self, base_url: str | None = None, timeout: float = 4.0) -> None:
         self.base_url = (base_url or os.getenv("NOTES_API_BASE_URL") or "http://127.0.0.1:18080").rstrip("/")
         self.timeout = timeout
@@ -50,12 +55,12 @@ class NotesApiClient:
 
         return self._request("GET", "/api/notes", params=params)
 
-    def create_note(self, *, title: str, content: str, tags: list[str], source: str = "manual") -> dict[str, Any]:
+    def create_note(self, *, title: str, content: str, tags: list[str], source: str = "manual", is_pinned: bool = False) -> dict[str, Any]:
         payload = {
             "title": title,
             "content": content,
             "tags": tags,
-            "is_pinned": False,
+            "is_pinned": is_pinned,
             "source": source,
         }
         return self._request("POST", "/api/notes", json=payload)
@@ -102,7 +107,7 @@ class NotesApiClient:
                 response = client.request(method, url, **kwargs)
                 response.raise_for_status()
         except httpx.HTTPStatusError as exc:
-            detail = (exc.response.text or "请求失败").strip()[:240]
+            detail = _safe_response_text(exc.response.text)
             raise NotesApiHttpError(f"Notes API returned {exc.response.status_code}: {detail}") from exc
         except httpx.RequestError as exc:
             raise NotesApiConnectionError(f"无法连接 Notes API：{self.base_url}") from exc
@@ -111,3 +116,10 @@ class NotesApiClient:
             return response.json()
 
         return None
+
+
+def _safe_response_text(text: str) -> str:
+    clean = (text or "").strip()
+    if not clean:
+        return "请求失败"
+    return clean[:240]

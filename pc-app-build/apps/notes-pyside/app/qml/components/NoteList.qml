@@ -196,13 +196,14 @@ Rectangle {
             spacing: 12
             clip: true
             boundsBehavior: Flickable.DragOverBounds
+            rightMargin: 10
 
-            ScrollBar.vertical: ScrollBar {
-                policy: ScrollBar.AsNeeded
+            ScrollBar.vertical: SlimScrollBar {
+                anchors.right: parent.right
             }
 
             delegate: NoteCard {
-                width: ListView.view.width
+                width: ListView.view.width - 14
                 noteId: model.noteId
                 title: model.title
                 content: model.content

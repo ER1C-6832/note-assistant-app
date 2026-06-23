@@ -159,13 +159,14 @@ Item {
                     spacing: 12
                     clip: true
                     boundsBehavior: Flickable.DragOverBounds
+                    rightMargin: 10
 
-                    ScrollBar.vertical: ScrollBar {
-                        policy: ScrollBar.AsNeeded
+                    ScrollBar.vertical: SlimScrollBar {
+                        anchors.right: parent.right
                     }
 
                     delegate: Rectangle {
-                        width: ListView.view.width
+                        width: ListView.view.width - 14
                         height: 128
                         radius: 18
                         color: "#F3F4F6"

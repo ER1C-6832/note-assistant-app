@@ -274,8 +274,8 @@ class NotesController(QObject):
                 ids.append(note.id)
         return ids
 
-    @Slot(str, str, str, result=bool)
-    def createNote(self, title: str, content: str, tags_text: str) -> bool:
+    @Slot(str, str, str, bool, result=bool)
+    def createNote(self, title: str, content: str, tags_text: str, is_pinned: bool = False) -> bool:
         clean_title = title.strip()
         clean_content = content.strip()
 
@@ -290,10 +290,11 @@ class NotesController(QObject):
                 content=clean_content,
                 tags=_parse_tags(tags_text),
                 source="manual",
+                is_pinned=bool(is_pinned),
             )
             self._set_connected()
             self._set_status("便签已保存")
-            self.loadAll()
+            self._reload_current_view()
             return True
         except NotesApiError as exc:
             self._handle_error(exc)

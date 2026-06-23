@@ -20,6 +20,32 @@ ApplicationWindow {
     property string currentCategory: "all"
     property string pendingCategory: "all"
 
+    function createInitialTags() {
+        if (currentCategory === "todo") {
+            return "待办"
+        }
+        if (currentCategory.indexOf("tag:") === 0) {
+            return currentCategory.substring(4)
+        }
+        return ""
+    }
+
+    function createInitialPinned() {
+        return currentCategory === "pinned"
+    }
+
+    function reloadCurrentContext() {
+        if (currentCategory === "pinned") {
+            notesController.loadCategory("pinned")
+        } else if (currentCategory === "todo") {
+            notesController.loadCategory("todo")
+        } else if (currentCategory.indexOf("tag:") === 0) {
+            notesController.loadTag(currentCategory.substring(4))
+        } else {
+            notesController.loadAll()
+        }
+    }
+
     function openPage(pageName) {
         currentPage = pageName
     }
@@ -239,14 +265,17 @@ ApplicationWindow {
         id: createPage
 
         CreateNotePage {
+            initialTags: root.createInitialTags()
+            initialPinned: root.createInitialPinned()
+
             onBackRequested: {
                 root.openPage("home")
             }
 
-            onSaved: function(titleText, contentText, tagsText) {
-                if (notesController.createNote(titleText, contentText, tagsText)) {
-                    root.currentCategory = "all"
+            onSaved: function(titleText, contentText, tagsText, isPinned) {
+                if (notesController.createNote(titleText, contentText, tagsText, isPinned)) {
                     root.openPage("home")
+                    root.reloadCurrentContext()
                 }
             }
         }
