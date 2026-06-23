@@ -22,12 +22,15 @@ def _serialize_tags(tags: list[str] | None) -> str:
 def _deserialize_tags(raw_tags: str | None) -> list[str]:
     if not raw_tags:
         return []
+
     try:
         value = json.loads(raw_tags)
     except json.JSONDecodeError:
         return []
+
     if not isinstance(value, list):
         return []
+
     return [str(item) for item in value]
 
 
@@ -61,35 +64,60 @@ def create_note(db: Session, payload: NoteCreate) -> NoteRead:
 
 def get_note(db: Session, note_id: int, include_deleted: bool = False) -> NoteRead | None:
     stmt = select(Note).where(Note.id == note_id)
+
     if not include_deleted:
         stmt = stmt.where(Note.is_deleted.is_(False))
+
     note = db.execute(stmt).scalar_one_or_none()
     return note_to_read(note) if note else None
 
 
-def list_notes(db: Session, *, include_deleted: bool = False, tag: str | None = None, limit: int = 50, offset: int = 0) -> list[NoteRead]:
+def list_notes(
+    db: Session,
+    *,
+    include_deleted: bool = False,
+    tag: str | None = None,
+    limit: int = 50,
+    offset: int = 0,
+) -> list[NoteRead]:
     stmt = select(Note)
+
     if not include_deleted:
         stmt = stmt.where(Note.is_deleted.is_(False))
+
     if tag:
         stmt = stmt.where(Note.tags.like(f"%{tag}%"))
-    stmt = stmt.order_by(Note.is_pinned.desc(), Note.updated_at.desc(), Note.id.desc()).offset(offset).limit(limit)
+
+    stmt = (
+        stmt.order_by(Note.is_pinned.desc(), Note.updated_at.desc(), Note.id.desc())
+        .offset(offset)
+        .limit(limit)
+    )
+
     notes = db.execute(stmt).scalars().all()
     return [note_to_read(note) for note in notes]
 
 
 def update_note(db: Session, note_id: int, payload: NoteUpdate) -> NoteRead | None:
-    note = db.execute(select(Note).where(Note.id == note_id, Note.is_deleted.is_(False))).scalar_one_or_none()
+    note = db.execute(
+        select(Note).where(Note.id == note_id, Note.is_deleted.is_(False))
+    ).scalar_one_or_none()
+
     if note is None:
         return None
+
     if payload.title is not None:
         note.title = payload.title
+
     if payload.content is not None:
         note.content = payload.content
+
     if payload.tags is not None:
         note.tags = _serialize_tags(payload.tags)
+
     if payload.is_pinned is not None:
         note.is_pinned = payload.is_pinned
+
     note.updated_at = datetime.utcnow()
     db.commit()
     db.refresh(note)
@@ -97,9 +125,13 @@ def update_note(db: Session, note_id: int, payload: NoteUpdate) -> NoteRead | No
 
 
 def soft_delete_note(db: Session, note_id: int) -> Note | None:
-    note = db.execute(select(Note).where(Note.id == note_id, Note.is_deleted.is_(False))).scalar_one_or_none()
+    note = db.execute(
+        select(Note).where(Note.id == note_id, Note.is_deleted.is_(False))
+    ).scalar_one_or_none()
+
     if note is None:
         return None
+
     note.is_deleted = True
     note.is_pinned = False
     note.updated_at = datetime.utcnow()
@@ -110,8 +142,10 @@ def soft_delete_note(db: Session, note_id: int) -> Note | None:
 
 def restore_note(db: Session, note_id: int) -> NoteRead | None:
     note = db.execute(select(Note).where(Note.id == note_id)).scalar_one_or_none()
+
     if note is None:
         return None
+
     note.is_deleted = False
     note.updated_at = datetime.utcnow()
     db.commit()
@@ -121,8 +155,10 @@ def restore_note(db: Session, note_id: int) -> NoteRead | None:
 
 def hard_delete_note(db: Session, note_id: int) -> bool:
     note = db.execute(select(Note).where(Note.id == note_id)).scalar_one_or_none()
+
     if note is None:
         return False
+
     db.delete(note)
     db.commit()
     return True

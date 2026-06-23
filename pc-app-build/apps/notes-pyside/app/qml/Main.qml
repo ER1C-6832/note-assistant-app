@@ -36,15 +36,19 @@ ApplicationWindow {
         categoryLoadTimer.restart()
     }
 
+    function openTag(tagName) {
+        currentCategory = "tag:" + tagName
+        currentPage = "home"
+        tagLoadTimer.tagName = tagName
+        tagLoadTimer.restart()
+    }
+
     Timer {
         id: startupTimer
-        interval: 80
+        interval: 260
         repeat: false
 
-        onTriggered: {
-            notesController.testConnection()
-            notesController.loadAll()
-        }
+        onTriggered: notesController.loadAll()
     }
 
     Timer {
@@ -59,6 +63,15 @@ ApplicationWindow {
                 notesController.loadCategory(root.pendingCategory)
             }
         }
+    }
+
+    Timer {
+        id: tagLoadTimer
+        property string tagName: ""
+        interval: 30
+        repeat: false
+
+        onTriggered: notesController.loadTag(tagName)
     }
 
     Timer {
@@ -114,6 +127,10 @@ ApplicationWindow {
 
                 onCategoryRequested: function(categoryKey) {
                     root.openCategory(categoryKey)
+                }
+
+                onTagRequested: function(tagName) {
+                    root.openTag(tagName)
                 }
 
                 onDeletedRequested: {

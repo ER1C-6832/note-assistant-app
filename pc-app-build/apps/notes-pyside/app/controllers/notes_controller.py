@@ -1,11 +1,13 @@
 """
 Notes controller exposed to QML.
-
-This controller connects the PC UI to the Notes API for manual note operations:
-list, create, edit, soft delete, restore, pin/unpin, and fuzzy search.
 """
 
 from __future__ import annotations
+
+import json
+from pathlib import Path
+from threading import Thread
+from typing import Any, Callable
 
 from PySide6.QtCore import QObject, Property, Signal, Slot
 
@@ -19,19 +21,14 @@ from app.services.notes_api_client import (
 
 
 class NotesController(QObject):
-    """Bridge between QML and the Notes API."""
-
     stateChanged = Signal()
     selectedChanged = Signal()
     statusChanged = Signal()
+    tagsChanged = Signal()
+    _asyncSuccess = Signal(int, str, object, str)
+    _asyncError = Signal(int, object)
 
-    _CATEGORY_TO_TAG = {
-        "customer": "客户",
-        "meeting": "会议",
-        "todo": "待办",
-        "screen": "屏幕",
-        "controller": "游戏手柄",
-    }
+    _PROTECTED_TAGS = {"待办"}
 
     def __init__(self) -> None:
         super().__init__()
@@ -49,6 +46,13 @@ class NotesController(QObject):
         self._result_count = 0
         self._deleted_result_count = 0
         self._is_busy = False
+        self._request_token = 0
+        self._all_known_notes: list[Note] = []
+        self._visible_tags: list[str] = []
+        self._custom_tags = self._load_custom_tags()
+
+        self._asyncSuccess.connect(self._handle_async_success)
+        self._asyncError.connect(self._handle_async_error)
 
     @Property(int, notify=selectedChanged)
     def selectedIndex(self) -> int:
@@ -92,10 +96,6 @@ class NotesController(QObject):
     def deletedSelectedIndex(self) -> int:
         return self._deleted_selected_index
 
-    @Property(bool, notify=selectedChanged)
-    def hasDeletedSelection(self) -> bool:
-        return self._deleted_selected_note() is not None
-
     @Property(str, notify=statusChanged)
     def statusMessage(self) -> str:
         return self._status_message
@@ -128,6 +128,10 @@ class NotesController(QObject):
     def deletedResultCount(self) -> int:
         return self._deleted_result_count
 
+    @Property("QVariantList", notify=tagsChanged)
+    def tagNames(self) -> list[str]:
+        return list(self._visible_tags)
+
     @Slot()
     def refresh(self) -> None:
         self._reload_current_view()
@@ -136,63 +140,65 @@ class NotesController(QObject):
     def loadAll(self) -> None:
         self._active_category = "all"
         self._search_keyword = ""
-        self._set_busy(True)
-        self._run_and_update(lambda: self._client.list_notes(include_deleted=False), "已加载全部便签")
-        self._set_busy(False)
+        self._start_fetch(
+            "notes",
+            lambda: self._client.list_notes(include_deleted=False),
+            "已加载全部便签",
+        )
         self.stateChanged.emit()
 
     @Slot(str)
     def loadCategory(self, category_key: str) -> None:
         self._active_category = category_key
         self._search_keyword = ""
-        self._set_busy(True)
 
         if category_key == "all":
-            self._run_and_update(lambda: self._client.list_notes(include_deleted=False), "已加载全部便签")
-        elif category_key == "pinned":
-            try:
-                notes = self._fetch_notes(include_deleted=False)
-                pinned_notes = [note for note in notes if note.is_pinned]
-                self._set_notes(pinned_notes, "已加载置顶便签")
-            except NotesApiError as exc:
-                self._handle_error(exc)
-        else:
-            tag = self._CATEGORY_TO_TAG.get(category_key)
-            if tag:
-                self._run_and_update(
-                    lambda: self._client.list_notes(include_deleted=False, tag=tag),
-                    f"已加载{tag}便签",
-                )
-            else:
-                self._run_and_update(lambda: self._client.list_notes(include_deleted=False), "已加载全部便签")
+            self.loadAll()
+            return
 
-        self._set_busy(False)
+        if category_key == "pinned":
+            self._start_fetch(
+                "pinned",
+                lambda: self._client.list_notes(include_deleted=False),
+                "已加载置顶便签",
+            )
+            self.stateChanged.emit()
+            return
+
+        if category_key == "todo":
+            self.loadTag("待办")
+            return
+
+        if category_key.startswith("tag:"):
+            self.loadTag(category_key[4:])
+            return
+
+        self.loadAll()
+
+    @Slot(str)
+    def loadTag(self, tag: str) -> None:
+        clean_tag = tag.strip()
+        if not clean_tag:
+            self.loadAll()
+            return
+
+        self._active_category = f"tag:{clean_tag}"
+        self._search_keyword = ""
+        self._start_fetch(
+            "notes",
+            lambda: self._client.list_notes(include_deleted=False, tag=clean_tag),
+            f"已加载{clean_tag}便签",
+        )
         self.stateChanged.emit()
 
     @Slot()
     def loadDeleted(self) -> None:
         self._active_category = "deleted"
-        self._set_busy(True)
-
-        try:
-            notes = self._fetch_notes(include_deleted=True)
-            deleted = [note for note in notes if note.is_deleted]
-            self.deleted_notes_model.set_notes(deleted)
-            self._deleted_result_count = len(deleted)
-            self._result_count = len(deleted)
-            self._deleted_selected_index = 0 if deleted else -1
-            self._selected_index = -1
-            self._set_connected()
-            self._set_status("已加载已删除便签")
-            self.selectedChanged.emit()
-        except NotesApiError as exc:
-            self.deleted_notes_model.set_notes([])
-            self._deleted_result_count = 0
-            self._result_count = 0
-            self._deleted_selected_index = -1
-            self._handle_error(exc)
-
-        self._set_busy(False)
+        self._start_fetch(
+            "deleted",
+            lambda: self._client.list_notes(include_deleted=True),
+            "已加载已删除便签",
+        )
         self.stateChanged.emit()
 
     @Slot(str)
@@ -205,16 +211,11 @@ class NotesController(QObject):
             self.loadAll()
             return
 
-        self._set_busy(True)
-        try:
-            payload = self._client.search_notes(query=query, limit=100)
-            notes = [note_from_api(item) for item in payload.get("items", [])]
-            self._set_notes(notes, f"找到 {len(notes)} 条相关便签")
-        except NotesApiError as exc:
-            self._handle_error(exc)
-            self._set_notes([], "搜索失败")
-
-        self._set_busy(False)
+        self._start_fetch(
+            "search",
+            lambda: self._client.search_notes(query=query, limit=100),
+            "搜索完成",
+        )
         self.stateChanged.emit()
 
     @Slot(int)
@@ -298,6 +299,26 @@ class NotesController(QObject):
             return False
         return self._soft_delete_ids([note.id])
 
+    @Slot(result=bool)
+    def toggleSelectedPin(self) -> bool:
+        note = self._selected_note()
+        if note is None:
+            self._set_error("请先选择一条便签")
+            return False
+
+        self._set_busy(True)
+        try:
+            self._client.update_note(note.id, is_pinned=not note.is_pinned)
+            self._set_connected()
+            self._set_status("已置顶" if not note.is_pinned else "已取消置顶")
+            self._reload_current_view()
+            return True
+        except NotesApiError as exc:
+            self._handle_error(exc)
+            return False
+        finally:
+            self._set_busy(False)
+
     @Slot("QVariantList", result=bool)
     def bulkDeleteNotesByIds(self, note_ids) -> bool:
         ids = _normalize_ids(note_ids)
@@ -312,6 +333,7 @@ class NotesController(QObject):
         if not ids:
             self._set_error("请选择便签")
             return False
+
         self._set_busy(True)
         try:
             for note_id in ids:
@@ -326,40 +348,13 @@ class NotesController(QObject):
         finally:
             self._set_busy(False)
 
-    @Slot(result=bool)
-    def toggleSelectedPin(self) -> bool:
-        note = self._selected_note()
-        if note is None:
-            self._set_error("请先选择一条便签")
-            return False
-
-        self._set_busy(True)
-        try:
-            self._client.update_note(note.id, is_pinned=not note.is_pinned)
-            self._set_connected()
-            self._set_status("已置顶" if not note.is_pinned else "已取消置顶")
-            self.loadCategory(self._active_category or "all")
-            return True
-        except NotesApiError as exc:
-            self._handle_error(exc)
-            return False
-        finally:
-            self._set_busy(False)
-
-    @Slot(result=bool)
-    def restoreSelectedDeletedNote(self) -> bool:
-        note = self._deleted_selected_note()
+    @Slot(int, result=bool)
+    def restoreDeletedNoteAt(self, index: int) -> bool:
+        note = self.deleted_notes_model.get_note(index)
         if note is None:
             self._set_error("请先选择一条已删除便签")
             return False
-
         return self.bulkRestoreDeletedNotesByIds([note.id])
-
-    @Slot(int, result=bool)
-    def restoreDeletedNoteAt(self, index: int) -> bool:
-        self.selectDeletedNote(index)
-        return self.restoreSelectedDeletedNote()
-
 
     @Slot("QVariantList", result=bool)
     def bulkRestoreDeletedNotesByIds(self, note_ids) -> bool:
@@ -367,6 +362,7 @@ class NotesController(QObject):
         if not ids:
             self._set_error("请选择已删除便签")
             return False
+
         self._set_busy(True)
         try:
             for note_id in ids:
@@ -395,6 +391,7 @@ class NotesController(QObject):
         if not ids:
             self._set_error("请选择已删除便签")
             return False
+
         self._set_busy(True)
         try:
             for note_id in ids:
@@ -408,6 +405,151 @@ class NotesController(QObject):
             return False
         finally:
             self._set_busy(False)
+
+    @Slot(str, result=bool)
+    def addCustomTag(self, tag: str) -> bool:
+        clean_tag = tag.strip()
+        if not clean_tag:
+            self._set_error("标签不能为空")
+            return False
+
+        if clean_tag in {"全部", "置顶", "已删除"}:
+            self._set_error("不能使用系统分类名称")
+            return False
+
+        if clean_tag not in self._custom_tags:
+            self._custom_tags.append(clean_tag)
+            self._custom_tags.sort()
+            self._save_custom_tags()
+            self._rebuild_visible_tags(self._all_known_notes)
+            self._set_status("标签已添加")
+        return True
+
+    @Slot(str, result=bool)
+    def deleteTag(self, tag: str) -> bool:
+        clean_tag = tag.strip()
+        if not clean_tag:
+            return False
+
+        if clean_tag in self._PROTECTED_TAGS:
+            self._set_error("该标签不能删除")
+            return False
+
+        try:
+            notes = [
+                note_from_api(item)
+                for item in self._client.list_notes(include_deleted=True, limit=200)
+            ]
+        except NotesApiError as exc:
+            self._handle_error(exc)
+            return False
+
+        for note in notes:
+            if clean_tag in note.tags:
+                self._set_error("该标签下还有便签，不能删除")
+                return False
+
+        if clean_tag in self._custom_tags:
+            self._custom_tags.remove(clean_tag)
+            self._save_custom_tags()
+
+        self._rebuild_visible_tags(notes)
+        self._set_status("标签已删除")
+        return True
+
+    @Slot(str, result=bool)
+    def tagCanDelete(self, tag: str) -> bool:
+        clean_tag = tag.strip()
+
+        if not clean_tag or clean_tag in self._PROTECTED_TAGS:
+            return False
+
+        for note in self._all_known_notes:
+            if clean_tag in note.tags:
+                return False
+
+        return clean_tag in self._custom_tags
+
+    @Slot(result=bool)
+    def testConnection(self) -> bool:
+        self._set_busy(True)
+        try:
+            self._client.health()
+            self._set_connected()
+            self._set_status("Notes API 已连接")
+            return True
+        except NotesApiError as exc:
+            self._handle_error(exc)
+            return False
+        finally:
+            self._set_busy(False)
+
+    def _start_fetch(self, kind: str, fetcher: Callable[[], Any], success_message: str) -> None:
+        self._request_token += 1
+        token = self._request_token
+        self._set_busy(True)
+
+        def worker() -> None:
+            try:
+                result = fetcher()
+            except NotesApiError as exc:
+                self._asyncError.emit(token, exc)
+                return
+            self._asyncSuccess.emit(token, kind, result, success_message)
+
+        Thread(target=worker, daemon=True).start()
+
+    def _handle_async_success(self, token: int, kind: str, result: object, success_message: str) -> None:
+        if token != self._request_token:
+            return
+
+        try:
+            if kind == "search":
+                payload = result if isinstance(result, dict) else {}
+                notes = [note_from_api(item) for item in payload.get("items", [])]
+                self._set_notes(notes, f"找到 {len(notes)} 条相关便签")
+            elif kind == "deleted":
+                items = result if isinstance(result, list) else []
+                notes = [note_from_api(item) for item in items]
+                self._all_known_notes = notes
+                deleted = [note for note in notes if note.is_deleted]
+                self.deleted_notes_model.set_notes(deleted)
+                self._deleted_result_count = len(deleted)
+                self._result_count = len(deleted)
+                self._deleted_selected_index = 0 if deleted else -1
+                self._selected_index = -1
+                self._rebuild_visible_tags(notes)
+                self._set_status(success_message)
+                self.selectedChanged.emit()
+            elif kind == "pinned":
+                items = result if isinstance(result, list) else []
+                notes = [note_from_api(item) for item in items]
+                self._all_known_notes = notes
+                self._set_notes([note for note in notes if note.is_pinned], success_message)
+                self._rebuild_visible_tags(notes)
+            else:
+                items = result if isinstance(result, list) else []
+                notes = [note_from_api(item) for item in items]
+                self._all_known_notes = notes
+                self._set_notes(notes, success_message)
+                self._rebuild_visible_tags(notes)
+
+            self._set_connected()
+        finally:
+            self._set_busy(False)
+            self.stateChanged.emit()
+
+    def _handle_async_error(self, token: int, exc: object) -> None:
+        if token != self._request_token:
+            return
+
+        if isinstance(exc, NotesApiError):
+            self._handle_error(exc)
+        else:
+            self._set_error(str(exc))
+
+        self._set_busy(False)
+        self.stateChanged.emit()
 
     def _soft_delete_ids(self, ids: list[int]) -> bool:
         self._set_busy(True)
@@ -432,34 +574,6 @@ class NotesController(QObject):
         else:
             self.loadCategory(self._active_category or "all")
 
-    @Slot(result=bool)
-    def testConnection(self) -> bool:
-        self._set_busy(True)
-        try:
-            self._client.health()
-            self._set_connected()
-            self._set_status("Notes API 已连接")
-            return True
-        except NotesApiError as exc:
-            self._handle_error(exc)
-            return False
-        finally:
-            self._set_busy(False)
-
-    def _fetch_notes(self, *, include_deleted: bool) -> list[Note]:
-        payload = self._client.list_notes(include_deleted=include_deleted, limit=200)
-        self._set_connected()
-        return [note_from_api(item) for item in payload]
-
-    def _run_and_update(self, fetcher, success_message: str) -> None:
-        try:
-            payload = fetcher()
-            notes = [note_from_api(item) for item in payload]
-            self._set_notes(notes, success_message)
-        except NotesApiError as exc:
-            self._handle_error(exc)
-            self._set_notes([], "加载失败")
-
     def _set_notes(self, notes: list[Note], status_message: str) -> None:
         self.notes_model.set_notes(notes)
         self._result_count = len(notes)
@@ -471,9 +585,6 @@ class NotesController(QObject):
 
     def _selected_note(self) -> Note | None:
         return self.notes_model.get_note(self._selected_index)
-
-    def _deleted_selected_note(self) -> Note | None:
-        return self.deleted_notes_model.get_note(self._deleted_selected_index)
 
     def _set_busy(self, value: bool) -> None:
         if self._is_busy != value:
@@ -505,6 +616,43 @@ class NotesController(QObject):
             self._set_error(str(exc), mark_offline=False)
         else:
             self._set_error(str(exc), mark_offline=False)
+
+    def _rebuild_visible_tags(self, notes: list[Note]) -> None:
+        tag_set = set(self._custom_tags)
+
+        for note in notes:
+            if note.is_deleted:
+                continue
+            for tag in note.tags:
+                if tag not in self._PROTECTED_TAGS:
+                    tag_set.add(tag)
+
+        self._visible_tags = sorted(tag_set)
+        self.tagsChanged.emit()
+
+    def _tag_store_path(self) -> Path:
+        app_root = Path(__file__).resolve().parents[1]
+        return app_root / "data" / "custom_tags.json"
+
+    def _load_custom_tags(self) -> list[str]:
+        path = self._tag_store_path()
+        if not path.exists():
+            return []
+
+        try:
+            value = json.loads(path.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            return []
+
+        if not isinstance(value, list):
+            return []
+
+        return sorted({str(item).strip() for item in value if str(item).strip()})
+
+    def _save_custom_tags(self) -> None:
+        path = self._tag_store_path()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(self._custom_tags, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
 def _parse_tags(tags_text: str) -> list[str]:
