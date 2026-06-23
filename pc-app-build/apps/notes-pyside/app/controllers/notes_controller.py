@@ -130,7 +130,7 @@ class NotesController(QObject):
 
     @Slot()
     def refresh(self) -> None:
-        self.loadAll()
+        self._reload_current_view()
 
     @Slot()
     def loadAll(self) -> None:
@@ -282,7 +282,7 @@ class NotesController(QObject):
             )
             self._set_connected()
             self._set_status("便签已更新")
-            self.loadAll()
+            self._reload_current_view()
             return True
         except NotesApiError as exc:
             self._handle_error(exc)
@@ -296,13 +296,29 @@ class NotesController(QObject):
         if note is None:
             self._set_error("请先选择一条便签")
             return False
+        return self._soft_delete_ids([note.id])
 
+    @Slot("QVariantList", result=bool)
+    def bulkDeleteNotesByIds(self, note_ids) -> bool:
+        ids = _normalize_ids(note_ids)
+        if not ids:
+            self._set_error("请选择便签")
+            return False
+        return self._soft_delete_ids(ids)
+
+    @Slot("QVariantList", result=bool)
+    def bulkPinNotesByIds(self, note_ids) -> bool:
+        ids = _normalize_ids(note_ids)
+        if not ids:
+            self._set_error("请选择便签")
+            return False
         self._set_busy(True)
         try:
-            self._client.delete_note(note.id)
+            for note_id in ids:
+                self._client.update_note(note_id, is_pinned=True)
             self._set_connected()
-            self._set_status("便签已删除")
-            self.loadAll()
+            self._set_status(f"已置顶 {len(ids)} 条便签")
+            self._reload_current_view()
             return True
         except NotesApiError as exc:
             self._handle_error(exc)
@@ -337,11 +353,26 @@ class NotesController(QObject):
             self._set_error("请先选择一条已删除便签")
             return False
 
+        return self.bulkRestoreDeletedNotesByIds([note.id])
+
+    @Slot(int, result=bool)
+    def restoreDeletedNoteAt(self, index: int) -> bool:
+        self.selectDeletedNote(index)
+        return self.restoreSelectedDeletedNote()
+
+
+    @Slot("QVariantList", result=bool)
+    def bulkRestoreDeletedNotesByIds(self, note_ids) -> bool:
+        ids = _normalize_ids(note_ids)
+        if not ids:
+            self._set_error("请选择已删除便签")
+            return False
         self._set_busy(True)
         try:
-            self._client.restore_note(note.id)
+            for note_id in ids:
+                self._client.restore_note(note_id)
             self._set_connected()
-            self._set_status("便签已还原")
+            self._set_status(f"已还原 {len(ids)} 条便签")
             self.loadDeleted()
             return True
         except NotesApiError as exc:
@@ -351,9 +382,55 @@ class NotesController(QObject):
             self._set_busy(False)
 
     @Slot(int, result=bool)
-    def restoreDeletedNoteAt(self, index: int) -> bool:
-        self.selectDeletedNote(index)
-        return self.restoreSelectedDeletedNote()
+    def hardDeleteDeletedNoteAt(self, index: int) -> bool:
+        note = self.deleted_notes_model.get_note(index)
+        if note is None:
+            self._set_error("请先选择一条已删除便签")
+            return False
+        return self.bulkHardDeleteDeletedNotesByIds([note.id])
+
+    @Slot("QVariantList", result=bool)
+    def bulkHardDeleteDeletedNotesByIds(self, note_ids) -> bool:
+        ids = _normalize_ids(note_ids)
+        if not ids:
+            self._set_error("请选择已删除便签")
+            return False
+        self._set_busy(True)
+        try:
+            for note_id in ids:
+                self._client.hard_delete_note(note_id)
+            self._set_connected()
+            self._set_status(f"已彻底删除 {len(ids)} 条便签")
+            self.loadDeleted()
+            return True
+        except NotesApiError as exc:
+            self._handle_error(exc)
+            return False
+        finally:
+            self._set_busy(False)
+
+    def _soft_delete_ids(self, ids: list[int]) -> bool:
+        self._set_busy(True)
+        try:
+            for note_id in ids:
+                self._client.delete_note(note_id)
+            self._set_connected()
+            self._set_status(f"已删除 {len(ids)} 条便签")
+            self._reload_current_view()
+            return True
+        except NotesApiError as exc:
+            self._handle_error(exc)
+            return False
+        finally:
+            self._set_busy(False)
+
+    def _reload_current_view(self) -> None:
+        if self._active_category == "search" and self._search_keyword:
+            self.searchNotes(self._search_keyword)
+        elif self._active_category == "deleted":
+            self.loadDeleted()
+        else:
+            self.loadCategory(self._active_category or "all")
 
     @Slot(result=bool)
     def testConnection(self) -> bool:
@@ -438,3 +515,13 @@ def _parse_tags(tags_text: str) -> list[str]:
         normalized = normalized.replace(sep, ",")
 
     return [tag.strip() for tag in normalized.split(",") if tag.strip()]
+
+
+def _normalize_ids(note_ids) -> list[int]:
+    ids: list[int] = []
+    for value in note_ids:
+        try:
+            ids.append(int(value))
+        except (TypeError, ValueError):
+            continue
+    return ids

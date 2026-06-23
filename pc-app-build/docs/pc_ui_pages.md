@@ -1,6 +1,6 @@
 # PC UI Pages
 
-The PC app is now a usable basic note app with real Notes API integration.
+The PC app is now a basic usable note app with real Notes API integration.
 
 ## Implemented User Features
 
@@ -10,9 +10,13 @@ The PC app is now a usable basic note app with real Notes API integration.
 3. Edit notes
 4. Soft-delete notes
 5. Restore deleted notes
-6. Pin / unpin notes
-7. View pinned notes
-8. Fuzzy search notes
+6. Permanently delete notes from 已删除
+7. Pin / unpin notes
+8. Multi-select notes
+9. Bulk delete selected notes
+10. Bulk pin selected notes
+11. Live fuzzy search
+12. GMT+8 time display
 ```
 
 ## Main Pages
@@ -27,8 +31,3 @@ The PC app is now a usable basic note app with real Notes API integration.
 | 已删除 | `DeletedNotesPage.qml` | ✅ |
 | 设置 | `SettingsPage.qml` | ✅ |
 | 语音助手 | `AssistantIdlePage.qml` | ✅ |
-
-## Current Boundary
-
-Manual note management is functional. Voice assistant pages remain visual states
-until Sidecar integration.

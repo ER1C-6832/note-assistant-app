@@ -93,6 +93,9 @@ class NotesApiClient:
     def restore_note(self, note_id: int) -> dict[str, Any]:
         return self._request("POST", f"/api/notes/{note_id}/restore")
 
+    def hard_delete_note(self, note_id: int) -> dict[str, Any]:
+        return self._request("DELETE", f"/api/notes/{note_id}/hard")
+
     def search_notes(self, *, query: str, limit: int = 100) -> dict[str, Any]:
         return self._request("GET", "/api/notes/search", params={"q": query, "limit": limit})
 
