@@ -56,7 +56,7 @@ Rectangle {
 
         Text {
             Layout.fillWidth: true
-            text: "可以继续在 py-xiaozhi 中说：帮我记录、查一下王总、修改或删除便签。"
+            text: "py-xiaozhi EventBus 正在把真实状态、识别文本、助手回复和工具结果推送到这里。"
             color: "#4B5563"
             font.pixelSize: 14
             wrapMode: Text.WordWrap
@@ -76,6 +76,24 @@ Rectangle {
                 anchors.margins: 14
                 text: "运行状态：" + (sidecarClient !== null ? sidecarClient.lastRuntimeStateText : "")
                 color: "#075985"
+                font.pixelSize: 13
+                wrapMode: Text.WordWrap
+            }
+        }
+
+        Rectangle {
+            Layout.fillWidth: true
+            visible: sidecarClient !== null && sidecarClient.lastAudioChannelText.length > 0
+            radius: 16
+            color: "#F8FAFC"
+            implicitHeight: audioText.implicitHeight + 28
+
+            Text {
+                id: audioText
+                anchors.fill: parent
+                anchors.margins: 14
+                text: "音频通道：" + (sidecarClient !== null ? sidecarClient.lastAudioChannelText : "")
+                color: "#475569"
                 font.pixelSize: 13
                 wrapMode: Text.WordWrap
             }
@@ -128,6 +146,42 @@ Rectangle {
 
         Rectangle {
             Layout.fillWidth: true
+            visible: root.transcript.length > 0
+            radius: 16
+            color: "#F8FAFC"
+            implicitHeight: transcriptText.implicitHeight + 28
+
+            Text {
+                id: transcriptText
+                anchors.fill: parent
+                anchors.margins: 14
+                text: "识别文本：" + root.transcript
+                color: "#374151"
+                font.pixelSize: 13
+                wrapMode: Text.WordWrap
+            }
+        }
+
+        Rectangle {
+            Layout.fillWidth: true
+            visible: root.reply.length > 0
+            radius: 16
+            color: "#F7F8FA"
+            implicitHeight: replyText.implicitHeight + 28
+
+            Text {
+                id: replyText
+                anchors.fill: parent
+                anchors.margins: 14
+                text: "助手回复：" + root.reply
+                color: "#374151"
+                font.pixelSize: 13
+                wrapMode: Text.WordWrap
+            }
+        }
+
+        Rectangle {
+            Layout.fillWidth: true
             visible: sidecarClient !== null && (sidecarClient.lastToolEventText.length > 0 || sidecarClient.lastToolResultText.length > 0)
             radius: 16
             color: "#EAF0FF"
@@ -167,42 +221,6 @@ Rectangle {
                     font.pixelSize: 13
                     wrapMode: Text.WordWrap
                 }
-            }
-        }
-
-        Rectangle {
-            Layout.fillWidth: true
-            visible: root.transcript.length > 0
-            radius: 16
-            color: "#F8FAFC"
-            implicitHeight: transcriptText.implicitHeight + 28
-
-            Text {
-                id: transcriptText
-                anchors.fill: parent
-                anchors.margins: 14
-                text: "识别文本：" + root.transcript
-                color: "#374151"
-                font.pixelSize: 13
-                wrapMode: Text.WordWrap
-            }
-        }
-
-        Rectangle {
-            Layout.fillWidth: true
-            visible: root.reply.length > 0
-            radius: 16
-            color: "#F7F8FA"
-            implicitHeight: replyText.implicitHeight + 28
-
-            Text {
-                id: replyText
-                anchors.fill: parent
-                anchors.margins: 14
-                text: "助手回复：" + root.reply
-                color: "#374151"
-                font.pixelSize: 13
-                wrapMode: Text.WordWrap
             }
         }
 

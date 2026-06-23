@@ -44,11 +44,8 @@ def _emit_tool_result(
     name="notes.create",
     description=(
         "Create a note in the Note Assistant / 小智便签 app through the local Notes API. "
-        "Use this tool whenever the user says: 便签, 小智便签, 便签App, 记到便签, 新增便签, "
-        "创建便签, 记录客户事项, 待办便签, 报价便签, 产品便签. "
-        "Do NOT use file.write or notepad.write for app notes; those are for local files or Windows Notepad. "
-        "Parameters: title is required; content is optional; tags is a comma-separated string like 客户,待办; "
-        "is_pinned can be true when the user wants pinned/top note."
+        "Use this tool whenever the user says 新增便签, 创建便签, 记到便签, 记录客户事项. "
+        "Do not use file.write or notepad.write for app notes."
     ),
     props=[
         Prop("title", PropType.STR),
@@ -60,9 +57,8 @@ def _emit_tool_result(
 async def tool_create_note(args) -> str:
     title = (args.get("title") or "").strip()
     content = args.get("content", "") or ""
-    tags = args.get("tags", "") or ""
+    tag_list = parse_tags(args.get("tags", "") or "")
     is_pinned = parse_bool(args.get("is_pinned", False))
-    tag_list = parse_tags(tags)
 
     _emit_tool_call("notes.create", {
         "title": title,
@@ -99,12 +95,56 @@ async def tool_create_note(args) -> str:
 
 
 @mcp_tool(
+    name="notes.get",
+    description=(
+        "Get one exact note by note_id from the Note Assistant / 小智便签 app. "
+        "Use after notes.search when a candidate note_id is known."
+    ),
+    props=[Prop("note_id", PropType.INT)],
+)
+async def tool_get_note(args) -> str:
+    try:
+        note_id = int(args.get("note_id"))
+    except Exception:
+        message = "读取便签失败：note_id 无效"
+        _emit_tool_result("notes.get", False, message)
+        return _json({"success": False, "message": message})
+
+    _emit_tool_call("notes.get", {"note_id": note_id})
+
+    try:
+        note = NotesApiClient().get_note(note_id)
+        message = f"读取便签成功：{note.get('title', note_id)}"
+        _emit_tool_result(
+            "notes.get",
+            True,
+            message,
+            data={"note_id": note.get("id", note_id), "title": note.get("title", "")},
+            note_changed=False,
+        )
+        return _json({"success": True, "note": note})
+    except Exception as exc:
+        message = f"读取便签失败：{exc}"
+        _emit_tool_result("notes.get", False, message)
+        return _json({"success": False, "message": message})
+
+
+@mcp_tool(
+    name="notes.get_note",
+    description=(
+        "Alias of notes.get. Get one exact note by note_id from 小智便签."
+    ),
+    props=[Prop("note_id", PropType.INT)],
+)
+async def tool_get_note_alias(args) -> str:
+    return await tool_get_note(args)
+
+
+@mcp_tool(
     name="notes.search",
     description=(
         "Search notes in the Note Assistant / 小智便签 app through the local Notes API. "
-        "Use this when the user asks to 查便签, 搜便签, 找便签, 查询客户事项, 查询报价, 查询待办. "
-        "This searches app notes, not files and not Windows Notepad. "
-        "Parameter query is the keyword, such as 王总, 包装, 屏幕, 游戏手柄."
+        "Use this for 查便签, 搜便签, 找便签, 查询客户事项."
     ),
     props=[
         Prop("query", PropType.STR),
@@ -134,10 +174,7 @@ async def tool_search_notes(args) -> str:
                 "query": query,
                 "total": total,
                 "items_preview": [
-                    {
-                        "id": item.get("id"),
-                        "title": item.get("title"),
-                    }
+                    {"id": item.get("id"), "title": item.get("title")}
                     for item in result.get("items", [])[:5]
                 ],
             },
@@ -157,27 +194,17 @@ async def tool_search_notes(args) -> str:
 
 @mcp_tool(
     name="notes.list",
-    description=(
-        "List recent notes in the Note Assistant / 小智便签 app. "
-        "Use this when the user asks 最近便签, 列出便签, 看一下便签列表."
-    ),
+    description="List recent notes in the Note Assistant / 小智便签 app.",
     props=[Prop("limit", PropType.INT, default=10)],
 )
 async def tool_list_notes(args) -> str:
     limit = int(args.get("limit", 10) or 10)
-
     _emit_tool_call("notes.list", {"limit": limit})
 
     try:
         notes = NotesApiClient().list_notes(limit=limit)
         message = f"已列出 {len(notes)} 条最近便签"
-        _emit_tool_result(
-            "notes.list",
-            True,
-            message,
-            data={"count": len(notes)},
-            note_changed=False,
-        )
+        _emit_tool_result("notes.list", True, message, data={"count": len(notes)})
         return _json({"success": True, "items": notes})
     except Exception as exc:
         message = f"列出便签失败：{exc}"
@@ -188,9 +215,8 @@ async def tool_list_notes(args) -> str:
 @mcp_tool(
     name="notes.update",
     description=(
-        "Update an existing note in the Note Assistant / 小智便签 app by note_id. "
-        "Use only after the target note is clear. If the user gives a vague target, call notes.search first. "
-        "Do not use file tools or notepad tools for updating app notes."
+        "Update an existing note in 小智便签 by note_id. "
+        "If the target is vague, call notes.search first, then notes.get if needed."
     ),
     props=[
         Prop("note_id", PropType.INT),
@@ -246,9 +272,8 @@ async def tool_update_note(args) -> str:
 @mcp_tool(
     name="notes.delete",
     description=(
-        "Soft-delete an existing note in the Note Assistant / 小智便签 app by note_id. "
-        "Use only after the user clearly confirms the target note. If the target is vague, call notes.search first. "
-        "This moves the note to deleted notes; it does not permanently erase it."
+        "Soft-delete an existing note in 小智便签 by note_id. "
+        "Use only after the user clearly confirms the target note."
     ),
     props=[Prop("note_id", PropType.INT)],
 )

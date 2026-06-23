@@ -34,14 +34,31 @@ class NotesApiClient:
             },
         )
 
+    def get_note(self, note_id: int) -> dict[str, Any]:
+        note_id = int(note_id)
+
+        try:
+            return self._request("GET", f"/api/notes/{note_id}")
+        except Exception as first_exc:
+            # Fallback for older Notes API builds that may not expose GET /api/notes/{id}.
+            items = self.list_notes(limit=500, include_deleted=True)
+            for item in items:
+                if int(item.get("id", -1)) == note_id:
+                    return item
+            raise RuntimeError(f"Note not found: {note_id}") from first_exc
+
     def search_notes(self, query: str, limit: int = 10) -> dict[str, Any]:
         qs = urlencode({"q": query, "limit": max(1, min(int(limit or 10), 20))})
         return self._request("GET", f"/api/notes/search?{qs}")
 
-    def list_notes(self, limit: int = 10) -> list[dict[str, Any]]:
+    def list_notes(
+        self,
+        limit: int = 10,
+        include_deleted: bool = False,
+    ) -> list[dict[str, Any]]:
         qs = urlencode({
-            "limit": max(1, min(int(limit or 10), 20)),
-            "include_deleted": "false",
+            "limit": max(1, min(int(limit or 10), 500)),
+            "include_deleted": "true" if include_deleted else "false",
         })
         return self._request("GET", f"/api/notes?{qs}")
 

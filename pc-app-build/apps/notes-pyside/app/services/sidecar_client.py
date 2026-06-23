@@ -41,6 +41,7 @@ class SidecarClient(QObject):
         self._last_assistant_reply_text = ""
         self._last_runtime_log_text = ""
         self._last_runtime_state_text = ""
+        self._last_audio_channel_text = ""
         self._error_message = ""
         self._thread: threading.Thread | None = None
         self._stop_event = threading.Event()
@@ -112,6 +113,10 @@ class SidecarClient(QObject):
     @Property(str, notify=statusChanged)
     def lastRuntimeStateText(self) -> str:
         return self._last_runtime_state_text
+
+    @Property(str, notify=statusChanged)
+    def lastAudioChannelText(self) -> str:
+        return self._last_audio_channel_text
 
     @Property(str, notify=statusChanged)
     def errorMessage(self) -> str:
@@ -226,6 +231,23 @@ class SidecarClient(QObject):
             self._handle_tool_result(payload)
             return
 
+        if event_type in {"assistant_status", "assistant_state"}:
+            text = payload.get("message") or payload.get("status") or payload.get("state") or "语音助手状态更新"
+            self._last_runtime_state_text = str(text)
+            self._last_event_text = str(text)
+            status = str(payload.get("status") or payload.get("state") or "").lower()
+            if status in {"idle", "listening", "speaking", "connected", "stopped"}:
+                mapping = {
+                    "idle": "语音助手空闲",
+                    "listening": "语音助手正在聆听",
+                    "speaking": "语音助手正在播报",
+                    "connected": "语音运行时已连接",
+                    "stopped": "语音运行时已停止",
+                }
+                self._assistant_status_text = mapping.get(status, self._assistant_status_text)
+            self.statusChanged.emit()
+            return
+
         if event_type == "assistant_transcript":
             self._last_transcript_text = payload.get("text", "")
             self._last_event_text = payload.get("message", "收到语音识别文本")
@@ -238,9 +260,15 @@ class SidecarClient(QObject):
             self.statusChanged.emit()
             return
 
-        if event_type == "assistant_state":
-            self._last_runtime_state_text = payload.get("message", payload.get("state", ""))
-            self._last_event_text = self._last_runtime_state_text
+        if event_type == "audio_channel":
+            self._last_audio_channel_text = payload.get("message", payload.get("state", ""))
+            self._last_event_text = self._last_audio_channel_text
+            self.statusChanged.emit()
+            return
+
+        if event_type == "runtime_error":
+            self._error_message = payload.get("message", "py-xiaozhi runtime error")
+            self._last_event_text = self._error_message
             self.statusChanged.emit()
             return
 
