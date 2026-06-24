@@ -39,6 +39,13 @@ class SidecarClient(QObject):
         self._assistant_state = "offline"
         self._notes_api_status_text = "Notes API 未确认"
         self._py_xiaozhi_status_text = "py-xiaozhi 未确认"
+        self._py_xiaozhi_root_text = ""
+        self._py_xiaozhi_python_text = ""
+        self._py_xiaozhi_pids_text = ""
+        self._py_xiaozhi_process_count = 0
+        self._py_xiaozhi_launchable = False
+        self._py_xiaozhi_running = False
+        self._last_runtime_action_text = ""
         self._notes_tool_status_text = "notes 工具未确认"
         self._last_event_text = ""
         self._last_tool_event_text = ""
@@ -95,6 +102,34 @@ class SidecarClient(QObject):
     @Property(str, notify=statusChanged)
     def pyXiaozhiStatusText(self) -> str:
         return self._py_xiaozhi_status_text
+
+    @Property(str, notify=statusChanged)
+    def pyXiaozhiRootText(self) -> str:
+        return self._py_xiaozhi_root_text
+
+    @Property(str, notify=statusChanged)
+    def pyXiaozhiPythonText(self) -> str:
+        return self._py_xiaozhi_python_text
+
+    @Property(str, notify=statusChanged)
+    def pyXiaozhiPidsText(self) -> str:
+        return self._py_xiaozhi_pids_text
+
+    @Property(int, notify=statusChanged)
+    def pyXiaozhiProcessCount(self) -> int:
+        return self._py_xiaozhi_process_count
+
+    @Property(bool, notify=statusChanged)
+    def pyXiaozhiLaunchable(self) -> bool:
+        return self._py_xiaozhi_launchable
+
+    @Property(bool, notify=statusChanged)
+    def pyXiaozhiRunning(self) -> bool:
+        return self._py_xiaozhi_running
+
+    @Property(str, notify=statusChanged)
+    def lastRuntimeActionText(self) -> str:
+        return self._last_runtime_action_text
 
     @Property(str, notify=statusChanged)
     def notesToolStatusText(self) -> str:
@@ -219,6 +254,32 @@ class SidecarClient(QObject):
         self._assistant_state = "aborting"
         self._assistant_status_text = "正在请求打断"
         self._queue_control("abort")
+
+    @Slot()
+    def startPyXiaozhi(self) -> None:
+        self._queue_runtime_action("start_py_xiaozhi")
+
+    @Slot()
+    def stopPyXiaozhi(self) -> None:
+        self._queue_runtime_action("stop_py_xiaozhi")
+
+    @Slot()
+    def restartPyXiaozhi(self) -> None:
+        self._queue_runtime_action("restart_py_xiaozhi")
+
+    def _queue_runtime_action(self, action_type: str) -> None:
+        if not self._connected:
+            self.start()
+
+        message = {
+            "type": action_type,
+            "request_id": f"pc-app-runtime-{int(time.time() * 1000)}",
+        }
+
+        self._outbox.put(message)
+        self._last_runtime_action_text = f"已发送 py-xiaozhi 运行时操作：{action_type}"
+        self._last_event_text = self._last_runtime_action_text
+        self.statusChanged.emit()
 
     def _queue_control(self, command_type: str, **payload: Any) -> None:
         if not self._connected:
@@ -373,6 +434,22 @@ class SidecarClient(QObject):
             self.statusChanged.emit()
             return
 
+        if event_type == "runtime_action_accepted":
+            self._last_runtime_action_text = payload.get("message", "py-xiaozhi 运行时操作已接收")
+            self._last_event_text = self._last_runtime_action_text
+            self.statusChanged.emit()
+            return
+
+        if event_type == "runtime_action_result":
+            self._last_runtime_action_text = payload.get("message", "py-xiaozhi 运行时操作完成")
+            self._last_event_text = self._last_runtime_action_text
+            data = payload.get("data", {}) or {}
+            status = data.get("status", {}) or {}
+            if status:
+                self._apply_py_xiaozhi_status(status)
+            self.statusChanged.emit()
+            return
+
         if event_type == "notes_changed":
             reason = payload.get("reason", "changed")
             self._last_event_text = f"检测到便签变化：{reason}"
@@ -475,6 +552,35 @@ class SidecarClient(QObject):
         if bool(payload.get("note_changed")):
             self.notesChanged.emit()
 
+    def _apply_py_xiaozhi_status(self, py_xiaozhi: dict[str, Any]) -> None:
+        root_exists = bool(py_xiaozhi.get("root_exists"))
+        main_py_exists = bool(py_xiaozhi.get("main_py_exists"))
+        notes_tool_installed = bool(py_xiaozhi.get("notes_tool_installed"))
+        process_running = bool(py_xiaozhi.get("process_running"))
+        process_count = int(py_xiaozhi.get("process_count") or 0)
+        process_pids = py_xiaozhi.get("process_pids") or []
+
+        self._py_xiaozhi_running = process_running
+        self._py_xiaozhi_process_count = process_count
+        self._py_xiaozhi_launchable = bool(py_xiaozhi.get("launchable"))
+        self._py_xiaozhi_root_text = str(py_xiaozhi.get("root") or "")
+        self._py_xiaozhi_python_text = str(py_xiaozhi.get("python") or "")
+        self._py_xiaozhi_pids_text = ", ".join([str(pid) for pid in process_pids]) if process_pids else ""
+
+        bridge_ok = bool(py_xiaozhi.get("pc_bridge_installed"))
+        bridge_text = "bridge 已安装" if bridge_ok else "bridge 未安装"
+
+        self._py_xiaozhi_status_text = (
+            f"py-xiaozhi 运行中（{process_count} 个进程）" if process_running else
+            "py-xiaozhi 已配置，未运行" if root_exists and main_py_exists else
+            "py-xiaozhi 未配置"
+        )
+        self._notes_tool_status_text = (
+            ("notes 工具已安装" if notes_tool_installed else "notes 工具未安装")
+            + " · "
+            + bridge_text
+        )
+
     def _apply_status(self, payload: dict[str, Any]) -> None:
         notes_api = payload.get("notes_api", {}) or {}
         py_xiaozhi = payload.get("py_xiaozhi", {}) or {}
@@ -486,12 +592,7 @@ class SidecarClient(QObject):
         process_running = bool(py_xiaozhi.get("process_running"))
 
         self._notes_api_status_text = "Notes API 已连接" if notes_api_ok else "Notes API 未连接"
-        self._py_xiaozhi_status_text = (
-            "py-xiaozhi 运行中" if process_running else
-            "py-xiaozhi 已配置" if root_exists and main_py_exists else
-            "py-xiaozhi 未配置"
-        )
-        self._notes_tool_status_text = "notes 工具已安装" if notes_tool_installed else "notes 工具未安装"
+        self._apply_py_xiaozhi_status(py_xiaozhi)
 
         if self._connected and notes_api_ok and root_exists and main_py_exists and notes_tool_installed:
             self._assistant_status_text = "语音运行时已就绪" if process_running else "语音运行时未启动"

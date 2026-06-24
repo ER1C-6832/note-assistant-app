@@ -1,55 +1,12 @@
 from __future__ import annotations
 
 import asyncio
-import os
-import subprocess
-from pathlib import Path
 from typing import Any
 
 import httpx
 
 from config import SidecarConfig
-
-
-def _detect_py_xiaozhi_python(config: SidecarConfig) -> str:
-    if config.py_xiaozhi_python:
-        return config.py_xiaozhi_python
-
-    candidates = [
-        config.py_xiaozhi_root / ".venv" / "Scripts" / "python.exe",
-        config.py_xiaozhi_root / "venv" / "Scripts" / "python.exe",
-    ]
-
-    for candidate in candidates:
-        if candidate.exists():
-            return str(candidate)
-
-    return "python"
-
-
-def _is_process_running(process_name_or_path: str) -> bool:
-    if os.name != "nt":
-        return False
-
-    try:
-        result = subprocess.run(
-            ["tasklist"],
-            capture_output=True,
-            text=True,
-            encoding="mbcs",
-            errors="ignore",
-            timeout=4,
-        )
-    except Exception:
-        return False
-
-    haystack = result.stdout.lower()
-    needle = process_name_or_path.lower()
-
-    if needle.endswith(".py"):
-        return "python.exe" in haystack or "pythonw.exe" in haystack
-
-    return needle in haystack
+from py_xiaozhi_process_manager import PyXiaozhiProcessManager
 
 
 async def check_notes_api(config: SidecarConfig) -> dict[str, Any]:
@@ -74,19 +31,7 @@ async def check_notes_api(config: SidecarConfig) -> dict[str, Any]:
 
 
 def check_py_xiaozhi(config: SidecarConfig) -> dict[str, Any]:
-    root = config.py_xiaozhi_root
-    main_py = root / "main.py"
-    notes_tool = root / "src" / "mcp" / "tools" / "notes" / "_tools.py"
-    python_exe = _detect_py_xiaozhi_python(config)
-
-    return {
-        "root": str(root),
-        "root_exists": root.exists(),
-        "main_py_exists": main_py.exists(),
-        "notes_tool_installed": notes_tool.exists(),
-        "python": python_exe,
-        "process_running": _is_process_running("python.exe"),
-    }
+    return PyXiaozhiProcessManager(config).status()
 
 
 async def collect_status(config: SidecarConfig) -> dict[str, Any]:

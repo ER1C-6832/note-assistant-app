@@ -42,7 +42,7 @@ Item {
                 Layout.fillWidth: true
                 radius: 18
                 color: "#F7F8FA"
-                implicitHeight: 370
+                implicitHeight: 360
 
                 ColumnLayout {
                     anchors.fill: parent
@@ -113,22 +113,6 @@ Item {
                         wrapMode: Text.WordWrap
                     }
 
-                    Text {
-                        Layout.fillWidth: true
-                        text: sidecarClient.pyXiaozhiStatusText + " · " + sidecarClient.notesToolStatusText
-                        color: "#4B5563"
-                        font.pixelSize: 13
-                        wrapMode: Text.WordWrap
-                    }
-
-                    Text {
-                        Layout.fillWidth: true
-                        text: sidecarClient.lastEventText.length > 0 ? "最近事件：" + sidecarClient.lastEventText : "最近事件：暂无"
-                        color: "#6B7280"
-                        font.pixelSize: 13
-                        wrapMode: Text.WordWrap
-                    }
-
                     RowLayout {
                         spacing: 12
 
@@ -149,6 +133,111 @@ Item {
 
             Rectangle {
                 Layout.fillWidth: true
+                radius: 18
+                color: "#F8FAFC"
+                implicitHeight: 300
+
+                ColumnLayout {
+                    anchors.fill: parent
+                    anchors.margins: 20
+                    spacing: 12
+
+                    RowLayout {
+                        Layout.fillWidth: true
+
+                        Text {
+                            Layout.fillWidth: true
+                            text: "py-xiaozhi 运行时"
+                            color: "#111827"
+                            font.pixelSize: 18
+                            font.bold: true
+                        }
+
+                        StatusBadge {
+                            text: sidecarClient.pyXiaozhiRunning ? "运行中" : "未运行"
+                            dotColor: sidecarClient.pyXiaozhiRunning ? "#16A34A" : "#F59E0B"
+                            bgColor: sidecarClient.pyXiaozhiRunning ? "#ECFDF3" : "#FFF7ED"
+                            textColor: sidecarClient.pyXiaozhiRunning ? "#166534" : "#92400E"
+                        }
+                    }
+
+                    Text {
+                        Layout.fillWidth: true
+                        text: sidecarClient.pyXiaozhiStatusText + " · " + sidecarClient.notesToolStatusText
+                        color: "#4B5563"
+                        font.pixelSize: 13
+                        wrapMode: Text.WordWrap
+                    }
+
+                    Text {
+                        Layout.fillWidth: true
+                        text: "Root: " + (sidecarClient.pyXiaozhiRootText.length > 0 ? sidecarClient.pyXiaozhiRootText : "未确认")
+                        color: "#6B7280"
+                        font.pixelSize: 12
+                        wrapMode: Text.WordWrap
+                    }
+
+                    Text {
+                        Layout.fillWidth: true
+                        text: "Python: " + (sidecarClient.pyXiaozhiPythonText.length > 0 ? sidecarClient.pyXiaozhiPythonText : "未确认")
+                        color: "#6B7280"
+                        font.pixelSize: 12
+                        wrapMode: Text.WordWrap
+                    }
+
+                    Text {
+                        Layout.fillWidth: true
+                        text: sidecarClient.pyXiaozhiPidsText.length > 0 ? "PID: " + sidecarClient.pyXiaozhiPidsText : "PID: 暂无"
+                        color: "#6B7280"
+                        font.pixelSize: 12
+                        wrapMode: Text.WordWrap
+                    }
+
+                    Text {
+                        Layout.fillWidth: true
+                        visible: sidecarClient.lastRuntimeActionText.length > 0
+                        text: "最近运行时操作：" + sidecarClient.lastRuntimeActionText
+                        color: "#075985"
+                        font.pixelSize: 13
+                        wrapMode: Text.WordWrap
+                    }
+
+                    RowLayout {
+                        spacing: 12
+
+                        AppButton {
+                            text: "启动 py-xiaozhi"
+                            variant: "primary"
+                            enabled: sidecarClient.connected && !sidecarClient.pyXiaozhiRunning && sidecarClient.pyXiaozhiLaunchable
+                            onClicked: sidecarClient.startPyXiaozhi()
+                        }
+
+                        AppButton {
+                            text: "重启"
+                            variant: "secondary"
+                            enabled: sidecarClient.connected && sidecarClient.pyXiaozhiLaunchable
+                            onClicked: sidecarClient.restartPyXiaozhi()
+                        }
+
+                        AppButton {
+                            text: "停止"
+                            variant: "softDanger"
+                            enabled: sidecarClient.connected && sidecarClient.pyXiaozhiRunning
+                            onClicked: sidecarClient.stopPyXiaozhi()
+                        }
+
+                        AppButton {
+                            text: "刷新"
+                            variant: "ghost"
+                            enabled: sidecarClient.connected
+                            onClicked: sidecarClient.refreshStatus()
+                        }
+                    }
+                }
+            }
+
+            Rectangle {
+                Layout.fillWidth: true
                 visible: notesController.errorMessage.length > 0 || sidecarClient.errorMessage.length > 0
                 radius: 14
                 color: "#FEF2F2"
@@ -160,6 +249,14 @@ Item {
                     color: "#991B1B"
                     font.pixelSize: 13
                 }
+            }
+
+            Text {
+                Layout.fillWidth: true
+                text: sidecarClient.lastEventText.length > 0 ? "最近事件：" + sidecarClient.lastEventText : "最近事件：暂无"
+                color: "#6B7280"
+                font.pixelSize: 13
+                wrapMode: Text.WordWrap
             }
 
             Item {

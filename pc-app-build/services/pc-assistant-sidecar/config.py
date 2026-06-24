@@ -35,6 +35,8 @@ class SidecarConfig:
     py_xiaozhi_python: str
     py_xiaozhi_protocol: str
     py_xiaozhi_log_path: Path | None
+    py_xiaozhi_start_mode: str
+    py_xiaozhi_auto_start: bool
     ws_host: str
     ws_port: int
     health_host: str
@@ -49,6 +51,17 @@ class SidecarConfig:
     @property
     def health_url(self) -> str:
         return f"http://{self.health_host}:{self.health_port}/api/health"
+
+
+def _as_bool(value: str, default: bool = False) -> bool:
+    if value is None:
+        return default
+    normalized = str(value).strip().lower()
+    if normalized in {"1", "true", "yes", "y", "on", "是"}:
+        return True
+    if normalized in {"0", "false", "no", "n", "off", "否"}:
+        return False
+    return default
 
 
 def _default_py_xiaozhi_log_path() -> Path | None:
@@ -90,6 +103,8 @@ def load_config() -> SidecarConfig:
         py_xiaozhi_python=os.getenv("PY_XIAOZHI_PYTHON", ""),
         py_xiaozhi_protocol=os.getenv("PY_XIAOZHI_PROTOCOL", "websocket"),
         py_xiaozhi_log_path=_default_py_xiaozhi_log_path(),
+        py_xiaozhi_start_mode=os.getenv("PY_XIAOZHI_START_MODE", "minimized").strip().lower(),
+        py_xiaozhi_auto_start=_as_bool(os.getenv("PY_XIAOZHI_AUTO_START", "0"), default=False),
         ws_host=os.getenv("SIDECAR_HOST", "127.0.0.1"),
         ws_port=int(os.getenv("SIDECAR_PORT", os.getenv("SIDECAR_WS_PORT", "17890"))),
         health_host=os.getenv("SIDECAR_HEALTH_HOST", "127.0.0.1"),

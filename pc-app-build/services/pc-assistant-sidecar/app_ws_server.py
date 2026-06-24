@@ -12,6 +12,7 @@ from config import SidecarConfig
 from control_store import ControlCommandHub
 from event_store import SidecarEventHub
 from notes_watcher import NotesSnapshotWatcher
+from py_xiaozhi_process_manager import PyXiaozhiProcessManager
 from status_checker import collect_status
 
 logger = logging.getLogger("sidecar.ws")
@@ -23,12 +24,14 @@ class SidecarWebSocketServer:
         config: SidecarConfig,
         event_hub: SidecarEventHub | None = None,
         control_hub: ControlCommandHub | None = None,
+        runtime_manager: PyXiaozhiProcessManager | None = None,
     ) -> None:
         self.config = config
         self.clients: set[WebSocketServerProtocol] = set()
         self.watcher = NotesSnapshotWatcher(config)
         self.event_hub = event_hub or SidecarEventHub()
         self.control_hub = control_hub or ControlCommandHub()
+        self.runtime_manager = runtime_manager or PyXiaozhiProcessManager(config)
         self._stop = asyncio.Event()
 
     async def start(self) -> None:
@@ -115,6 +118,14 @@ class SidecarWebSocketServer:
             await self._handle_control_message(websocket, message)
             return
 
+        if message_type in {
+            "start_py_xiaozhi",
+            "stop_py_xiaozhi",
+            "restart_py_xiaozhi",
+        }:
+            await self._handle_runtime_message(websocket, message)
+            return
+
         await self._send(websocket, {
             "type": "error",
             "message": f"Unknown message type: {message_type}",
@@ -146,6 +157,48 @@ class SidecarWebSocketServer:
             "command_id": command.get("command_id"),
             "message": f"Sidecar 已接收语音控制命令：{command_name}",
         })
+
+    async def _handle_runtime_message(self, websocket: WebSocketServerProtocol, message: dict[str, Any]) -> None:
+        message_type = str(message.get("type", ""))
+        mode = str(message.get("mode", "") or "")
+
+        await self._send(websocket, {
+            "type": "runtime_action_accepted",
+            "action": message_type,
+            "message": f"Sidecar 已接收 py-xiaozhi 运行时操作：{message_type}",
+        })
+
+        try:
+            if message_type == "start_py_xiaozhi":
+                result = await asyncio.to_thread(self.runtime_manager.start, mode or None)
+            elif message_type == "stop_py_xiaozhi":
+                result = await asyncio.to_thread(self.runtime_manager.stop)
+            elif message_type == "restart_py_xiaozhi":
+                result = await asyncio.to_thread(self.runtime_manager.restart, mode or None)
+            else:
+                result = {
+                    "ok": False,
+                    "action": message_type,
+                    "message": f"未知 py-xiaozhi 运行时操作：{message_type}",
+                }
+        except Exception as exc:
+            result = {
+                "ok": False,
+                "action": message_type,
+                "message": f"py-xiaozhi 运行时操作失败：{exc}",
+            }
+
+        event = {
+            "type": "runtime_action_result",
+            "source": "sidecar.runtime_manager",
+            "action": message_type,
+            "success": bool(result.get("ok")),
+            "message": result.get("message", ""),
+            "data": result,
+        }
+        await self.event_hub.publish(event)
+        await self._send(websocket, event)
+        await self._send(websocket, await collect_status(self.config))
 
     async def _status_loop(self) -> None:
         while True:

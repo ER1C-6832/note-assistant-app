@@ -8,6 +8,7 @@ from urllib.parse import parse_qs, urlparse
 from config import SidecarConfig
 from control_store import ControlCommandHub
 from event_store import SidecarEventHub
+from py_xiaozhi_process_manager import PyXiaozhiProcessManager
 from status_checker import collect_status
 
 logger = logging.getLogger("sidecar.health")
@@ -17,14 +18,17 @@ async def start_health_server(
     config: SidecarConfig,
     event_hub: SidecarEventHub | None = None,
     control_hub: ControlCommandHub | None = None,
+    runtime_manager: PyXiaozhiProcessManager | None = None,
 ) -> None:
     if event_hub is None:
         event_hub = SidecarEventHub()
     if control_hub is None:
         control_hub = ControlCommandHub()
+    if runtime_manager is None:
+        runtime_manager = PyXiaozhiProcessManager(config)
 
     server = await asyncio.start_server(
-        lambda reader, writer: _handle_http(reader, writer, config, event_hub, control_hub),
+        lambda reader, writer: _handle_http(reader, writer, config, event_hub, control_hub, runtime_manager),
         config.health_host,
         config.health_port,
     )
@@ -41,6 +45,7 @@ async def _handle_http(
     config: SidecarConfig,
     event_hub: SidecarEventHub,
     control_hub: ControlCommandHub,
+    runtime_manager: PyXiaozhiProcessManager,
 ) -> None:
     try:
         request_line = await reader.readline()
@@ -137,6 +142,48 @@ async def _handle_http(
                 "ok": True,
                 "type": "assistant_control_accepted",
                 "command": command,
+            })
+            return
+
+        if method == "GET" and path == "/api/runtime/py-xiaozhi/status":
+            await _write_json(writer, 200, {
+                "ok": True,
+                "type": "py_xiaozhi_runtime_status",
+                "status": runtime_manager.status(),
+            })
+            return
+
+        if method == "POST" and path in {
+            "/api/runtime/py-xiaozhi/start",
+            "/api/runtime/py-xiaozhi/stop",
+            "/api/runtime/py-xiaozhi/restart",
+        }:
+            payload = await _read_json_body(reader, headers)
+            mode = ""
+            if isinstance(payload, dict):
+                mode = str(payload.get("mode", "") or "")
+
+            if path.endswith("/start"):
+                result = await asyncio.to_thread(runtime_manager.start, mode or None)
+            elif path.endswith("/stop"):
+                result = await asyncio.to_thread(runtime_manager.stop)
+            else:
+                result = await asyncio.to_thread(runtime_manager.restart, mode or None)
+
+            event = {
+                "type": "runtime_action_result",
+                "source": "sidecar.runtime_manager",
+                "action": path.rsplit("/", 1)[-1],
+                "success": bool(result.get("ok")),
+                "message": result.get("message", ""),
+                "data": result,
+            }
+            await event_hub.publish(event)
+
+            await _write_json(writer, 200 if result.get("ok") else 500, {
+                "ok": bool(result.get("ok")),
+                "type": "py_xiaozhi_runtime_action_result",
+                "result": result,
             })
             return
 
