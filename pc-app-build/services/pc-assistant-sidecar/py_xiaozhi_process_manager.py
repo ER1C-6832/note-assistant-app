@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import os
 import subprocess
-import sys
 import time
 from pathlib import Path
 from typing import Any
@@ -13,11 +12,10 @@ from config import SidecarConfig
 class PyXiaozhiProcessManager:
     """Best-effort process manager for py-xiaozhi runtime.
 
-    Phase 7.0 goal:
-    - Sidecar can detect py-xiaozhi.
-    - Sidecar can launch py-xiaozhi.
-    - Sidecar can stop/restart py-xiaozhi processes launched from the configured root.
-    - The GUI may still appear; start mode is best-effort minimized/hidden.
+    Phase 7.0.1:
+    - Adds real best-effort window hide/minimize after launch.
+    - Supports existing PY_XIAOZHI_MODE=cli as hidden mode alias.
+    - Starting an already-running py-xiaozhi reapplies window mode.
     """
 
     def __init__(self, config: SidecarConfig) -> None:
@@ -69,7 +67,6 @@ class PyXiaozhiProcessManager:
         root = str(self.config.py_xiaozhi_root).lower().replace("\\", "\\\\")
         processes: list[dict[str, Any]] = []
 
-        # PowerShell is more reliable than tasklist for filtering by command line.
         script = (
             "Get-CimInstance Win32_Process | "
             "Where-Object { $_.CommandLine -and $_.CommandLine.ToLower().Contains('"
@@ -116,7 +113,6 @@ class PyXiaozhiProcessManager:
             command_line = str(item.get("CommandLine") or "")
             name = str(item.get("Name") or "")
 
-            # Avoid matching editor/search tools; require Python or main.py.
             lower_cmd = command_line.lower()
             lower_name = name.lower()
             if "main.py" not in lower_cmd and "python" not in lower_name:
@@ -147,19 +143,25 @@ class PyXiaozhiProcessManager:
             "process_count": len(processes),
             "process_pids": [item["pid"] for item in processes],
             "start_mode": self.config.py_xiaozhi_start_mode,
+            "window_mode": self.config.py_xiaozhi_window_mode,
             "auto_start": self.config.py_xiaozhi_auto_start,
             "launchable": self.config.py_xiaozhi_root.exists() and main_py.exists(),
         }
 
     def start(self, mode: str | None = None) -> dict[str, Any]:
         current = self.status()
+        requested_mode = self._normalize_mode(mode or self.config.py_xiaozhi_start_mode)
+        requested_window_mode = self._normalize_mode(self.config.py_xiaozhi_window_mode or requested_mode)
+
         if current["process_running"]:
+            window_result = self.apply_window_mode(requested_window_mode)
             return {
                 "ok": True,
                 "action": "start",
                 "already_running": True,
-                "message": "py-xiaozhi 已经在运行",
-                "status": current,
+                "message": "py-xiaozhi 已经在运行，已重新应用窗口模式",
+                "window_result": window_result,
+                "status": self.status(),
             }
 
         if not current["launchable"]:
@@ -170,9 +172,12 @@ class PyXiaozhiProcessManager:
                 "status": current,
             }
 
-        start_mode = (mode or self.config.py_xiaozhi_start_mode or "normal").strip().lower()
         env = os.environ.copy()
         env.setdefault("PYTHONIOENCODING", "utf-8")
+
+        # Preserve existing PY_XIAOZHI_MODE=cli for py-xiaozhi itself if the repo uses it.
+        if requested_mode == "hidden":
+            env.setdefault("PY_XIAOZHI_MODE", "cli")
 
         creationflags = 0
         startupinfo = None
@@ -181,11 +186,11 @@ class PyXiaozhiProcessManager:
         if os.name == "nt":
             creationflags |= getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
 
-            if start_mode in {"hidden", "hide"}:
+            if requested_mode == "hidden":
                 creationflags |= getattr(subprocess, "CREATE_NO_WINDOW", 0)
                 executable = self.detect_pythonw_exe()
 
-            if start_mode in {"minimized", "minimize", "min"}:
+            if requested_mode == "minimized":
                 startupinfo = subprocess.STARTUPINFO()
                 startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
                 startupinfo.wShowWindow = 6  # SW_MINIMIZE
@@ -213,7 +218,8 @@ class PyXiaozhiProcessManager:
                 "status": current,
             }
 
-        time.sleep(0.8)
+        window_result = self.apply_window_mode(requested_window_mode, retries=18, initial_delay=0.5)
+
         return {
             "ok": True,
             "action": "start",
@@ -221,7 +227,9 @@ class PyXiaozhiProcessManager:
             "message": "已请求启动 py-xiaozhi",
             "pid": process.pid,
             "command": command,
-            "start_mode": start_mode,
+            "start_mode": requested_mode,
+            "window_mode": requested_window_mode,
+            "window_result": window_result,
             "status": self.status(),
         }
 
@@ -276,3 +284,127 @@ class PyXiaozhiProcessManager:
             "start": start_result,
             "status": self.status(),
         }
+
+    def apply_window_mode(
+        self,
+        mode: str | None = None,
+        retries: int = 10,
+        initial_delay: float = 0.0,
+    ) -> dict[str, Any]:
+        normalized = self._normalize_mode(mode or self.config.py_xiaozhi_window_mode)
+        if normalized == "normal":
+            return {
+                "ok": True,
+                "action": "apply_window_mode",
+                "mode": normalized,
+                "message": "窗口模式为 normal，无需处理",
+                "changed": 0,
+            }
+
+        if os.name != "nt":
+            return {
+                "ok": False,
+                "action": "apply_window_mode",
+                "mode": normalized,
+                "message": "当前系统不是 Windows，无法隐藏/最小化窗口",
+                "changed": 0,
+            }
+
+        if initial_delay > 0:
+            time.sleep(initial_delay)
+
+        changed = 0
+        attempts = 0
+        pids_seen: list[int] = []
+
+        for _ in range(max(1, retries)):
+            attempts += 1
+            processes = self.list_processes()
+            pids = [int(item["pid"]) for item in processes]
+            pids_seen = pids
+
+            if pids:
+                changed = self._apply_window_mode_to_pids(pids, normalized)
+                if changed > 0:
+                    break
+
+            time.sleep(0.25)
+
+        return {
+            "ok": changed > 0 or bool(pids_seen),
+            "action": "apply_window_mode",
+            "mode": normalized,
+            "message": (
+                f"已尝试{self._mode_text(normalized)} py-xiaozhi 窗口"
+                if pids_seen else
+                "未找到 py-xiaozhi 进程，无法应用窗口模式"
+            ),
+            "changed": changed,
+            "attempts": attempts,
+            "pids": pids_seen,
+        }
+
+    def _apply_window_mode_to_pids(self, pids: list[int], mode: str) -> int:
+        if not pids:
+            return 0
+
+        # SW_HIDE = 0, SW_MINIMIZE = 6
+        show_command = 0 if mode == "hidden" else 6
+
+        pid_list = ",".join(str(pid) for pid in pids)
+        ps_script = f"""
+$code = @"
+using System;
+using System.Runtime.InteropServices;
+public class Win32 {{
+    [DllImport("user32.dll")]
+    public static extern bool ShowWindowAsync(IntPtr hWnd, int nCmdShow);
+}}
+"@
+try {{
+    Add-Type $code -ErrorAction SilentlyContinue | Out-Null
+}} catch {{}}
+$changed = 0
+$pids = @({pid_list})
+foreach ($pid in $pids) {{
+    $proc = Get-Process -Id $pid -ErrorAction SilentlyContinue
+    if ($proc -and $proc.MainWindowHandle -ne 0) {{
+        [Win32]::ShowWindowAsync($proc.MainWindowHandle, {show_command}) | Out-Null
+        $changed += 1
+    }}
+}}
+Write-Output $changed
+"""
+
+        try:
+            result = subprocess.run(
+                ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", ps_script],
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="ignore",
+                timeout=5,
+            )
+            raw = (result.stdout or "").strip().splitlines()
+            return int(raw[-1]) if raw else 0
+        except Exception:
+            return 0
+
+    def _normalize_mode(self, value: str | None) -> str:
+        mode = (value or "").strip().lower()
+        aliases = {
+            "min": "minimized",
+            "minimize": "minimized",
+            "minimized": "minimized",
+            "hide": "hidden",
+            "hidden": "hidden",
+            "no_window": "hidden",
+            "nowindow": "hidden",
+            "normal": "normal",
+            "gui": "normal",
+            "cli": "hidden",
+        }
+        return aliases.get(mode, "minimized")
+
+    def _mode_text(self, mode: str) -> str:
+        return "隐藏" if mode == "hidden" else "最小化" if mode == "minimized" else "恢复"

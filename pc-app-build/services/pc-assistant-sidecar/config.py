@@ -36,6 +36,7 @@ class SidecarConfig:
     py_xiaozhi_protocol: str
     py_xiaozhi_log_path: Path | None
     py_xiaozhi_start_mode: str
+    py_xiaozhi_window_mode: str
     py_xiaozhi_auto_start: bool
     ws_host: str
     ws_port: int
@@ -62,6 +63,26 @@ def _as_bool(value: str, default: bool = False) -> bool:
     if normalized in {"0", "false", "no", "n", "off", "否"}:
         return False
     return default
+
+
+def _normalize_mode(value: str, default: str = "minimized") -> str:
+    mode = (value or "").strip().lower()
+
+    aliases = {
+        "min": "minimized",
+        "minimize": "minimized",
+        "minimized": "minimized",
+        "hide": "hidden",
+        "hidden": "hidden",
+        "no_window": "hidden",
+        "nowindow": "hidden",
+        "normal": "normal",
+        "gui": "normal",
+        # Legacy env from previous packages. It means the user wants a less visible runtime.
+        "cli": "hidden",
+    }
+
+    return aliases.get(mode, default)
 
 
 def _default_py_xiaozhi_log_path() -> Path | None:
@@ -93,6 +114,16 @@ def load_config() -> SidecarConfig:
         os.getenv("PY_XIAOZHI_ROOT", r"C:\yuyinzhushou\py-xiaozhi-tao")
     )
 
+    legacy_mode = os.getenv("PY_XIAOZHI_MODE", "").strip()
+    start_mode = _normalize_mode(
+        os.getenv("PY_XIAOZHI_START_MODE", "").strip() or legacy_mode,
+        default="minimized",
+    )
+    window_mode = _normalize_mode(
+        os.getenv("PY_XIAOZHI_WINDOW_MODE", "").strip() or start_mode,
+        default=start_mode,
+    )
+
     return SidecarConfig(
         pc_build_root=pc_root,
         notes_api_base_url=os.getenv(
@@ -103,7 +134,8 @@ def load_config() -> SidecarConfig:
         py_xiaozhi_python=os.getenv("PY_XIAOZHI_PYTHON", ""),
         py_xiaozhi_protocol=os.getenv("PY_XIAOZHI_PROTOCOL", "websocket"),
         py_xiaozhi_log_path=_default_py_xiaozhi_log_path(),
-        py_xiaozhi_start_mode=os.getenv("PY_XIAOZHI_START_MODE", "minimized").strip().lower(),
+        py_xiaozhi_start_mode=start_mode,
+        py_xiaozhi_window_mode=window_mode,
         py_xiaozhi_auto_start=_as_bool(os.getenv("PY_XIAOZHI_AUTO_START", "0"), default=False),
         ws_host=os.getenv("SIDECAR_HOST", "127.0.0.1"),
         ws_port=int(os.getenv("SIDECAR_PORT", os.getenv("SIDECAR_WS_PORT", "17890"))),
