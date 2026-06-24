@@ -243,10 +243,8 @@ ApplicationWindow {
 
             Loader {
                 id: pageLoader
-                Layout.fillWidth: !root.developerLogPanelVisible
+                Layout.fillWidth: true
                 Layout.fillHeight: true
-                Layout.minimumWidth: 640
-
                 sourceComponent: {
                     if (root.currentPage === "create") return createPage
                     if (root.currentPage === "edit") return editPage
@@ -262,13 +260,30 @@ ApplicationWindow {
                     return homePage
                 }
             }
+        }
+    }
 
-            DeveloperLogPanel {
-                visible: root.developerLogPanelVisible
-                Layout.preferredWidth: root.developerLogPanelVisible ? 360 : 0
-                Layout.fillHeight: true
-                sidecarClientRef: sidecarClient
-            }
+
+    Window {
+        id: developerLogWindow
+
+        visible: root.developerLogPanelVisible
+        title: "开发者日志 - 小智便签"
+        width: 440
+        height: Math.max(720, root.height)
+        x: root.x + root.width + 8
+        y: root.y
+        flags: Qt.Tool
+
+        onClosing: function(close) {
+            close.accepted = false
+            root.developerLogPanelVisible = false
+        }
+
+        DeveloperLogPanel {
+            anchors.fill: parent
+            anchors.margins: 0
+            sidecarClientRef: sidecarClient
         }
     }
 

@@ -10,12 +10,12 @@ from config import SidecarConfig, load_config
 
 
 class PyXiaozhiProcessManager:
-    """Best-effort process manager for py-xiaozhi runtime.
+    """Process manager for the external py-xiaozhi runtime.
 
-    Phase 7.0.1:
-    - Adds real best-effort window hide/minimize after launch.
-    - Supports existing PY_XIAOZHI_MODE=cli as hidden mode alias.
-    - Starting an already-running py-xiaozhi reapplies window mode.
+    Phase 8.1:
+    - Robust Windows process detection for headless/pythonw startup.
+    - Stop kills all py-xiaozhi processes whose command line points into PY_XIAOZHI_ROOT.
+    - Avoids repeated hidden/headless launches that push CPU to 100%.
     """
 
     def __init__(self, config: SidecarConfig) -> None:
@@ -68,15 +68,21 @@ class PyXiaozhiProcessManager:
         if os.name != "nt":
             return []
 
-        root = str(self.config.py_xiaozhi_root).lower().replace("\\", "\\\\")
+        root = str(self.config.py_xiaozhi_root).lower().replace("/", "\\").rstrip("\\")
         processes: list[dict[str, Any]] = []
 
+        # IMPORTANT: do not double-escape backslashes for PowerShell .Contains().
+        # Win32_Process.CommandLine contains normal single backslashes.
+        root_literal = root.replace("'", "''")
         script = (
+            "$root = '" + root_literal + "'; "
             "Get-CimInstance Win32_Process | "
-            "Where-Object { $_.CommandLine -and $_.CommandLine.ToLower().Contains('"
-            + root.replace("'", "''")
-            + "') } | "
-            "Select-Object ProcessId,Name,CommandLine | ConvertTo-Json -Compress"
+            "Where-Object { "
+            "$_.CommandLine -and "
+            "$_.CommandLine.ToLower().Replace('/','\\').Contains($root) -and "
+            "($_.Name.ToLower().Contains('python') -or $_.CommandLine.ToLower().Contains('main.py')) "
+            "} | "
+            "Select-Object ProcessId,ParentProcessId,Name,CommandLine | ConvertTo-Json -Compress"
         )
 
         try:
@@ -104,6 +110,7 @@ class PyXiaozhiProcessManager:
             return []
 
         current_pid = os.getpid()
+        seen: set[int] = set()
 
         for item in items:
             try:
@@ -111,19 +118,25 @@ class PyXiaozhiProcessManager:
             except Exception:
                 continue
 
-            if pid == current_pid:
+            if pid == current_pid or pid in seen:
                 continue
 
             command_line = str(item.get("CommandLine") or "")
             name = str(item.get("Name") or "")
 
-            lower_cmd = command_line.lower()
+            lower_cmd = command_line.lower().replace("/", "\\")
             lower_name = name.lower()
-            if "main.py" not in lower_cmd and "python" not in lower_name:
+
+            # Keep the filter intentionally tied to the configured py-xiaozhi root.
+            if root not in lower_cmd:
+                continue
+            if "python" not in lower_name and "main.py" not in lower_cmd:
                 continue
 
+            seen.add(pid)
             processes.append({
                 "pid": pid,
+                "parent_pid": item.get("ParentProcessId"),
                 "name": name,
                 "command_line": command_line,
             })
@@ -158,13 +171,13 @@ class PyXiaozhiProcessManager:
     def _runtime_args(self) -> list[str]:
         runtime_mode = getattr(self.config, "py_xiaozhi_runtime_mode", "headless") or "headless"
         args = ["--mode", str(runtime_mode), "--protocol", str(self.config.py_xiaozhi_protocol or "websocket")]
-        if bool(getattr(self.config, "py_xiaozhi_skip_activation", False)):
+        if bool(getattr(self.config, "py_xiaozhi_skip_activation", True)):
             args.append("--skip-activation")
         return args
 
     def start(self, mode: str | None = None) -> dict[str, Any]:
-        current = self.status()
         self.reload_config()
+        current = self.status()
         requested_mode = self._normalize_mode(mode or self.config.py_xiaozhi_start_mode)
         requested_window_mode = self._normalize_mode(self.config.py_xiaozhi_window_mode or requested_mode)
 
@@ -174,7 +187,7 @@ class PyXiaozhiProcessManager:
                 "ok": True,
                 "action": "start",
                 "already_running": True,
-                "message": "py-xiaozhi 已经在运行，已重新应用窗口模式",
+                "message": "py-xiaozhi 已经在运行，未重复启动，已重新应用窗口模式",
                 "window_result": window_result,
                 "status": self.status(),
             }
@@ -190,10 +203,11 @@ class PyXiaozhiProcessManager:
         env = os.environ.copy()
         env.setdefault("PYTHONIOENCODING", "utf-8")
 
-        # Preserve existing PY_XIAOZHI_MODE=cli for py-xiaozhi itself if the repo uses it.
         runtime_mode = getattr(self.config, "py_xiaozhi_runtime_mode", "headless") or "headless"
         env.setdefault("PY_XIAOZHI_MODE", runtime_mode)
         env.setdefault("PY_XIAOZHI_RUNTIME_MODE", runtime_mode)
+        if bool(getattr(self.config, "py_xiaozhi_skip_activation", True)):
+            env.setdefault("PY_XIAOZHI_SKIP_ACTIVATION", "1")
 
         if requested_mode == "hidden":
             env.setdefault("PY_XIAOZHI_WINDOW_MODE", "hidden")
@@ -271,29 +285,41 @@ class PyXiaozhiProcessManager:
         killed: list[int] = []
         failed: list[dict[str, Any]] = []
 
-        for item in processes:
+        # Kill child/headless runtime processes first when possible.
+        sorted_processes = sorted(
+            processes,
+            key=lambda item: int(item.get("parent_pid") or 0),
+            reverse=True,
+        )
+
+        for item in sorted_processes:
             pid = int(item["pid"])
             try:
                 if os.name == "nt":
-                    subprocess.run(
+                    result = subprocess.run(
                         ["taskkill", "/PID", str(pid), "/T", "/F"],
                         capture_output=True,
                         text=True,
-                        timeout=8,
+                        timeout=10,
                     )
+                    if result.returncode not in {0, 128}:
+                        raise RuntimeError((result.stderr or result.stdout or "").strip())
                 else:
                     os.kill(pid, 15)
                 killed.append(pid)
             except Exception as exc:
                 failed.append({"pid": pid, "error": str(exc)})
 
-        time.sleep(0.8)
+        time.sleep(1.0)
+        remaining = self.list_processes()
+
         return {
-            "ok": not failed,
+            "ok": not failed and not remaining,
             "action": "stop",
-            "message": "已请求停止 py-xiaozhi" if not failed else "部分 py-xiaozhi 进程停止失败",
+            "message": "已停止 py-xiaozhi" if not failed and not remaining else "py-xiaozhi 停止后仍有残留进程",
             "killed": killed,
             "failed": failed,
+            "remaining_pids": [item["pid"] for item in remaining],
             "status": self.status(),
         }
 
@@ -338,99 +364,88 @@ class PyXiaozhiProcessManager:
             time.sleep(initial_delay)
 
         changed = 0
-        attempts = 0
-        pids_seen: list[int] = []
+        last_error = ""
 
         for _ in range(max(1, retries)):
-            attempts += 1
             processes = self.list_processes()
-            pids = [int(item["pid"]) for item in processes]
-            pids_seen = pids
+            if processes:
+                result = self._apply_window_mode_to_pids(
+                    [item["pid"] for item in processes],
+                    normalized,
+                )
+                changed += int(result.get("changed", 0))
+                last_error = str(result.get("error", ""))
 
-            if pids:
-                changed = self._apply_window_mode_to_pids(pids, normalized)
                 if changed > 0:
                     break
 
-            time.sleep(0.25)
+            time.sleep(0.35)
 
         return {
-            "ok": changed > 0 or bool(pids_seen),
+            "ok": changed > 0 or normalized in {"hidden", "minimized"},
             "action": "apply_window_mode",
             "mode": normalized,
-            "message": (
-                f"已尝试{self._mode_text(normalized)} py-xiaozhi 窗口"
-                if pids_seen else
-                "未找到 py-xiaozhi 进程，无法应用窗口模式"
-            ),
+            "message": f"已尝试应用窗口模式：{normalized}",
             "changed": changed,
-            "attempts": attempts,
-            "pids": pids_seen,
+            "error": last_error,
         }
 
-    def _apply_window_mode_to_pids(self, pids: list[int], mode: str) -> int:
+    def _apply_window_mode_to_pids(self, pids: list[int], mode: str) -> dict[str, Any]:
         if not pids:
-            return 0
+            return {"changed": 0}
 
-        # SW_HIDE = 0, SW_MINIMIZE = 6
-        show_command = 0 if mode == "hidden" else 6
+        show_command = "0" if mode == "hidden" else "6"  # SW_HIDE or SW_MINIMIZE
+        pid_array = ",".join(str(int(pid)) for pid in pids)
 
-        pid_list = ",".join(str(pid) for pid in pids)
-        ps_script = f"""
-$code = @"
+        script = f"""
+Add-Type @"
 using System;
 using System.Runtime.InteropServices;
-public class Win32 {{
-    [DllImport("user32.dll")]
-    public static extern bool ShowWindowAsync(IntPtr hWnd, int nCmdShow);
+public class Win32ShowWindow {{
+  [DllImport("user32.dll")]
+  public static extern bool ShowWindowAsync(IntPtr hWnd, int nCmdShow);
 }}
-"@
-try {{
-    Add-Type $code -ErrorAction SilentlyContinue | Out-Null
-}} catch {{}}
-$changed = 0
-$pids = @({pid_list})
-foreach ($pid in $pids) {{
-    $proc = Get-Process -Id $pid -ErrorAction SilentlyContinue
-    if ($proc -and $proc.MainWindowHandle -ne 0) {{
-        [Win32]::ShowWindowAsync($proc.MainWindowHandle, {show_command}) | Out-Null
-        $changed += 1
+"@;
+$changed = 0;
+foreach ($pid in @({pid_array})) {{
+  try {{
+    $p = Get-Process -Id $pid -ErrorAction Stop;
+    if ($p.MainWindowHandle -ne 0) {{
+      [Win32ShowWindow]::ShowWindowAsync($p.MainWindowHandle, {show_command}) | Out-Null;
+      $changed += 1;
     }}
+  }} catch {{}}
 }}
 Write-Output $changed
 """
 
         try:
             result = subprocess.run(
-                ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", ps_script],
+                ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", script],
                 capture_output=True,
                 text=True,
                 encoding="utf-8",
                 errors="ignore",
                 timeout=5,
             )
-            raw = (result.stdout or "").strip().splitlines()
-            return int(raw[-1]) if raw else 0
-        except Exception:
-            return 0
+            changed = int((result.stdout or "0").strip().splitlines()[-1] or "0")
+            return {
+                "changed": changed,
+                "stdout": result.stdout,
+                "stderr": result.stderr,
+            }
+        except Exception as exc:
+            return {
+                "changed": 0,
+                "error": str(exc),
+            }
 
-    def _normalize_mode(self, value: str | None) -> str:
-        mode = (value or "").strip().lower()
-        aliases = {
-            "min": "minimized",
-            "minimize": "minimized",
-            "minimized": "minimized",
-            "hide": "hidden",
-            "hidden": "hidden",
-            "no_window": "hidden",
-            "nowindow": "hidden",
-            "normal": "normal",
-            "gui": "normal",
-            "cli": "hidden",
-        }
-        if mode == "debug":
-            return "normal"
-        return aliases.get(mode, "minimized")
-
-    def _mode_text(self, mode: str) -> str:
-        return "隐藏" if mode == "hidden" else "最小化" if mode == "minimized" else "恢复"
+    def _normalize_mode(self, mode: str | None) -> str:
+        value = (mode or "").strip().lower()
+        if value in {"min", "minimize"}:
+            return "minimized"
+        if value in {"hide", "no_window", "nowindow", "cli"}:
+            return "hidden"
+        if value in {"normal", "minimized", "hidden", "debug"}:
+            return value
+        return "minimized"

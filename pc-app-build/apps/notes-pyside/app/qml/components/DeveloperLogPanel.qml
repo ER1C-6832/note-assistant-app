@@ -103,7 +103,7 @@ Rectangle {
                     "",
                     root.rowText("runtime log", sidecarClientRef.lastRuntimeLogText),
                     root.rowText("error", sidecarClientRef.errorMessage)
-                ].join("\\n") : "SidecarClient 未绑定"
+                ].join("\n") : "SidecarClient 未绑定"
             }
         }
     }
