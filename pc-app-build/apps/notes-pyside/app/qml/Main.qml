@@ -41,6 +41,10 @@ ApplicationWindow {
             notesController.loadCategory("todo")
         } else if (currentCategory.indexOf("tag:") === 0) {
             notesController.loadTag(currentCategory.substring(4))
+        } else if (currentCategory === "deleted") {
+            notesController.loadDeleted()
+        } else if (currentCategory === "search" && notesController.searchKeyword.length > 0) {
+            notesController.searchNotes(notesController.searchKeyword)
         } else {
             notesController.loadAll()
         }
@@ -67,6 +71,60 @@ ApplicationWindow {
         currentPage = "home"
         tagLoadTimer.tagName = tagName
         tagLoadTimer.restart()
+    }
+
+    function handleVoiceUiAction(action, payloadJson) {
+        var payload = {}
+        try {
+            payload = JSON.parse(payloadJson)
+        } catch (e) {
+            payload = {}
+        }
+
+        if (action === "show_search") {
+            var query = String(payload.query || "").trim()
+            if (query.length > 0) {
+                root.currentCategory = "search"
+                root.currentPage = "search"
+                notesController.searchNotes(query)
+            }
+            return
+        }
+
+        if (action === "show_deleted") {
+            root.openCategory("deleted")
+            return
+        }
+
+        if (action === "show_pinned") {
+            root.openCategory("pinned")
+            return
+        }
+
+        if (action === "refresh_notes") {
+            root.reloadCurrentContext()
+            return
+        }
+
+        if (action === "add_tag") {
+            var tag = String(payload.tag || "").trim()
+            if (tag.length > 0) {
+                notesController.addCustomTag(tag)
+                root.openTag(tag)
+            }
+            return
+        }
+
+        if (action === "delete_empty_tag") {
+            var tagToDelete = String(payload.tag || "").trim()
+            if (tagToDelete.length > 0) {
+                notesController.deleteTag(tagToDelete)
+                root.currentCategory = "all"
+                notesController.loadAll()
+                root.openPage("home")
+            }
+            return
+        }
     }
 
     Timer {
@@ -113,6 +171,13 @@ ApplicationWindow {
                 root.currentPage = "search"
                 notesController.searchNotes(text)
             }
+        }
+    }
+
+    Connections {
+        target: sidecarClient
+        function onUiActionRequested(action, payloadJson) {
+            root.handleVoiceUiAction(action, payloadJson)
         }
     }
 

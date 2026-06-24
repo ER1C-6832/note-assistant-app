@@ -32,6 +32,7 @@ class SidecarClient(QObject):
     connectedChanged = Signal()
     statusChanged = Signal()
     notesChanged = Signal()
+    uiActionRequested = Signal(str, str)
 
     _raw_message_received = Signal(str)
     _connection_changed = Signal(bool)
@@ -587,6 +588,10 @@ class SidecarClient(QObject):
                 self._apply_recent_event(items[-1])
             return
 
+        if event_type == "ui_action":
+            self._handle_ui_action(payload)
+            return
+
         if event_type == "control_accepted":
             self._last_control_text = payload.get("message", "语音控制命令已被 Sidecar 接收")
             self._last_event_text = self._last_control_text
@@ -792,6 +797,24 @@ class SidecarClient(QObject):
         self._last_event_text = event.get("message") or f"历史事件：{event.get('type', 'unknown')}"
         self.statusChanged.emit()
 
+    def _handle_ui_action(self, payload: dict[str, Any]) -> None:
+        action = str(payload.get("action", "") or "").strip()
+        data = payload.get("data", {}) or {}
+        message = payload.get("message") or f"请求界面执行：{action or 'unknown'}"
+
+        if not isinstance(data, dict):
+            data = {"value": data}
+
+        if action:
+            try:
+                data_json = json.dumps(data, ensure_ascii=False)
+            except Exception:
+                data_json = "{}"
+            self.uiActionRequested.emit(action, data_json)
+
+        self._last_event_text = message
+        self.statusChanged.emit()
+
     def _handle_tool_call(self, payload: dict[str, Any]) -> None:
         tool_name = payload.get("tool_name", "unknown")
         message = payload.get("message") or f"开始调用 {tool_name}"
@@ -809,6 +832,16 @@ class SidecarClient(QObject):
         self._last_tool_status = "成功" if status == "success" else "失败" if status == "error" else str(status)
         self._last_tool_result_text = message
         self._last_event_text = message
+
+        ui_action = payload.get("ui_action")
+        if isinstance(ui_action, dict):
+            self._handle_ui_action({
+                "type": "ui_action",
+                "action": ui_action.get("action", ""),
+                "data": ui_action.get("data", {}) or {},
+                "message": ui_action.get("message", message),
+            })
+
         self.statusChanged.emit()
 
         if bool(payload.get("note_changed")):
