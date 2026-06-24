@@ -21,6 +21,18 @@ ApplicationWindow {
     property string pendingCategory: "all"
     property bool developerLogPanelVisible: false
 
+    property bool voicePanelVisible: false
+    property string voicePanelMode: "hidden"
+    property string voicePanelTitle: ""
+    property string voicePanelMessage: ""
+    property string voicePanelActionType: ""
+    property var voicePanelCandidates: []
+    property int voicePanelNoteId: -1
+    property string voicePanelNoteTitle: ""
+    property string voicePanelNoteContent: ""
+    property bool voicePanelDanger: false
+    property bool voicePanelSuccess: true
+
     function createInitialTags() {
         if (currentCategory === "todo") {
             return "待办"
@@ -74,12 +86,76 @@ ApplicationWindow {
         tagLoadTimer.restart()
     }
 
+
+    function showVoicePanel(mode, title, message, actionType) {
+        voicePanelMode = mode
+        voicePanelTitle = title || "语音操作"
+        voicePanelMessage = message || ""
+        voicePanelActionType = actionType || ""
+        voicePanelVisible = true
+    }
+
+    function showVoiceResult(title, message, success) {
+        voicePanelCandidates = []
+        voicePanelNoteId = -1
+        voicePanelDanger = false
+        voicePanelSuccess = success === undefined ? true : success
+        showVoicePanel(success === false ? "failure" : "result", title || (success === false ? "操作失败" : "操作完成"), message || "", "")
+    }
+
+    function showVoiceCandidates(payload) {
+        voicePanelCandidates = payload.candidates || payload.items || []
+        voicePanelDanger = payload.action_type === "delete" || payload.action_type === "hard_delete"
+        voicePanelSuccess = true
+        showVoicePanel(
+            "candidates",
+            payload.title || "请选择一条便签",
+            payload.message || "语音助手找到了多条可能匹配的便签，请选择要操作的那一条。",
+            payload.action_type || "select"
+        )
+    }
+
+    function showVoiceDeleteConfirm(payload) {
+        voicePanelCandidates = []
+        voicePanelNoteId = Number(payload.note_id || payload.id || -1)
+        voicePanelNoteTitle = String(payload.title || payload.note_title || "")
+        voicePanelNoteContent = String(payload.content || payload.note_content || "")
+        voicePanelDanger = true
+        voicePanelSuccess = true
+        showVoicePanel(
+            "confirm_delete",
+            payload.title_text || "确认删除便签",
+            payload.message || "为了防止误删，请确认是否删除这条便签。",
+            payload.action_type || "delete"
+        )
+    }
+
     function handleVoiceUiAction(action, payloadJson) {
         var payload = {}
         try {
             payload = JSON.parse(payloadJson)
         } catch (e) {
             payload = {}
+        }
+
+        if (action === "voice_result") {
+            showVoiceResult(payload.title || "操作完成", payload.message || "", payload.success !== false)
+            return
+        }
+
+        if (action === "voice_failure") {
+            showVoiceResult(payload.title || "操作失败", payload.message || "语音操作失败，请重试。", false)
+            return
+        }
+
+        if (action === "voice_candidates") {
+            showVoiceCandidates(payload)
+            return
+        }
+
+        if (action === "voice_confirm_delete") {
+            showVoiceDeleteConfirm(payload)
+            return
         }
 
         if (action === "show_search") {
@@ -263,6 +339,87 @@ ApplicationWindow {
         }
     }
 
+
+
+    VoiceInteractionPanel {
+        id: voiceInteractionPanel
+
+        visible: root.voicePanelVisible
+        anchors.right: parent.right
+        anchors.bottom: parent.bottom
+        anchors.rightMargin: 28
+        anchors.bottomMargin: 92
+
+        mode: root.voicePanelMode
+        title: root.voicePanelTitle
+        message: root.voicePanelMessage
+        actionType: root.voicePanelActionType
+        candidates: root.voicePanelCandidates
+        noteId: root.voicePanelNoteId
+        noteTitle: root.voicePanelNoteTitle
+        noteContent: root.voicePanelNoteContent
+        danger: root.voicePanelDanger
+        success: root.voicePanelSuccess
+
+        onClosed: {
+            root.voicePanelVisible = false
+        }
+
+        onCandidateSelected: function(noteId, title, content) {
+            if (root.voicePanelActionType === "delete" || root.voicePanelActionType === "hard_delete") {
+                root.showVoiceDeleteConfirm({
+                    "note_id": noteId,
+                    "title": title,
+                    "content": content,
+                    "action_type": root.voicePanelActionType,
+                    "message": root.voicePanelActionType === "hard_delete"
+                        ? "该操作会永久删除，无法还原。请再次确认。"
+                        : "该操作会把便签移入“已删除”，之后可还原。"
+                })
+                return
+            }
+
+            if (root.voicePanelActionType === "pin") {
+                notesController.bulkPinNotesByIds([noteId])
+                root.showVoiceResult("已置顶", "已置顶：" + title, true)
+                return
+            }
+
+            if (root.voicePanelActionType === "unpin") {
+                notesController.bulkUnpinNotesByIds([noteId])
+                root.showVoiceResult("已取消置顶", "已取消置顶：" + title, true)
+                return
+            }
+
+            root.voicePanelVisible = false
+        }
+
+        onConfirmRequested: function(noteId, actionType) {
+            var ok = false
+
+            if (actionType === "hard_delete") {
+                ok = notesController.bulkHardDeleteDeletedNotesByIds([noteId])
+                root.showVoiceResult(ok ? "已彻底删除" : "彻底删除失败",
+                                     ok ? "便签已彻底删除，无法还原。" : notesController.errorMessage,
+                                     ok)
+                return
+            }
+
+            ok = notesController.bulkDeleteNotesByIds([noteId])
+            root.showVoiceResult(ok ? "已删除" : "删除失败",
+                                 ok ? "便签已移入“已删除”，可在已删除中还原。" : notesController.errorMessage,
+                                 ok)
+        }
+
+        onRetryRequested: function(actionType) {
+            root.voicePanelVisible = false
+            if (root.currentCategory === "search" && notesController.searchKeyword.length > 0) {
+                notesController.searchNotes(notesController.searchKeyword)
+            } else {
+                root.reloadCurrentContext()
+            }
+        }
+    }
 
     Window {
         id: developerLogWindow
