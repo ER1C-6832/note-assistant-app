@@ -12,10 +12,10 @@ from config import SidecarConfig, load_config
 class PyXiaozhiProcessManager:
     """Process manager for the external py-xiaozhi runtime.
 
-    Phase 8.1:
-    - Robust Windows process detection for headless/pythonw startup.
-    - Stop kills all py-xiaozhi processes whose command line points into PY_XIAOZHI_ROOT.
-    - Avoids repeated hidden/headless launches that push CPU to 100%.
+    Phase 8.1.1:
+    - Fixes 8.1 overmatching where the PowerShell detector could match itself.
+    - Only python.exe/pythonw.exe processes whose command line includes the
+      configured main.py are treated as py-xiaozhi runtime processes.
     """
 
     def __init__(self, config: SidecarConfig) -> None:
@@ -65,22 +65,30 @@ class PyXiaozhiProcessManager:
         return self.config.py_xiaozhi_root / "src" / "mcp" / "tools" / "notes" / "_tools.py"
 
     def list_processes(self) -> list[dict[str, Any]]:
+        """Return detected py-xiaozhi runtime processes.
+
+        The detector is intentionally strict:
+        - process name must be python.exe or pythonw.exe
+        - command line must contain the absolute main.py path
+        This avoids the previous false-positive where the PowerShell process that
+        runs the detector contained both PY_XIAOZHI_ROOT and the string main.py.
+        """
+
         if os.name != "nt":
             return []
 
-        root = str(self.config.py_xiaozhi_root).lower().replace("/", "\\").rstrip("\\")
+        main_py = str(self.main_py()).lower().replace("/", "\\")
+        main_literal = main_py.replace("'", "''")
         processes: list[dict[str, Any]] = []
 
-        # IMPORTANT: do not double-escape backslashes for PowerShell .Contains().
-        # Win32_Process.CommandLine contains normal single backslashes.
-        root_literal = root.replace("'", "''")
         script = (
-            "$root = '" + root_literal + "'; "
+            "$main = '" + main_literal + "'; "
+            "$slash = [string][char]92; "
             "Get-CimInstance Win32_Process | "
             "Where-Object { "
             "$_.CommandLine -and "
-            "$_.CommandLine.ToLower().Replace('/','\\').Contains($root) -and "
-            "($_.Name.ToLower().Contains('python') -or $_.CommandLine.ToLower().Contains('main.py')) "
+            "($_.Name.ToLower() -eq 'python.exe' -or $_.Name.ToLower() -eq 'pythonw.exe') -and "
+            "$_.CommandLine.ToLower().Replace('/', $slash).Contains($main) "
             "} | "
             "Select-Object ProcessId,ParentProcessId,Name,CommandLine | ConvertTo-Json -Compress"
         )
@@ -123,14 +131,13 @@ class PyXiaozhiProcessManager:
 
             command_line = str(item.get("CommandLine") or "")
             name = str(item.get("Name") or "")
-
-            lower_cmd = command_line.lower().replace("/", "\\")
             lower_name = name.lower()
 
-            # Keep the filter intentionally tied to the configured py-xiaozhi root.
-            if root not in lower_cmd:
+            if lower_name not in {"python.exe", "pythonw.exe"}:
                 continue
-            if "python" not in lower_name and "main.py" not in lower_cmd:
+
+            lower_cmd = command_line.lower().replace("/", "\\")
+            if main_py not in lower_cmd:
                 continue
 
             seen.add(pid)
@@ -285,7 +292,6 @@ class PyXiaozhiProcessManager:
         killed: list[int] = []
         failed: list[dict[str, Any]] = []
 
-        # Kill child/headless runtime processes first when possible.
         sorted_processes = sorted(
             processes,
             key=lambda item: int(item.get("parent_pid") or 0),

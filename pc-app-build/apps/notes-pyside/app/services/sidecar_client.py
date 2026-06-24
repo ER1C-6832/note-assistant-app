@@ -878,6 +878,13 @@ class SidecarClient(QObject):
         if process_running:
             self._voice_runtime_ready = True
             self._last_voice_runtime_event_at = time.time()
+        else:
+            # When no process is detected, do not keep an old bridge-ready state forever.
+            # This prevents the voice button from staying in "正在启动" after a failed start
+            # or a fixed process detector reporting the runtime as stopped.
+            age = time.time() - self._last_voice_runtime_event_at if self._last_voice_runtime_event_at else 9999.0
+            if age > 8.0:
+                self._voice_runtime_ready = False
 
         bridge_ok = bool(py_xiaozhi.get("pc_bridge_installed"))
         bridge_text = "bridge 已安装" if bridge_ok else "bridge 未安装"
