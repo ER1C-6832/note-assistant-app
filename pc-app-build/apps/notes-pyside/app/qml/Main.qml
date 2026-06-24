@@ -47,6 +47,75 @@ ApplicationWindow {
         return currentCategory === "pinned"
     }
 
+
+    function voiceAvailable() {
+        return sidecarClient !== null
+            && sidecarClient.connected
+            && sidecarClient.voiceRuntimeReady
+    }
+
+    function currentVoiceState() {
+        if (!voiceAvailable()) {
+            return "offline"
+        }
+
+        if (sidecarClient.voiceButtonState !== undefined && sidecarClient.voiceButtonState.length > 0) {
+            return sidecarClient.voiceButtonState
+        }
+
+        return "idle"
+    }
+
+    function voiceButtonText() {
+        var state = currentVoiceState()
+
+        if (state === "offline") {
+            return "未启动"
+        }
+
+        if (state === "starting") {
+            return "正在启动"
+        }
+
+        if (state === "stopping") {
+            return "正在停止"
+        }
+
+        if (state === "aborting") {
+            return "正在打断"
+        }
+
+        if (state === "listening") {
+            return "点击停止"
+        }
+
+        if (state === "speaking") {
+            return "点击打断"
+        }
+
+        return "点击说话"
+    }
+
+    function handleVoiceClick() {
+        if (!voiceAvailable()) {
+            return
+        }
+
+        var state = currentVoiceState()
+
+        if (state === "speaking") {
+            sidecarClient.abortSpeaking()
+            return
+        }
+
+        if (state === "listening" || state === "starting") {
+            sidecarClient.stopListen()
+            return
+        }
+
+        sidecarClient.startListen()
+    }
+
     function reloadCurrentContext() {
         if (currentCategory === "pinned") {
             notesController.loadCategory("pinned")
@@ -187,7 +256,7 @@ ApplicationWindow {
             var tag = String(payload.tag || "").trim()
             if (tag.length > 0) {
                 notesController.addCustomTag(tag)
-                root.openTag(tag)
+                root.showVoiceResult("标签已新增", "已新增标签：" + tag, true)
             }
             return
         }
@@ -196,9 +265,8 @@ ApplicationWindow {
             var tagToDelete = String(payload.tag || "").trim()
             if (tagToDelete.length > 0) {
                 notesController.deleteTag(tagToDelete)
-                root.currentCategory = "all"
-                notesController.loadAll()
-                root.openPage("home")
+                root.reloadCurrentContext()
+                root.showVoiceResult("标签已删除", "已删除空标签：" + tagToDelete, true)
             }
             return
         }
@@ -340,6 +408,44 @@ ApplicationWindow {
     }
 
 
+
+
+    VoiceButton {
+        id: globalVoiceButton
+
+        anchors.right: parent.right
+        anchors.bottom: parent.bottom
+        anchors.rightMargin: 28
+        anchors.bottomMargin: 28
+
+        connected: sidecarClient !== null && sidecarClient.connected
+        enabledForControl: root.voiceAvailable()
+        unavailableText: sidecarClient !== null && sidecarClient.connected ? "请先在设置启动" : "Sidecar 未连接"
+        voiceState: root.currentVoiceState()
+        statusText: root.voiceButtonText()
+
+        z: 180
+
+        onClicked: root.handleVoiceClick()
+
+        onPressStarted: {
+            if (root.voiceAvailable() && sidecarClient !== null) {
+                sidecarClient.startListen()
+            }
+        }
+
+        onPressEnded: {
+            if (root.voiceAvailable() && sidecarClient !== null) {
+                sidecarClient.stopListen()
+            }
+        }
+
+        onAbortRequested: {
+            if (root.voiceAvailable() && sidecarClient !== null) {
+                sidecarClient.abortSpeaking()
+            }
+        }
+    }
 
     VoiceInteractionPanel {
         id: voiceInteractionPanel
@@ -582,6 +688,13 @@ ApplicationWindow {
                 root.currentCategory = "all"
                 notesController.loadAll()
                 root.openPage("home")
+            }
+
+            onResetRequested: {
+                root.currentCategory = "all"
+                notesController.loadAll()
+                root.openPage("home")
+                root.showVoiceResult("已重置搜索", "已返回全部便签。", true)
             }
 
             onEditRequested: {

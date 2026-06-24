@@ -14,15 +14,6 @@ Rectangle {
     border.width: 1
     clip: true
 
-    function valueOrDash(value) {
-        var text = String(value === undefined || value === null ? "" : value)
-        return text.length > 0 ? text : "-"
-    }
-
-    function rowText(label, value) {
-        return label + ": " + valueOrDash(value)
-    }
-
     ColumnLayout {
         anchors.fill: parent
         anchors.margins: 14
@@ -50,7 +41,7 @@ Rectangle {
 
         Text {
             Layout.fillWidth: true
-            text: "Ctrl+Shift+L 隐藏/显示 · 观测语音助手、工具和 Sidecar 事件"
+            text: "Ctrl+Shift+L 隐藏/显示 · 记录启动 py-xiaozhi 到空闲可用的时间线"
             color: "#9CA3AF"
             font.pixelSize: 11
             wrapMode: Text.Wrap
@@ -77,33 +68,11 @@ Rectangle {
                 font.family: "Consolas"
                 font.pixelSize: 11
                 background: Rectangle { color: "transparent" }
-                text: root.hasSidecar ? [
-                    root.rowText("Sidecar", sidecarClientRef.statusText),
-                    root.rowText("语音状态", sidecarClientRef.assistantStatusText),
-                    root.rowText("voiceButtonState", sidecarClientRef.voiceButtonState),
-                    root.rowText("runtimeReady", sidecarClientRef.voiceRuntimeReady),
-                    "",
-                    root.rowText("最近事件", sidecarClientRef.lastEventText),
-                    root.rowText("运行时状态", sidecarClientRef.lastRuntimeStateText),
-                    root.rowText("控制命令", sidecarClientRef.lastControlText),
-                    root.rowText("音频通道", sidecarClientRef.lastAudioChannelText),
-                    "",
-                    root.rowText("识别文本", sidecarClientRef.lastTranscriptText),
-                    root.rowText("助手回复", sidecarClientRef.lastAssistantReplyText),
-                    "",
-                    root.rowText("工具调用", sidecarClientRef.lastToolEventText),
-                    root.rowText("工具结果", sidecarClientRef.lastToolResultText),
-                    root.rowText("工具名", sidecarClientRef.lastToolName),
-                    root.rowText("工具状态", sidecarClientRef.lastToolStatus),
-                    "",
-                    root.rowText("py-xiaozhi", sidecarClientRef.pyXiaozhiStatusText),
-                    root.rowText("PID", sidecarClientRef.pyXiaozhiPidsText),
-                    root.rowText("运行时操作", sidecarClientRef.lastRuntimeActionText),
-                    root.rowText("运行时配置", sidecarClientRef.lastRuntimeConfigText),
-                    "",
-                    root.rowText("runtime log", sidecarClientRef.lastRuntimeLogText),
-                    root.rowText("error", sidecarClientRef.errorMessage)
-                ].join("\n") : "SidecarClient 未绑定"
+                text: root.hasSidecar ? sidecarClientRef.developerLogText : "SidecarClient 未绑定"
+
+                onTextChanged: {
+                    cursorPosition = length
+                }
             }
         }
     }

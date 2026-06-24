@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import time
 from datetime import datetime, timezone
 from typing import Any
 from urllib.parse import urlencode
@@ -18,10 +19,10 @@ class PCBridgePlugin(Plugin):
     """
     PC Assistant Bridge plugin.
 
-    Phase 7.0.5:
-    - Emits authoritative assistant_state after App control commands.
-    - Emits idle on TTS stop instead of a possibly stale snapshot.
-    - Keeps /api/control polling so the PC App can start/stop/abort listening.
+    Phase 8.3:
+    - Adds startup guard to suppress non-PC-App automatic listening/speaking.
+    - Emits startup_trace events for developer timing analysis.
+    - Keeps App controls authoritative.
     """
 
     name = "pc_bridge"
@@ -48,10 +49,18 @@ class PCBridgePlugin(Plugin):
             "PC_BRIDGE_DEBUG_JSON",
             "0",
         ).strip().lower() in {"1", "true", "yes", "on"}
+        self.suppress_startup_auto_listen = os.getenv(
+            "PC_BRIDGE_SUPPRESS_STARTUP_AUTO_LISTEN",
+            "1",
+        ).strip().lower() in {"1", "true", "yes", "on"}
+        self.startup_guard_seconds = float(os.getenv("PC_BRIDGE_STARTUP_GUARD_SECONDS", "10"))
         self._registered_handlers: list[tuple[str, Any]] = []
         self._last_status = ""
         self._last_command_id = 0
         self._control_task = None
+        self._started_at = 0.0
+        self._startup_guard_until = 0.0
+        self._last_pc_control_at = 0.0
 
     async def setup(self, ctx, cmd) -> None:
         await super().setup(ctx, cmd)
@@ -60,6 +69,9 @@ class PCBridgePlugin(Plugin):
         if not self.enabled:
             logger.info("PCBridgePlugin disabled by PC_BRIDGE_ENABLED=0")
             return
+
+        self._started_at = time.monotonic()
+        self._startup_guard_until = self._started_at + self.startup_guard_seconds
 
         from src.core.event_bus import Events
 
@@ -89,11 +101,16 @@ class PCBridgePlugin(Plugin):
         logger.info("PCBridgePlugin started, forwarding events to %s", self.event_url)
         logger.info("PCBridgePlugin polling controls from %s", self.control_url)
 
-        status = self._snapshot_status()
-        await self._emit_state(
-            status if status in {"idle", "listening", "speaking"} else "idle",
-            "PC Bridge 已连接 py-xiaozhi EventBus，并已启用 App 语音控制",
-        )
+        await self._emit_trace("bridge_started", "PC Bridge 已连接 py-xiaozhi EventBus，并已启用 App 语音控制")
+        await self._emit_state("idle", "语音助手空闲")
+
+        try:
+            self._cmd.spawn(
+                self._startup_safety_reset(),
+                name="pc_bridge:startup_safety_reset",
+            )
+        except Exception:
+            asyncio.create_task(self._startup_safety_reset())
 
     async def stop(self) -> None:
         if not self.enabled:
@@ -145,6 +162,8 @@ class PCBridgePlugin(Plugin):
     async def _execute_control(self, command: dict[str, Any]) -> None:
         command_name = str(command.get("command", "")).strip()
         mode = str(command.get("mode", "manual") or "manual").strip().lower()
+        self._last_pc_control_at = time.monotonic()
+        await self._emit_trace("pc_control_received", f"收到 PC App 控制命令：{command_name}")
 
         await self._emit({
             "type": "assistant_control_received",
@@ -228,6 +247,10 @@ class PCBridgePlugin(Plugin):
         if state_text not in {"idle", "listening", "speaking"}:
             return
 
+        if self._should_suppress_startup_state(state_text):
+            await self._emit_trace("startup_state_suppressed", f"启动保护忽略自动状态：{state_text}")
+            return
+
         self._last_status = state_text
         await self._emit_state(state_text, self._state_to_message(state_text))
 
@@ -253,10 +276,11 @@ class PCBridgePlugin(Plugin):
             text = self._clean_text(message.get("text", ""))
 
             if state == "start":
-                await self._emit_state("speaking", "语音助手正在播报", data=self._safe_json(message))
+                if self._should_suppress_startup_state("speaking"):
+                    await self._emit_trace("startup_tts_suppressed", "启动保护忽略自动播报")
+                else:
+                    await self._emit_state("speaking", "语音助手正在播报", data=self._safe_json(message))
             elif state == "stop":
-                # Do not use snapshot here. During stop, py-xiaozhi can still report
-                # a stale speaking/listening snapshot for a short time.
                 await self._emit_state("idle", "语音播报结束", data=self._safe_json(message))
 
             if text:
@@ -307,6 +331,7 @@ class PCBridgePlugin(Plugin):
             "message": "py-xiaozhi 协议已连接",
             "data": self._safe_json(info),
         })
+        await self._emit_trace("protocol_connected", "py-xiaozhi 协议已连接")
 
     async def _on_audio_channel_opened(self, _data: Any = None) -> None:
         await self._emit({
@@ -349,6 +374,14 @@ class PCBridgePlugin(Plugin):
             })
 
     async def _on_ui_listen_start(self, _data: Any = None) -> None:
+        if self._should_suppress_startup_state("listening"):
+            await self._emit_trace("startup_listen_suppressed", "启动保护忽略非 PC App 自动监听")
+            try:
+                await self._cmd.stop_listening()
+            except Exception:
+                pass
+            await self._emit_state("idle", "语音助手空闲")
+            return
         await self._emit_state("listening", "用户请求开始监听")
 
     async def _on_ui_manual_toggle(self, _data: Any = None) -> None:
@@ -385,6 +418,53 @@ class PCBridgePlugin(Plugin):
             "state": state,
             "message": message,
             "data": payload,
+        })
+
+    def _since_start_ms(self) -> int:
+        if not self._started_at:
+            return 0
+        return int((time.monotonic() - self._started_at) * 1000)
+
+    def _in_startup_guard(self) -> bool:
+        return bool(self.suppress_startup_auto_listen) and time.monotonic() < self._startup_guard_until
+
+    def _should_suppress_startup_state(self, state: str) -> bool:
+        if state not in {"listening", "speaking"}:
+            return False
+        if not self._in_startup_guard():
+            return False
+        return self._last_pc_control_at <= self._started_at
+
+    async def _startup_safety_reset(self) -> None:
+        if not self.suppress_startup_auto_listen:
+            return
+
+        await asyncio.sleep(0.8)
+
+        try:
+            if self._ctx.is_speaking():
+                from src.constants.constants import AbortReason
+
+                await self._cmd.abort_speaking(AbortReason.USER_INTERRUPTION)
+                await self._emit_trace("startup_abort_speaking", "启动保护已打断自动播报")
+        except Exception:
+            pass
+
+        try:
+            if self._ctx.is_listening():
+                await self._cmd.stop_listening()
+                await self._emit_trace("startup_stop_listening", "启动保护已停止自动监听")
+        except Exception:
+            pass
+
+        await self._emit_state("idle", "语音助手空闲")
+
+    async def _emit_trace(self, phase: str, message: str) -> None:
+        await self._emit({
+            "type": "startup_trace",
+            "phase": phase,
+            "elapsed_ms": self._since_start_ms(),
+            "message": message,
         })
 
     async def _emit(self, event: dict[str, Any]) -> None:

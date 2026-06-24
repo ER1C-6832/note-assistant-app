@@ -94,6 +94,10 @@ class SidecarClient(QObject):
         self._last_command = ""
         self._last_command_at = 0.0
 
+        self._developer_log_lines: list[str] = []
+        self._runtime_timeline_started_at = 0.0
+        self._runtime_timeline_label = ""
+
         self._raw_message_received.connect(self._handle_raw_message)
         self._connection_changed.connect(self._set_connected)
         self._error_received.connect(self._set_error)
@@ -254,6 +258,12 @@ class SidecarClient(QObject):
     def errorMessage(self) -> str:
         return self._error_message
 
+    @Property(str, notify=statusChanged)
+    def developerLogText(self) -> str:
+        if not self._developer_log_lines:
+            return "暂无开发者日志。点击设置页启动 py-xiaozhi 后，这里会记录从启动到空闲可用的时间线。"
+        return "\n".join(self._developer_log_lines)
+
     @Slot()
     def start(self) -> None:
         if self._thread and self._thread.is_alive():
@@ -372,6 +382,7 @@ class SidecarClient(QObject):
 
     @Slot()
     def startPyXiaozhi(self) -> None:
+        self._begin_runtime_timeline("start_py_xiaozhi")
         self._queue_runtime_action("start_py_xiaozhi")
 
     @Slot()
@@ -397,8 +408,11 @@ class SidecarClient(QObject):
         self.statusChanged.emit()
 
     def _mark_voice_runtime_ready(self) -> None:
+        was_ready = self._voice_runtime_ready
         self._voice_runtime_ready = True
         self._last_voice_runtime_event_at = time.time()
+        if not was_ready:
+            self._append_developer_log("RUNTIME_READY voice runtime became ready")
         if self._voice_button_state == "offline":
             self._voice_button_state = "idle"
         if self._assistant_state == "offline":
@@ -440,6 +454,7 @@ class SidecarClient(QObject):
             "type": action_type,
             "request_id": f"pc-app-runtime-{int(time.time() * 1000)}",
         })
+        self._append_developer_log(f"APP_ACTION {action_type}")
         self._last_runtime_action_text = f"已发送 py-xiaozhi 运行时操作：{action_type}"
         self._last_event_text = self._last_runtime_action_text
         self.statusChanged.emit()
@@ -555,6 +570,7 @@ class SidecarClient(QObject):
 
         event_type = str(payload.get("type", ""))
         source = str(payload.get("source", ""))
+        self._append_event_to_developer_log(payload)
 
         if event_type == "sidecar_connected":
             self._status_text = "Sidecar 已连接"
@@ -633,6 +649,12 @@ class SidecarClient(QObject):
             data = payload.get("data", {}) or {}
             status = data.get("status", {}) or {}
             if status:
+                self._append_developer_log(
+                    "RUNTIME_STATUS "
+                    + f"running={bool(status.get('process_running'))} "
+                    + f"pids={status.get('process_pids', [])} "
+                    + f"mode={status.get('runtime_mode', '')}"
+                )
                 self._apply_py_xiaozhi_status(status)
             self.statusChanged.emit()
             return
@@ -702,6 +724,43 @@ class SidecarClient(QObject):
 
         self._last_event_text = f"收到 Sidecar 事件：{event_type or 'unknown'}"
         self.statusChanged.emit()
+
+
+    def _begin_runtime_timeline(self, label: str) -> None:
+        self._runtime_timeline_started_at = time.time()
+        self._runtime_timeline_label = label
+        self._developer_log_lines.clear()
+        self._append_developer_log(f"TIMELINE_START {label}")
+
+    def _elapsed_ms(self) -> str:
+        if not self._runtime_timeline_started_at:
+            return "-"
+        return f"{int((time.time() - self._runtime_timeline_started_at) * 1000)}ms"
+
+    def _append_developer_log(self, message: str) -> None:
+        timestamp = time.strftime("%H:%M:%S")
+        elapsed = self._elapsed_ms()
+        line = f"{timestamp} +{elapsed} {message}" if elapsed != "-" else f"{timestamp} {message}"
+        self._developer_log_lines.append(line)
+        if len(self._developer_log_lines) > 500:
+            self._developer_log_lines = self._developer_log_lines[-500:]
+
+    def _append_event_to_developer_log(self, payload: dict[str, Any]) -> None:
+        event_type = str(payload.get("type", ""))
+        source = str(payload.get("source", ""))
+        message = str(payload.get("message", "") or payload.get("status", "") or payload.get("state", ""))
+        command = str(payload.get("command", "") or "")
+        action = str(payload.get("action", "") or "")
+        parts = [f"EVENT {event_type}"]
+        if source:
+            parts.append(f"source={source}")
+        if command:
+            parts.append(f"command={command}")
+        if action:
+            parts.append(f"action={action}")
+        if message:
+            parts.append(message[:120])
+        self._append_developer_log(" | ".join(parts))
 
     def _is_authoritative_source(self, source: str) -> bool:
         return source in TRUSTED_RUNTIME_SOURCES or source.startswith("py-xiaozhi.eventbus_bridge")

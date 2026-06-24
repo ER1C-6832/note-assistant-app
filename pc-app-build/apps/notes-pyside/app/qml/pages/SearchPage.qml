@@ -12,6 +12,7 @@ Item {
 
     signal noteSelected(int index)
     signal backRequested()
+    signal resetRequested()
     signal editRequested()
     signal deleteSelectedRequested()
     signal pinRequested()
@@ -23,29 +24,45 @@ Item {
         anchors.fill: parent
         spacing: 20
 
-        NoteList {
+        Item {
             Layout.preferredWidth: 560
             Layout.fillHeight: true
-            notesModel: root.notesModel
-            notesControllerRef: notesController
-            selectedIndex: root.selectedIndex
-            activeCategory: "search"
-            showCreateButton: false
 
-            onNoteSelected: function(index) {
-                root.noteSelected(index)
+            NoteList {
+                anchors.fill: parent
+                notesModel: root.notesModel
+                notesControllerRef: notesController
+                selectedIndex: root.selectedIndex
+                activeCategory: "search"
+                showCreateButton: false
+
+                onNoteSelected: function(index) {
+                    root.noteSelected(index)
+                }
+
+                onBulkDeleteRequested: function(noteIds) {
+                    root.bulkDeleteRequested(noteIds)
+                }
+
+                onBulkPinRequested: function(noteIds) {
+                    root.bulkPinRequested(noteIds)
+                }
+
+                onBulkUnpinRequested: function(noteIds) {
+                    root.bulkUnpinRequested(noteIds)
+                }
             }
 
-            onBulkDeleteRequested: function(noteIds) {
-                root.bulkDeleteRequested(noteIds)
-            }
-
-            onBulkPinRequested: function(noteIds) {
-                root.bulkPinRequested(noteIds)
-            }
-
-            onBulkUnpinRequested: function(noteIds) {
-                root.bulkUnpinRequested(noteIds)
+            AppButton {
+                anchors.top: parent.top
+                anchors.right: parent.right
+                anchors.topMargin: 20
+                anchors.rightMargin: 20
+                text: "重置搜索"
+                variant: "secondary"
+                implicitWidth: 96
+                implicitHeight: 38
+                onClicked: root.resetRequested()
             }
         }
 

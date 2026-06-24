@@ -47,7 +47,7 @@ Rectangle {
                 spacing: 2
 
                 Text {
-                    text: "小智便签"
+                    text: "EHOME便签"
                     color: "#111827"
                     font.pixelSize: 18
                     font.bold: true

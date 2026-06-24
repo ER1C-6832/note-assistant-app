@@ -300,7 +300,10 @@ async def tool_search_notes(args) -> str:
             "message": f"已在小智便签中显示“{query}”的搜索结果",
         }
         _emit_ui_action(**ui_action)
-        _emit_voice_result("查询完成", message, True, {"query": query, "total": total})
+        if int(total or 0) <= 0:
+            _emit_voice_result("没有找到便签", f"没有找到与“{query}”相关的便签。可以点“重置搜索”返回全部。", False, {"query": query, "total": total})
+        else:
+            _emit_voice_result("查询完成", message, True, {"query": query, "total": total})
         _emit_tool_result(
             "notes.search",
             True,
@@ -670,7 +673,7 @@ async def tool_pin_note(args) -> str:
         note = NotesApiClient().pin_note(note_id)
         _CONTEXT["last_note"] = note
         message = f"便签已置顶：{note.get('title', note_id)}"
-        _emit_ui_action("show_pinned", {"note_id": note_id}, "已在小智便签中显示置顶列表")
+        _emit_ui_action("refresh_notes", {"note_id": note_id}, "已刷新小智便签列表")
         _emit_voice_result("便签已置顶", message, True, {"note_id": note_id})
         _emit_tool_result("notes.pin", True, message, data={"note_id": note_id, "title": note.get("title", "")}, note_changed=True)
         return _json({"success": True, "message": "便签已置顶", "note": note})
