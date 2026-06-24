@@ -16,17 +16,19 @@ Rectangle {
     signal abortRequested()
 
     readonly property bool available: connected && enabledForControl
-    readonly property bool active: voiceState === "listening" || voiceState === "starting"
+    readonly property bool active: voiceState === "listening" || voiceState === "speaking" || voiceState === "starting"
 
     width: 156
     height: 50
     radius: 25
     color: !root.available ? "#F3F4F6"
-           : root.voiceState === "listening" ? "#ECFDF3"
+           : voiceState === "speaking" ? "#FFF7ED"
+           : voiceState === "listening" ? "#ECFDF3"
            : mouse.containsMouse ? "#F7F8FA"
            : "#FFFFFF"
     border.color: !root.available ? "#E5E7EB"
-                 : root.voiceState === "listening" ? "#19B7A8"
+                 : voiceState === "speaking" ? "#F97316"
+                 : voiceState === "listening" ? "#19B7A8"
                  : "#E5E7EB"
     border.width: root.available && active ? 2 : 1
     z: 50
@@ -41,6 +43,7 @@ Rectangle {
             height: 26
             radius: 13
             color: !root.available ? "#9CA3AF"
+                   : root.voiceState === "speaking" ? "#F97316"
                    : root.voiceState === "listening" ? "#16A34A"
                    : root.voiceState === "starting" ? "#2563EB"
                    : root.voiceState === "stopping" ? "#F97316"
@@ -70,7 +73,7 @@ Rectangle {
             }
 
             Text {
-                text: root.available ? "单击开始/停止 · 右键打断" : root.unavailableText
+                text: root.available ? "单击开始/停止/打断" : root.unavailableText
                 color: "#9CA3AF"
                 font.pixelSize: 10
                 elide: Text.ElideRight

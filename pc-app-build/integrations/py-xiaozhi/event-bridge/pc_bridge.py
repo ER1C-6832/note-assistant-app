@@ -18,9 +18,10 @@ class PCBridgePlugin(Plugin):
     """
     PC Assistant Bridge plugin.
 
-    Phase 5.4 emits py-xiaozhi runtime events to Sidecar.
-    Phase 6.0 additionally polls Sidecar control commands and executes
-    start_listen / stop_listen / toggle_listen / abort through PluginCommands.
+    Phase 7.0.5:
+    - Emits authoritative assistant_state after App control commands.
+    - Emits idle on TTS stop instead of a possibly stale snapshot.
+    - Keeps /api/control polling so the PC App can start/stop/abort listening.
     """
 
     name = "pc_bridge"
@@ -88,11 +89,11 @@ class PCBridgePlugin(Plugin):
         logger.info("PCBridgePlugin started, forwarding events to %s", self.event_url)
         logger.info("PCBridgePlugin polling controls from %s", self.control_url)
 
-        await self._emit({
-            "type": "assistant_status",
-            "status": self._snapshot_status(),
-            "message": "PC Bridge 已连接 py-xiaozhi EventBus，并已启用 App 语音控制",
-        })
+        status = self._snapshot_status()
+        await self._emit_state(
+            status if status in {"idle", "listening", "speaking"} else "idle",
+            "PC Bridge 已连接 py-xiaozhi EventBus，并已启用 App 语音控制",
+        )
 
     async def stop(self) -> None:
         if not self.enabled:
@@ -111,11 +112,7 @@ class PCBridgePlugin(Plugin):
             except Exception:
                 pass
 
-        await self._emit({
-            "type": "assistant_status",
-            "status": "stopped",
-            "message": "PC Bridge 已停止",
-        })
+        await self._emit_state("idle", "PC Bridge 已停止")
 
     async def _control_loop(self) -> None:
         while self.enabled:
@@ -160,17 +157,22 @@ class PCBridgePlugin(Plugin):
         try:
             if command_name == "start_listen":
                 await self._start_listening(mode)
+                await self._emit_state("listening", "语音助手正在聆听", command=command)
             elif command_name == "stop_listen":
                 await self._cmd.stop_listening()
+                await self._emit_state("idle", "语音助手空闲", command=command)
             elif command_name == "toggle_listen":
                 if self._ctx.is_listening():
                     await self._cmd.stop_listening()
+                    await self._emit_state("idle", "语音助手空闲", command=command)
                 else:
                     await self._start_listening(mode)
+                    await self._emit_state("listening", "语音助手正在聆听", command=command)
             elif command_name in {"abort", "abort_speaking"}:
                 from src.constants.constants import AbortReason
 
                 await self._cmd.abort_speaking(AbortReason.USER_INTERRUPTION)
+                await self._emit_state("idle", "语音助手空闲", command=command)
             else:
                 await self._emit({
                     "type": "assistant_control_error",
@@ -185,6 +187,7 @@ class PCBridgePlugin(Plugin):
                 "command": command_name,
                 "status": "success",
                 "message": f"语音控制命令已执行：{command_name}",
+                "runtime_state": self._state_after_command(command_name),
                 "data": command,
             })
         except Exception as exc:
@@ -195,6 +198,13 @@ class PCBridgePlugin(Plugin):
                 "message": f"语音控制命令执行失败：{command_name}，{exc}",
                 "data": command,
             })
+
+    def _state_after_command(self, command_name: str) -> str:
+        if command_name == "start_listen":
+            return "listening"
+        if command_name in {"stop_listen", "abort", "abort_speaking"}:
+            return "idle"
+        return self._snapshot_status()
 
     async def _start_listening(self, mode: str) -> None:
         from src.constants.constants import ListeningMode
@@ -215,21 +225,11 @@ class PCBridgePlugin(Plugin):
             return
 
         state_text = self._state_to_text(state)
+        if state_text not in {"idle", "listening", "speaking"}:
+            return
+
         self._last_status = state_text
-
-        await self._emit({
-            "type": "assistant_status",
-            "status": state_text,
-            "message": f"语音助手状态：{state_text}",
-            "data": {"state": state_text},
-        })
-
-        await self._emit({
-            "type": "assistant_state",
-            "state": state_text,
-            "message": self._state_to_message(state_text),
-            "data": {"state": state_text},
-        })
+        await self._emit_state(state_text, self._state_to_message(state_text))
 
     async def on_incoming_json(self, message: Any) -> None:
         if not self.enabled or not isinstance(message, dict):
@@ -253,19 +253,11 @@ class PCBridgePlugin(Plugin):
             text = self._clean_text(message.get("text", ""))
 
             if state == "start":
-                await self._emit({
-                    "type": "assistant_state",
-                    "state": "speaking",
-                    "message": "语音助手正在播报",
-                    "data": self._safe_json(message),
-                })
+                await self._emit_state("speaking", "语音助手正在播报", data=self._safe_json(message))
             elif state == "stop":
-                await self._emit({
-                    "type": "assistant_state",
-                    "state": self._snapshot_status(),
-                    "message": "语音播报结束",
-                    "data": self._safe_json(message),
-                })
+                # Do not use snapshot here. During stop, py-xiaozhi can still report
+                # a stale speaking/listening snapshot for a short time.
+                await self._emit_state("idle", "语音播报结束", data=self._safe_json(message))
 
             if text:
                 await self._emit({
@@ -290,24 +282,6 @@ class PCBridgePlugin(Plugin):
                     "message": f"助手回复：{text}",
                     "data": self._safe_json(message),
                 })
-            else:
-                emotion = message.get("emotion")
-                if emotion:
-                    await self._emit({
-                        "type": "assistant_state",
-                        "state": "emotion",
-                        "message": f"助手表情：{emotion}",
-                        "data": self._safe_json(message),
-                    })
-            return
-
-        if msg_type == "mcp":
-            await self._emit({
-                "type": "assistant_state",
-                "state": "tooling",
-                "message": "收到 MCP 消息",
-                "data": self._safe_json(message),
-            })
             return
 
         if self.emit_debug_json:
@@ -375,11 +349,7 @@ class PCBridgePlugin(Plugin):
             })
 
     async def _on_ui_listen_start(self, _data: Any = None) -> None:
-        await self._emit({
-            "type": "assistant_state",
-            "state": "listening",
-            "message": "用户请求开始监听",
-        })
+        await self._emit_state("listening", "用户请求开始监听")
 
     async def _on_ui_manual_toggle(self, _data: Any = None) -> None:
         await self._emit({
@@ -389,10 +359,32 @@ class PCBridgePlugin(Plugin):
         })
 
     async def _on_ui_abort(self, _data: Any = None) -> None:
+        await self._emit_state("idle", "用户中断语音输出")
+
+    async def _emit_state(
+        self,
+        state: str,
+        message: str,
+        command: dict[str, Any] | None = None,
+        data: Any | None = None,
+    ) -> None:
+        payload = {"state": state}
+        if command:
+            payload["command"] = command
+        if data is not None:
+            payload["data"] = data
+
+        await self._emit({
+            "type": "assistant_status",
+            "status": state,
+            "message": message,
+            "data": payload,
+        })
         await self._emit({
             "type": "assistant_state",
-            "state": "aborted",
-            "message": "用户中断语音输出",
+            "state": state,
+            "message": message,
+            "data": payload,
         })
 
     async def _emit(self, event: dict[str, Any]) -> None:

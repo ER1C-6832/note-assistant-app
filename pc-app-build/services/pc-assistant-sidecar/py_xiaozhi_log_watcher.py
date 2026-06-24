@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import re
 from pathlib import Path
 from typing import Any
@@ -16,14 +17,11 @@ class PyXiaozhiLogWatcher:
     """
     Lightweight py-xiaozhi runtime log bridge.
 
-    It does not modify py-xiaozhi internals. It tails the runtime log and emits:
-    - assistant_log
-    - assistant_transcript
-    - assistant_reply
-    - assistant_state
-
-    The matcher is deliberately conservative. Unknown log lines are ignored
-    unless they contain likely user / assistant / state markers.
+    Phase 7.0.5:
+    - Log-derived assistant_state is disabled by default because it is not
+      authoritative and can make the PC App show stale "speaking/listening".
+    - Transcript/reply extraction remains available.
+    - Set SIDECAR_LOG_STATE_EVENTS=1 only for debugging.
     """
 
     def __init__(self, config: SidecarConfig, event_hub: SidecarEventHub) -> None:
@@ -32,6 +30,12 @@ class PyXiaozhiLogWatcher:
         self.log_path = config.py_xiaozhi_log_path
         self._position = 0
         self._last_size = 0
+        self.emit_state_events = os.getenv("SIDECAR_LOG_STATE_EVENTS", "0").strip().lower() in {
+            "1",
+            "true",
+            "yes",
+            "on",
+        }
 
     async def run(self) -> None:
         if self.log_path is None:
@@ -39,6 +43,7 @@ class PyXiaozhiLogWatcher:
             return
 
         logger.info("Watching py-xiaozhi log: %s", self.log_path)
+        logger.info("py-xiaozhi log-derived state events enabled: %s", self.emit_state_events)
 
         while True:
             try:
@@ -56,19 +61,16 @@ class PyXiaozhiLogWatcher:
 
         size = path.stat().st_size
 
-        # First poll starts at EOF to avoid replaying a huge historical log.
         if self._position == 0 and self._last_size == 0:
             self._position = size
             self._last_size = size
             await self.event_hub.publish({
-                "type": "assistant_state",
+                "type": "assistant_log",
                 "source": "py-xiaozhi.log_watcher",
-                "state": "log_watching",
                 "message": f"开始监听 py-xiaozhi 日志：{path}",
             })
             return
 
-        # Log rotation / truncation.
         if size < self._position:
             self._position = 0
 
@@ -92,13 +94,11 @@ class PyXiaozhiLogWatcher:
         if not clean:
             return None
 
-        # Remove timestamp/logger prefix when present, but keep original line.
         message = clean
         bracket_idx = message.find("] ")
         if bracket_idx >= 0:
             message = message[bracket_idx + 2:].strip()
 
-        # Common Chinese / English transcript markers.
         transcript = self._extract_after_markers(
             message,
             [
@@ -145,6 +145,9 @@ class PyXiaozhiLogWatcher:
                 "raw": clean,
             }
 
+        if not self.emit_state_events:
+            return None
+
         lowered = message.lower()
 
         if any(key in lowered for key in ["listening", "wake", "wakeup", "listened"]):
@@ -174,7 +177,6 @@ class PyXiaozhiLogWatcher:
                 "raw": clean,
             }
 
-        # Do not flood UI with every debug line.
         return None
 
     def _extract_after_markers(self, message: str, markers: list[str]) -> str:

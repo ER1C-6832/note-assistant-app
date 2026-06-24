@@ -62,6 +62,10 @@ Item {
             return "点击停止"
         }
 
+        if (state === "speaking") {
+            return "点击打断"
+        }
+
         return "点击说话"
     }
 
@@ -71,6 +75,11 @@ Item {
         }
 
         var state = currentVoiceState()
+
+        if (state === "speaking") {
+            sidecarClient.abortSpeaking()
+            return
+        }
 
         if (state === "listening" || state === "starting") {
             sidecarClient.stopListen()
