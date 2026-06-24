@@ -21,8 +21,14 @@ Item {
     signal bulkUnpinRequested(var noteIds)
     signal assistantRequested()
 
+    function voiceAvailable() {
+        return sidecarClient !== null
+            && sidecarClient.connected
+            && sidecarClient.pyXiaozhiRunning
+    }
+
     function currentVoiceState() {
-        if (sidecarClient === null || !sidecarClient.connected) {
+        if (!voiceAvailable()) {
             return "offline"
         }
 
@@ -45,7 +51,7 @@ Item {
         var state = currentVoiceState()
 
         if (state === "offline") {
-            return "语音未连接"
+            return "未启动"
         }
 
         if (state === "starting") {
@@ -54,6 +60,10 @@ Item {
 
         if (state === "stopping") {
             return "正在停止"
+        }
+
+        if (state === "aborting") {
+            return "正在打断"
         }
 
         if (state === "listening") {
@@ -68,7 +78,7 @@ Item {
     }
 
     function handleVoiceClick() {
-        if (sidecarClient === null) {
+        if (!voiceAvailable()) {
             return
         }
 
@@ -142,26 +152,26 @@ Item {
                 anchors.bottom: parent.bottom
                 anchors.rightMargin: 32
                 anchors.bottomMargin: 32
-                connected: sidecarClient !== null && sidecarClient.connected
+                connected: root.voiceAvailable()
                 voiceState: root.currentVoiceState()
                 statusText: root.voiceButtonText()
 
                 onClicked: root.handleVoiceClick()
 
                 onPressStarted: {
-                    if (sidecarClient !== null) {
+                    if (root.voiceAvailable() && sidecarClient !== null) {
                         sidecarClient.startListen()
                     }
                 }
 
                 onPressEnded: {
-                    if (sidecarClient !== null) {
+                    if (root.voiceAvailable() && sidecarClient !== null) {
                         sidecarClient.stopListen()
                     }
                 }
 
                 onAbortRequested: {
-                    if (sidecarClient !== null) {
+                    if (root.voiceAvailable() && sidecarClient !== null) {
                         sidecarClient.abortSpeaking()
                     }
                 }
