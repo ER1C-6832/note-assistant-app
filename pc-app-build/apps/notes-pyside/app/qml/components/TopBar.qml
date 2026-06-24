@@ -6,6 +6,7 @@ Rectangle {
 
     property var notesControllerRef: null
     property var sidecarClientRef: null
+    property int searchResetToken: 0
 
     readonly property bool apiBusy: notesControllerRef !== null && notesControllerRef.isBusy
     readonly property bool apiConnected: notesControllerRef !== null && notesControllerRef.apiConnected
@@ -63,6 +64,7 @@ Rectangle {
 
         SearchBox {
             Layout.preferredWidth: 520
+            resetToken: root.searchResetToken
 
             onSearchRequested: function(keyword) {
                 root.searchRequested(keyword)
@@ -78,10 +80,10 @@ Rectangle {
         }
 
         StatusBadge {
-            text: root.apiBusy ? "正在同步" : root.apiConnected ? "Notes API 已连接" : "Notes API 未连接"
-            dotColor: root.apiBusy ? "#4F7CFF" : root.apiConnected ? "#16A34A" : "#EF4444"
-            bgColor: root.apiBusy ? "#EAF0FF" : root.apiConnected ? "#ECFDF3" : "#FEF2F2"
-            textColor: root.apiBusy ? "#1E3A8A" : root.apiConnected ? "#166534" : "#991B1B"
+            text: root.apiConnected ? "Notes API 已连接" : root.apiBusy ? "Notes API 正在连接" : "Notes API 未连接"
+            dotColor: root.apiConnected ? "#16A34A" : root.apiBusy ? "#4F7CFF" : "#EF4444"
+            bgColor: root.apiConnected ? "#ECFDF3" : root.apiBusy ? "#EAF0FF" : "#FEF2F2"
+            textColor: root.apiConnected ? "#166534" : root.apiBusy ? "#1E3A8A" : "#991B1B"
         }
 
         StatusBadge {

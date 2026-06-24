@@ -16,6 +16,14 @@ ApplicationWindow {
     title: "小智便签"
     color: "#F4F7FB"
 
+    onClosing: function(close) {
+        developerLogPanelVisible = false
+        voicePanelVisible = false
+        if (sidecarClient !== null) {
+            sidecarClient.stop()
+        }
+    }
+
     property string currentPage: "home"
     property string currentCategory: "all"
     property string pendingCategory: "all"
@@ -32,6 +40,7 @@ ApplicationWindow {
     property string voicePanelNoteContent: ""
     property bool voicePanelDanger: false
     property bool voicePanelSuccess: true
+    property int searchResetToken: 0
 
     function createInitialTags() {
         if (currentCategory === "todo") {
@@ -342,6 +351,7 @@ ApplicationWindow {
             Layout.fillWidth: true
             notesControllerRef: notesController
             sidecarClientRef: sidecarClient
+            searchResetToken: root.searchResetToken
 
             onSearchRequested: function(keyword) {
                 liveSearchTimer.keyword = keyword
@@ -693,6 +703,7 @@ ApplicationWindow {
             onResetRequested: {
                 root.currentCategory = "all"
                 notesController.loadAll()
+                root.searchResetToken += 1
                 root.openPage("home")
                 root.showVoiceResult("已重置搜索", "已返回全部便签。", true)
             }

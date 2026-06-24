@@ -280,6 +280,10 @@ class SidecarClient(QObject):
         except Exception:
             pass
 
+        thread = self._thread
+        if thread is not None and thread.is_alive() and threading.current_thread() is not thread:
+            thread.join(timeout=1.2)
+
     @Slot()
     def refreshStatus(self) -> None:
         if not self._connected:
@@ -383,6 +387,10 @@ class SidecarClient(QObject):
     @Slot()
     def startPyXiaozhi(self) -> None:
         self._begin_runtime_timeline("start_py_xiaozhi")
+        self._assistant_state = "starting"
+        self._assistant_status_text = "语音助手启动中"
+        self._voice_button_state = "offline"
+        self.statusChanged.emit()
         self._queue_runtime_action("start_py_xiaozhi")
 
     @Slot()
@@ -744,6 +752,7 @@ class SidecarClient(QObject):
         self._developer_log_lines.append(line)
         if len(self._developer_log_lines) > 500:
             self._developer_log_lines = self._developer_log_lines[-500:]
+        self.statusChanged.emit()
 
     def _append_event_to_developer_log(self, payload: dict[str, Any]) -> None:
         event_type = str(payload.get("type", ""))
@@ -934,22 +943,21 @@ class SidecarClient(QObject):
         self._py_xiaozhi_python_text = str(py_xiaozhi.get("python") or "")
         self._py_xiaozhi_pids_text = ", ".join([str(pid) for pid in process_pids]) if process_pids else ""
 
-        if process_running:
-            self._voice_runtime_ready = True
-            self._last_voice_runtime_event_at = time.time()
-        else:
+        if not process_running:
             # When no process is detected, do not keep an old bridge-ready state forever.
-            # This prevents the voice button from staying in "正在启动" after a failed start
-            # or a fixed process detector reporting the runtime as stopped.
             age = time.time() - self._last_voice_runtime_event_at if self._last_voice_runtime_event_at else 9999.0
             if age > 8.0:
                 self._voice_runtime_ready = False
+        # A process alone is not enough to make the voice button usable. The runtime
+        # becomes controllable only after trusted PC Bridge / EventBus events arrive.
 
         bridge_ok = bool(py_xiaozhi.get("pc_bridge_installed"))
         bridge_text = "bridge 已安装" if bridge_ok else "bridge 未安装"
 
-        if process_running:
+        if process_running and self._voice_runtime_ready:
             self._py_xiaozhi_status_text = f"py-xiaozhi 运行中（{process_count} 个进程）"
+        elif process_running:
+            self._py_xiaozhi_status_text = f"py-xiaozhi 进程已启动，等待语音桥接（{process_count} 个进程）"
         elif self._voice_runtime_ready:
             self._py_xiaozhi_status_text = "py-xiaozhi 语音桥接在线（进程检测未命中）"
         elif root_exists and main_py_exists:
@@ -963,7 +971,12 @@ class SidecarClient(QObject):
             + bridge_text
         )
 
-        if not process_running and not self._voice_runtime_ready:
+        if process_running and not self._voice_runtime_ready:
+            self._voice_button_state = "offline"
+            if self._assistant_state in {"offline", "starting"}:
+                self._assistant_state = "starting"
+                self._assistant_status_text = "语音助手启动中"
+        elif not process_running and not self._voice_runtime_ready:
             self._voice_button_state = "offline"
             self._assistant_state = "offline"
             self._assistant_status_text = "语音助手未启动"

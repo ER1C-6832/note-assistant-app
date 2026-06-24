@@ -32,7 +32,6 @@ def _load_env_file(path: Path) -> None:
 def run_app() -> int:
     """Create the Qt application, load QML, and start the event loop."""
 
-    # Must be set before QGuiApplication is created.
     os.environ.setdefault("QT_QUICK_CONTROLS_STYLE", "Basic")
     os.environ.setdefault("QT_API", "pyside6")
 
@@ -66,7 +65,6 @@ def run_app() -> int:
     context.setContextProperty("deletedNotesListModel", notes_controller.deleted_notes_model)
     context.setContextProperty("sidecarClient", sidecar_client)
 
-    # Keep Python-side QObjects alive for the lifetime of the QML engine.
     engine.notes_controller = notes_controller  # type: ignore[attr-defined]
     engine.sidecar_client = sidecar_client  # type: ignore[attr-defined]
 
@@ -77,4 +75,6 @@ def run_app() -> int:
         sidecar_client.stop()
         return 1
 
-    return app.exec()
+    exit_code = app.exec()
+    sidecar_client.stop()
+    return int(exit_code)

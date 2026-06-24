@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import subprocess
+import threading
 import time
 from pathlib import Path
 from typing import Any
@@ -12,10 +13,10 @@ from config import SidecarConfig, load_config
 class PyXiaozhiProcessManager:
     """Process manager for the external py-xiaozhi runtime.
 
-    Phase 8.1.1:
-    - Fixes 8.1 overmatching where the PowerShell detector could match itself.
-    - Only python.exe/pythonw.exe processes whose command line includes the
-      configured main.py are treated as py-xiaozhi runtime processes.
+    Phase 8.4:
+    - Start returns immediately after Popen.
+    - Window hide/minimize is attempted in a short background thread.
+    - Process detection timeout is reduced to avoid blocking the Sidecar event loop.
     """
 
     def __init__(self, config: SidecarConfig) -> None:
@@ -65,15 +66,6 @@ class PyXiaozhiProcessManager:
         return self.config.py_xiaozhi_root / "src" / "mcp" / "tools" / "notes" / "_tools.py"
 
     def list_processes(self) -> list[dict[str, Any]]:
-        """Return detected py-xiaozhi runtime processes.
-
-        The detector is intentionally strict:
-        - process name must be python.exe or pythonw.exe
-        - command line must contain the absolute main.py path
-        This avoids the previous false-positive where the PowerShell process that
-        runs the detector contained both PY_XIAOZHI_ROOT and the string main.py.
-        """
-
         if os.name != "nt":
             return []
 
@@ -100,7 +92,7 @@ class PyXiaozhiProcessManager:
                 text=True,
                 encoding="utf-8",
                 errors="ignore",
-                timeout=5,
+                timeout=1.8,
             )
         except Exception:
             return []
@@ -152,9 +144,11 @@ class PyXiaozhiProcessManager:
 
     def status(self) -> dict[str, Any]:
         processes = self.list_processes()
+        return self._status_from_processes(processes)
+
+    def _status_from_processes(self, processes: list[dict[str, Any]]) -> dict[str, Any]:
         python_exe = self.detect_python_exe()
         main_py = self.main_py()
-
         return {
             "root": str(self.config.py_xiaozhi_root),
             "root_exists": self.config.py_xiaozhi_root.exists(),
@@ -175,6 +169,16 @@ class PyXiaozhiProcessManager:
             "launchable": self.config.py_xiaozhi_root.exists() and main_py.exists(),
         }
 
+    def _status_from_pid(self, pid: int) -> dict[str, Any]:
+        return self._status_from_processes([
+            {
+                "pid": int(pid),
+                "parent_pid": None,
+                "name": "pythonw.exe",
+                "command_line": str(self.main_py()),
+            }
+        ])
+
     def _runtime_args(self) -> list[str]:
         runtime_mode = getattr(self.config, "py_xiaozhi_runtime_mode", "headless") or "headless"
         args = ["--mode", str(runtime_mode), "--protocol", str(self.config.py_xiaozhi_protocol or "websocket")]
@@ -184,19 +188,20 @@ class PyXiaozhiProcessManager:
 
     def start(self, mode: str | None = None) -> dict[str, Any]:
         self.reload_config()
-        current = self.status()
+        existing_processes = self.list_processes()
+        current = self._status_from_processes(existing_processes)
         requested_mode = self._normalize_mode(mode or self.config.py_xiaozhi_start_mode)
         requested_window_mode = self._normalize_mode(self.config.py_xiaozhi_window_mode or requested_mode)
 
         if current["process_running"]:
-            window_result = self.apply_window_mode(requested_window_mode)
+            self._apply_window_mode_background(requested_window_mode)
             return {
                 "ok": True,
                 "action": "start",
                 "already_running": True,
-                "message": "py-xiaozhi 已经在运行，未重复启动，已重新应用窗口模式",
-                "window_result": window_result,
-                "status": self.status(),
+                "message": "py-xiaozhi 已经在运行，未重复启动",
+                "window_result": {"ok": True, "background": True, "mode": requested_window_mode},
+                "status": current,
             }
 
         if not current["launchable"]:
@@ -261,7 +266,7 @@ class PyXiaozhiProcessManager:
                 "status": current,
             }
 
-        window_result = self.apply_window_mode(requested_window_mode, retries=18, initial_delay=0.5)
+        self._apply_window_mode_background(requested_window_mode)
 
         return {
             "ok": True,
@@ -273,8 +278,8 @@ class PyXiaozhiProcessManager:
             "runtime_mode": runtime_mode,
             "start_mode": requested_mode,
             "window_mode": requested_window_mode,
-            "window_result": window_result,
-            "status": self.status(),
+            "window_result": {"ok": True, "background": True, "mode": requested_window_mode},
+            "status": self._status_from_pid(process.pid),
         }
 
     def stop(self) -> dict[str, Any]:
@@ -306,7 +311,7 @@ class PyXiaozhiProcessManager:
                         ["taskkill", "/PID", str(pid), "/T", "/F"],
                         capture_output=True,
                         text=True,
-                        timeout=10,
+                        timeout=6,
                     )
                     if result.returncode not in {0, 128}:
                         raise RuntimeError((result.stderr or result.stdout or "").strip())
@@ -316,7 +321,7 @@ class PyXiaozhiProcessManager:
             except Exception as exc:
                 failed.append({"pid": pid, "error": str(exc)})
 
-        time.sleep(1.0)
+        time.sleep(0.5)
         remaining = self.list_processes()
 
         return {
@@ -338,13 +343,22 @@ class PyXiaozhiProcessManager:
             "message": "已请求重启 py-xiaozhi",
             "stop": stop_result,
             "start": start_result,
-            "status": self.status(),
+            "status": start_result.get("status") or self.status(),
         }
+
+    def _apply_window_mode_background(self, mode: str) -> None:
+        if self._normalize_mode(mode) == "normal":
+            return
+        thread = threading.Thread(
+            target=lambda: self.apply_window_mode(mode, retries=3, initial_delay=0.4),
+            daemon=True,
+        )
+        thread.start()
 
     def apply_window_mode(
         self,
         mode: str | None = None,
-        retries: int = 10,
+        retries: int = 3,
         initial_delay: float = 0.0,
     ) -> dict[str, Any]:
         normalized = self._normalize_mode(mode or self.config.py_xiaozhi_window_mode)
@@ -385,7 +399,7 @@ class PyXiaozhiProcessManager:
                 if changed > 0:
                     break
 
-            time.sleep(0.35)
+            time.sleep(0.25)
 
         return {
             "ok": changed > 0 or normalized in {"hidden", "minimized"},
@@ -400,7 +414,7 @@ class PyXiaozhiProcessManager:
         if not pids:
             return {"changed": 0}
 
-        show_command = "0" if mode == "hidden" else "6"  # SW_HIDE or SW_MINIMIZE
+        show_command = "0" if mode == "hidden" else "6"
         pid_array = ",".join(str(int(pid)) for pid in pids)
 
         script = f"""
@@ -432,7 +446,7 @@ Write-Output $changed
                 text=True,
                 encoding="utf-8",
                 errors="ignore",
-                timeout=5,
+                timeout=3,
             )
             changed = int((result.stdout or "0").strip().splitlines()[-1] or "0")
             return {

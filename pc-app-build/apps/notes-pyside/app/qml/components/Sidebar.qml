@@ -185,11 +185,11 @@ Rectangle {
                         width: 8
                         height: 8
                         radius: 4
-                        color: root.apiBusy ? "#4F7CFF" : root.apiConnected ? "#16A34A" : "#EF4444"
+                        color: root.apiConnected ? "#16A34A" : root.apiBusy ? "#4F7CFF" : "#EF4444"
                     }
 
                     Text {
-                        text: root.apiBusy ? "正在同步" : root.apiConnected ? "Notes API 已连接" : "Notes API 未连接"
+                        text: root.apiConnected ? "Notes API 已连接" : root.apiBusy ? "Notes API 正在连接" : "Notes API 未连接"
                         color: "#4B5563"
                         font.pixelSize: 12
                     }

@@ -15,6 +15,9 @@ Rectangle {
     property string noteContent: ""
     property bool danger: false
     property bool success: true
+    property int autoCloseSeconds: 3
+    property int countdown: autoCloseSeconds
+    readonly property bool autoCloseEnabled: visible && (mode === "result" || mode === "failure")
 
     signal closed()
     signal candidateSelected(int noteId, string title, string content)
@@ -30,6 +33,40 @@ Rectangle {
     z: 200
 
     layer.enabled: true
+
+    onVisibleChanged: resetAutoClose()
+    onModeChanged: resetAutoClose()
+    onMessageChanged: resetAutoClose()
+    onTitleChanged: resetAutoClose()
+
+    function resetAutoClose() {
+        countdown = autoCloseSeconds
+        if (autoCloseEnabled) {
+            autoCloseTimer.restart()
+        } else {
+            autoCloseTimer.stop()
+        }
+    }
+
+    Timer {
+        id: autoCloseTimer
+        interval: 1000
+        repeat: true
+        running: root.autoCloseEnabled
+
+        onTriggered: {
+            if (!root.autoCloseEnabled) {
+                stop()
+                return
+            }
+
+            root.countdown -= 1
+            if (root.countdown <= 0) {
+                stop()
+                root.closed()
+            }
+        }
+    }
 
     ColumnLayout {
         id: contentColumn
@@ -269,7 +306,9 @@ Rectangle {
 
             AppButton {
                 visible: root.mode === "result" || root.mode === "failure" || root.mode === "candidates"
-                text: root.mode === "candidates" ? "稍后处理" : "知道了"
+                text: root.mode === "candidates"
+                      ? "稍后处理"
+                      : ("知道了（" + Math.max(0, root.countdown) + "）")
                 variant: root.mode === "failure" ? "secondary" : "primary"
                 Layout.fillWidth: true
                 onClicked: root.closed()

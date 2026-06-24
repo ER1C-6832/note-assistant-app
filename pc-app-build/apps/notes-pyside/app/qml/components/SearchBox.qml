@@ -4,17 +4,34 @@ import QtQuick.Layouts
 
 Rectangle {
     id: root
+
+    property int resetToken: 0
+
     signal searchRequested(string keyword)
     signal searchTextChanged(string keyword)
+
+    onResetTokenChanged: {
+        if (searchField.text.length > 0) {
+            searchField.text = ""
+        }
+    }
+
     color: "#F7F8FA"
     radius: 16
     height: 46
+
     RowLayout {
         anchors.fill: parent
         anchors.leftMargin: 14
         anchors.rightMargin: 8
         spacing: 10
-        Text { text: "⌕"; color: "#6B7280"; font.pixelSize: 18 }
+
+        Text {
+            text: "⌕"
+            color: "#6B7280"
+            font.pixelSize: 18
+        }
+
         TextField {
             id: searchField
             Layout.fillWidth: true
@@ -24,9 +41,16 @@ Rectangle {
             color: "#1A1A1A"
             placeholderTextColor: "#9CA3AF"
             selectByMouse: true
+
             onTextChanged: root.searchTextChanged(searchField.text)
             onAccepted: root.searchRequested(searchField.text)
         }
-        AppButton { text: "搜索"; variant: "secondary"; compact: true; onClicked: root.searchRequested(searchField.text) }
+
+        AppButton {
+            text: "搜索"
+            variant: "secondary"
+            compact: true
+            onClicked: root.searchRequested(searchField.text)
+        }
     }
 }
