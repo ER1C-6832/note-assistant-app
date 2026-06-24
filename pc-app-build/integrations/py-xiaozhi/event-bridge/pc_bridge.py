@@ -5,6 +5,7 @@ import json
 import os
 from datetime import datetime, timezone
 from typing import Any
+from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
 from src.logging import get_logger
@@ -17,14 +18,9 @@ class PCBridgePlugin(Plugin):
     """
     PC Assistant Bridge plugin.
 
-    This is the real Phase 5.4 bridge: it subscribes to py-xiaozhi EventBus and
-    plugin callbacks, then forwards runtime events to the local PC Assistant
-    Sidecar.
-
-    It is intentionally best-effort:
-    - Never blocks user conversation for long.
-    - Never raises back into py-xiaozhi runtime.
-    - Does not touch notes database directly.
+    Phase 5.4 emits py-xiaozhi runtime events to Sidecar.
+    Phase 6.0 additionally polls Sidecar control commands and executes
+    start_listen / stop_listen / toggle_listen / abort through PluginCommands.
     """
 
     name = "pc_bridge"
@@ -42,12 +38,19 @@ class PCBridgePlugin(Plugin):
             "SIDECAR_EVENT_URL",
             "http://127.0.0.1:17891/api/events",
         )
+        self.control_url = os.getenv(
+            "SIDECAR_CONTROL_URL",
+            "http://127.0.0.1:17891/api/control",
+        )
+        self.control_poll_seconds = float(os.getenv("PC_BRIDGE_CONTROL_POLL_SECONDS", "0.35"))
         self.emit_debug_json = os.getenv(
             "PC_BRIDGE_DEBUG_JSON",
             "0",
         ).strip().lower() in {"1", "true", "yes", "on"}
         self._registered_handlers: list[tuple[str, Any]] = []
         self._last_status = ""
+        self._last_command_id = 0
+        self._control_task = None
 
     async def setup(self, ctx, cmd) -> None:
         await super().setup(ctx, cmd)
@@ -74,12 +77,21 @@ class PCBridgePlugin(Plugin):
             self._ctx.event_bus.on(event_name, handler)
             self._registered_handlers.append((event_name, handler))
 
+        try:
+            self._control_task = self._cmd.spawn(
+                self._control_loop(),
+                name="pc_bridge:control_loop",
+            )
+        except Exception:
+            self._control_task = asyncio.create_task(self._control_loop())
+
         logger.info("PCBridgePlugin started, forwarding events to %s", self.event_url)
+        logger.info("PCBridgePlugin polling controls from %s", self.control_url)
 
         await self._emit({
             "type": "assistant_status",
             "status": self._snapshot_status(),
-            "message": "PC Bridge 已连接 py-xiaozhi EventBus",
+            "message": "PC Bridge 已连接 py-xiaozhi EventBus，并已启用 App 语音控制",
         })
 
     async def stop(self) -> None:
@@ -93,11 +105,110 @@ class PCBridgePlugin(Plugin):
         except Exception:
             pass
 
+        if self._control_task:
+            try:
+                self._control_task.cancel()
+            except Exception:
+                pass
+
         await self._emit({
             "type": "assistant_status",
             "status": "stopped",
             "message": "PC Bridge 已停止",
         })
+
+    async def _control_loop(self) -> None:
+        while self.enabled:
+            try:
+                commands = await asyncio.to_thread(self._fetch_controls, self._last_command_id)
+                for command in commands:
+                    command_id = int(command.get("command_id", 0))
+                    if command_id <= self._last_command_id:
+                        continue
+
+                    self._last_command_id = command_id
+                    await self._execute_control(command)
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                logger.debug("PCBridgePlugin control polling failed", exc_info=True)
+
+            await asyncio.sleep(self.control_poll_seconds)
+
+    def _fetch_controls(self, after: int) -> list[dict[str, Any]]:
+        qs = urlencode({"after": int(after or 0), "limit": 20})
+        url = f"{self.control_url}?{qs}"
+
+        with urlopen(url, timeout=0.8) as response:
+            payload = json.loads(response.read().decode("utf-8", errors="replace"))
+
+        items = payload.get("items", [])
+        return items if isinstance(items, list) else []
+
+    async def _execute_control(self, command: dict[str, Any]) -> None:
+        command_name = str(command.get("command", "")).strip()
+        mode = str(command.get("mode", "manual") or "manual").strip().lower()
+
+        await self._emit({
+            "type": "assistant_control_received",
+            "command": command_name,
+            "command_id": command.get("command_id"),
+            "message": f"py-xiaozhi 收到 App 语音控制命令：{command_name}",
+            "data": command,
+        })
+
+        try:
+            if command_name == "start_listen":
+                await self._start_listening(mode)
+            elif command_name == "stop_listen":
+                await self._cmd.stop_listening()
+            elif command_name == "toggle_listen":
+                if self._ctx.is_listening():
+                    await self._cmd.stop_listening()
+                else:
+                    await self._start_listening(mode)
+            elif command_name in {"abort", "abort_speaking"}:
+                from src.constants.constants import AbortReason
+
+                await self._cmd.abort_speaking(AbortReason.USER_INTERRUPTION)
+            else:
+                await self._emit({
+                    "type": "assistant_control_error",
+                    "command": command_name,
+                    "message": f"未知语音控制命令：{command_name}",
+                    "data": command,
+                })
+                return
+
+            await self._emit({
+                "type": "assistant_control_result",
+                "command": command_name,
+                "status": "success",
+                "message": f"语音控制命令已执行：{command_name}",
+                "data": command,
+            })
+        except Exception as exc:
+            await self._emit({
+                "type": "assistant_control_error",
+                "command": command_name,
+                "status": "error",
+                "message": f"语音控制命令执行失败：{command_name}，{exc}",
+                "data": command,
+            })
+
+    async def _start_listening(self, mode: str) -> None:
+        from src.constants.constants import ListeningMode
+
+        await self._cmd.connect_protocol()
+
+        if mode == "realtime":
+            listen_mode = ListeningMode.REALTIME
+        elif mode in {"auto", "auto_stop"}:
+            listen_mode = ListeningMode.AUTO_STOP
+        else:
+            listen_mode = ListeningMode.MANUAL
+
+        await self._cmd.start_listening(listen_mode)
 
     async def on_device_state_changed(self, state: Any) -> None:
         if not self.enabled:
@@ -166,7 +277,6 @@ class PCBridgePlugin(Plugin):
             return
 
         if msg_type == "llm":
-            # Some servers send emotion only; some may include text.
             text = self._clean_text(
                 message.get("text")
                 or message.get("content")
@@ -296,7 +406,6 @@ class PCBridgePlugin(Plugin):
         try:
             await asyncio.to_thread(self._post_event, payload)
         except Exception:
-            # Do not break py-xiaozhi if Sidecar is offline.
             logger.debug("PCBridgePlugin: failed to emit event", exc_info=True)
 
     def _post_event(self, event: dict[str, Any]) -> None:

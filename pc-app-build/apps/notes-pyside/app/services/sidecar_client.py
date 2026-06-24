@@ -7,7 +7,9 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import queue
 import threading
+import time
 from typing import Any
 
 import websockets
@@ -42,9 +44,11 @@ class SidecarClient(QObject):
         self._last_runtime_log_text = ""
         self._last_runtime_state_text = ""
         self._last_audio_channel_text = ""
+        self._last_control_text = ""
         self._error_message = ""
         self._thread: threading.Thread | None = None
         self._stop_event = threading.Event()
+        self._outbox: queue.Queue[dict[str, Any]] = queue.Queue()
 
         self._raw_message_received.connect(self._handle_raw_message)
         self._connection_changed.connect(self._set_connected)
@@ -119,6 +123,10 @@ class SidecarClient(QObject):
         return self._last_audio_channel_text
 
     @Property(str, notify=statusChanged)
+    def lastControlText(self) -> str:
+        return self._last_control_text
+
+    @Property(str, notify=statusChanged)
     def errorMessage(self) -> str:
         return self._error_message
 
@@ -139,11 +147,47 @@ class SidecarClient(QObject):
         if not self._connected:
             self.start()
 
+    @Slot()
+    def startListen(self) -> None:
+        self._queue_control("start_listen", mode="manual")
+
+    @Slot(str)
+    def startListenMode(self, mode: str) -> None:
+        self._queue_control("start_listen", mode=mode or "manual")
+
+    @Slot()
+    def stopListen(self) -> None:
+        self._queue_control("stop_listen")
+
+    @Slot()
+    def toggleListen(self) -> None:
+        self._queue_control("toggle_listen", mode="manual")
+
+    @Slot()
+    def abortSpeaking(self) -> None:
+        self._queue_control("abort")
+
+    def _queue_control(self, command_type: str, **payload: Any) -> None:
+        if not self._connected:
+            self.start()
+
+        message = {
+            "type": command_type,
+            "request_id": f"pc-app-{int(time.time() * 1000)}",
+        }
+        message.update(payload)
+
+        self._outbox.put(message)
+        self._last_control_text = f"已发送语音控制命令：{command_type}"
+        self._last_event_text = self._last_control_text
+        self.statusChanged.emit()
+
     def _run_thread(self) -> None:
         asyncio.run(self._connection_loop())
 
     async def _connection_loop(self) -> None:
         while not self._stop_event.is_set():
+            sender_task = None
             try:
                 async with websockets.connect(
                     self._ws_url,
@@ -155,6 +199,8 @@ class SidecarClient(QObject):
                     await websocket.send(json.dumps({"type": "refresh_status"}, ensure_ascii=False))
                     await websocket.send(json.dumps({"type": "refresh_events"}, ensure_ascii=False))
 
+                    sender_task = asyncio.create_task(self._sender_loop(websocket))
+
                     async for message in websocket:
                         if self._stop_event.is_set():
                             break
@@ -162,9 +208,21 @@ class SidecarClient(QObject):
             except Exception as exc:
                 self._connection_changed.emit(False)
                 self._error_received.emit(str(exc))
+            finally:
+                if sender_task:
+                    sender_task.cancel()
+                    try:
+                        await sender_task
+                    except Exception:
+                        pass
 
             if not self._stop_event.is_set():
                 await asyncio.sleep(3)
+
+    async def _sender_loop(self, websocket) -> None:
+        while not self._stop_event.is_set():
+            message = await asyncio.to_thread(self._outbox.get)
+            await websocket.send(json.dumps(message, ensure_ascii=False))
 
     def _set_connected(self, connected: bool) -> None:
         if self._connected == connected:
@@ -214,6 +272,25 @@ class SidecarClient(QObject):
             items = payload.get("items", []) or []
             if items:
                 self._apply_recent_event(items[-1])
+            return
+
+        if event_type == "control_accepted":
+            self._last_control_text = payload.get("message", "语音控制命令已被 Sidecar 接收")
+            self._last_event_text = self._last_control_text
+            self.statusChanged.emit()
+            return
+
+        if event_type in {"assistant_control", "assistant_control_received", "assistant_control_result"}:
+            self._last_control_text = payload.get("message", "语音控制事件")
+            self._last_event_text = self._last_control_text
+            self.statusChanged.emit()
+            return
+
+        if event_type == "assistant_control_error":
+            self._error_message = payload.get("message", "语音控制命令执行失败")
+            self._last_control_text = self._error_message
+            self._last_event_text = self._error_message
+            self.statusChanged.emit()
             return
 
         if event_type == "notes_changed":

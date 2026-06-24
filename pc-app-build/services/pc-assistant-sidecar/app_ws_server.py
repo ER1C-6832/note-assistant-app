@@ -9,6 +9,7 @@ import websockets
 from websockets.server import WebSocketServerProtocol
 
 from config import SidecarConfig
+from control_store import ControlCommandHub
 from event_store import SidecarEventHub
 from notes_watcher import NotesSnapshotWatcher
 from status_checker import collect_status
@@ -17,11 +18,17 @@ logger = logging.getLogger("sidecar.ws")
 
 
 class SidecarWebSocketServer:
-    def __init__(self, config: SidecarConfig, event_hub: SidecarEventHub | None = None) -> None:
+    def __init__(
+        self,
+        config: SidecarConfig,
+        event_hub: SidecarEventHub | None = None,
+        control_hub: ControlCommandHub | None = None,
+    ) -> None:
         self.config = config
         self.clients: set[WebSocketServerProtocol] = set()
         self.watcher = NotesSnapshotWatcher(config)
         self.event_hub = event_hub or SidecarEventHub()
+        self.control_hub = control_hub or ControlCommandHub()
         self._stop = asyncio.Event()
 
     async def start(self) -> None:
@@ -98,9 +105,46 @@ class SidecarWebSocketServer:
             await self.broadcast({"type": "notes_changed", "reason": "manual_refresh"})
             return
 
+        if message_type in {
+            "start_listen",
+            "stop_listen",
+            "toggle_listen",
+            "abort",
+            "abort_speaking",
+        }:
+            await self._handle_control_message(websocket, message)
+            return
+
         await self._send(websocket, {
             "type": "error",
             "message": f"Unknown message type: {message_type}",
+        })
+
+    async def _handle_control_message(self, websocket: WebSocketServerProtocol, message: dict[str, Any]) -> None:
+        raw_type = str(message.get("type", ""))
+        command_name = "abort" if raw_type == "abort_speaking" else raw_type
+
+        command = await self.control_hub.publish({
+            "command": command_name,
+            "source": "pc_app.websocket",
+            "mode": message.get("mode", "manual"),
+            "request_id": message.get("request_id", ""),
+        })
+
+        await self.event_hub.publish({
+            "type": "assistant_control",
+            "source": "pc_app.websocket",
+            "command": command_name,
+            "command_id": command.get("command_id"),
+            "message": f"收到语音控制命令：{command_name}",
+            "data": command,
+        })
+
+        await self._send(websocket, {
+            "type": "control_accepted",
+            "command": command_name,
+            "command_id": command.get("command_id"),
+            "message": f"Sidecar 已接收语音控制命令：{command_name}",
         })
 
     async def _status_loop(self) -> None:

@@ -6,6 +6,7 @@ import logging
 from urllib.parse import parse_qs, urlparse
 
 from config import SidecarConfig
+from control_store import ControlCommandHub
 from event_store import SidecarEventHub
 from status_checker import collect_status
 
@@ -15,12 +16,15 @@ logger = logging.getLogger("sidecar.health")
 async def start_health_server(
     config: SidecarConfig,
     event_hub: SidecarEventHub | None = None,
+    control_hub: ControlCommandHub | None = None,
 ) -> None:
     if event_hub is None:
         event_hub = SidecarEventHub()
+    if control_hub is None:
+        control_hub = ControlCommandHub()
 
     server = await asyncio.start_server(
-        lambda reader, writer: _handle_http(reader, writer, config, event_hub),
+        lambda reader, writer: _handle_http(reader, writer, config, event_hub, control_hub),
         config.health_host,
         config.health_port,
     )
@@ -36,6 +40,7 @@ async def _handle_http(
     writer: asyncio.StreamWriter,
     config: SidecarConfig,
     event_hub: SidecarEventHub,
+    control_hub: ControlCommandHub,
 ) -> None:
     try:
         request_line = await reader.readline()
@@ -65,8 +70,13 @@ async def _handle_http(
 
         if method == "GET" and path in {"/api/health", "/health", "/"}:
             status = await collect_status(config)
-            status["py_xiaozhi"]["log_path"] = str(config.py_xiaozhi_log_path or "")
-            status["py_xiaozhi"]["log_path_exists"] = bool(config.py_xiaozhi_log_path and config.py_xiaozhi_log_path.exists())
+            status.setdefault("sidecar", {})
+            status["sidecar"]["control_latest_id"] = control_hub.latest_id()
+            if hasattr(config, "py_xiaozhi_log_path"):
+                status["py_xiaozhi"]["log_path"] = str(config.py_xiaozhi_log_path or "")
+                status["py_xiaozhi"]["log_path_exists"] = bool(
+                    config.py_xiaozhi_log_path and config.py_xiaozhi_log_path.exists()
+                )
             await _write_json(writer, 200, {
                 "ok": True,
                 "type": "sidecar_health",
@@ -84,23 +94,9 @@ async def _handle_http(
             return
 
         if method == "POST" and path == "/api/events":
-            content_length = int(headers.get("content-length") or "0")
-            raw_body = await reader.readexactly(content_length) if content_length > 0 else b"{}"
-
-            try:
-                payload = json.loads(raw_body.decode("utf-8"))
-            except json.JSONDecodeError as exc:
-                await _write_json(writer, 400, {
-                    "ok": False,
-                    "error": f"invalid json: {exc}",
-                })
-                return
-
+            payload = await _read_json_body(reader, headers)
             if not isinstance(payload, dict):
-                await _write_json(writer, 400, {
-                    "ok": False,
-                    "error": "event payload must be an object",
-                })
+                await _write_json(writer, 400, {"ok": False, "error": "event payload must be an object"})
                 return
 
             stored = await event_hub.publish(payload)
@@ -111,6 +107,39 @@ async def _handle_http(
             })
             return
 
+        if method == "GET" and path == "/api/control":
+            after = int((query.get("after") or ["0"])[0] or 0)
+            limit = int((query.get("limit") or ["20"])[0] or 20)
+            await _write_json(writer, 200, {
+                "ok": True,
+                "type": "assistant_control_commands",
+                "latest_id": control_hub.latest_id(),
+                "items": control_hub.recent(after=after, limit=limit),
+            })
+            return
+
+        if method == "POST" and path == "/api/control":
+            payload = await _read_json_body(reader, headers)
+            if not isinstance(payload, dict):
+                await _write_json(writer, 400, {"ok": False, "error": "control payload must be an object"})
+                return
+
+            command = await control_hub.publish(payload)
+            await event_hub.publish({
+                "type": "assistant_control",
+                "source": payload.get("source", "sidecar.http"),
+                "command": command.get("command"),
+                "command_id": command.get("command_id"),
+                "message": f"收到语音控制命令：{command.get('command')}",
+                "data": command,
+            })
+            await _write_json(writer, 200, {
+                "ok": True,
+                "type": "assistant_control_accepted",
+                "command": command,
+            })
+            return
+
         await _write_json(writer, 404, {"ok": False, "error": "not found"})
 
     except Exception as exc:
@@ -118,6 +147,16 @@ async def _handle_http(
     finally:
         writer.close()
         await writer.wait_closed()
+
+
+async def _read_json_body(reader: asyncio.StreamReader, headers: dict[str, str]) -> object:
+    content_length = int(headers.get("content-length") or "0")
+    raw_body = await reader.readexactly(content_length) if content_length > 0 else b"{}"
+
+    try:
+        return json.loads(raw_body.decode("utf-8"))
+    except json.JSONDecodeError as exc:
+        raise RuntimeError(f"invalid json: {exc}") from exc
 
 
 async def _write_json(writer: asyncio.StreamWriter, status_code: int, payload: dict) -> None:

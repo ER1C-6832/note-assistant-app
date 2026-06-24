@@ -21,6 +21,15 @@ Item {
     signal bulkUnpinRequested(var noteIds)
     signal assistantRequested()
 
+    function voiceActive() {
+        if (sidecarClient === null) {
+            return false
+        }
+        return sidecarClient.assistantStatusText.indexOf("聆听") >= 0
+            || sidecarClient.lastRuntimeStateText.indexOf("聆听") >= 0
+            || sidecarClient.lastRuntimeStateText.indexOf("listening") >= 0
+    }
+
     RowLayout {
         anchors.fill: parent
         spacing: 20
@@ -76,7 +85,37 @@ Item {
                 anchors.bottom: parent.bottom
                 anchors.rightMargin: 32
                 anchors.bottomMargin: 32
-                onClicked: root.assistantRequested()
+                connected: sidecarClient !== null && sidecarClient.connected
+                active: root.voiceActive()
+                statusText: active ? "正在聆听" : "语音助手"
+
+                onClicked: {
+                    // Do not navigate away from HomePage. The floating voice
+                    // button is a runtime control, not a page switch.
+                    if (sidecarClient !== null) {
+                        sidecarClient.toggleListen()
+                    }
+                }
+
+                onPressStarted: {
+                    // Press-and-hold starts listening in place.
+                    if (sidecarClient !== null) {
+                        sidecarClient.startListen()
+                    }
+                }
+
+                onPressEnded: {
+                    if (sidecarClient !== null) {
+                        sidecarClient.stopListen()
+                    }
+                }
+
+                onAbortRequested: {
+                    // Right-click aborts speaking in place.
+                    if (sidecarClient !== null) {
+                        sidecarClient.abortSpeaking()
+                    }
+                }
             }
         }
     }
