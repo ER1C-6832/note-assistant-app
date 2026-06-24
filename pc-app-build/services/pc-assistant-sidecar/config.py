@@ -9,7 +9,7 @@ def _pc_build_root() -> Path:
     return Path(__file__).resolve().parents[2]
 
 
-def _load_env_file(path: Path) -> None:
+def _load_env_file(path: Path, *, override: bool = True) -> None:
     if not path.exists():
         return
 
@@ -23,13 +23,14 @@ def _load_env_file(path: Path) -> None:
         key = key.strip()
         value = value.strip().strip('"').strip("'")
 
-        if key and key not in os.environ:
+        if key and (override or key not in os.environ):
             os.environ[key] = value
 
 
 @dataclass(frozen=True)
 class SidecarConfig:
     pc_build_root: Path
+    env_path: Path
     notes_api_base_url: str
     py_xiaozhi_root: Path
     py_xiaozhi_python: str
@@ -78,6 +79,7 @@ def _normalize_mode(value: str, default: str = "minimized") -> str:
         "nowindow": "hidden",
         "normal": "normal",
         "gui": "normal",
+        "debug": "debug",
         # Legacy env from previous packages. It means the user wants a less visible runtime.
         "cli": "hidden",
     }
@@ -108,7 +110,8 @@ def _default_py_xiaozhi_log_path() -> Path | None:
 
 def load_config() -> SidecarConfig:
     pc_root = _pc_build_root()
-    _load_env_file(pc_root / ".env")
+    env_path = pc_root / ".env"
+    _load_env_file(env_path, override=True)
 
     py_root = Path(
         os.getenv("PY_XIAOZHI_ROOT", r"C:\yuyinzhushou\py-xiaozhi-tao")
@@ -126,6 +129,7 @@ def load_config() -> SidecarConfig:
 
     return SidecarConfig(
         pc_build_root=pc_root,
+        env_path=env_path,
         notes_api_base_url=os.getenv(
             "NOTES_API_BASE_URL",
             f"http://{os.getenv('NOTES_API_HOST', '127.0.0.1')}:{os.getenv('NOTES_API_PORT', '18080')}",

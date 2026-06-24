@@ -61,6 +61,13 @@ class SidecarClient(QObject):
         self._last_voice_runtime_event_at = 0.0
 
         self._last_runtime_action_text = ""
+        self._runtime_config_env_path = ""
+        self._runtime_config_root_text = ""
+        self._runtime_config_python_text = ""
+        self._runtime_config_start_mode = "minimized"
+        self._runtime_config_window_mode = "minimized"
+        self._runtime_config_auto_start = False
+        self._last_runtime_config_text = ""
         self._notes_tool_status_text = "notes 工具未确认"
 
         self._last_event_text = ""
@@ -162,6 +169,34 @@ class SidecarClient(QObject):
         return self._last_runtime_action_text
 
     @Property(str, notify=statusChanged)
+    def runtimeConfigEnvPath(self) -> str:
+        return self._runtime_config_env_path
+
+    @Property(str, notify=statusChanged)
+    def runtimeConfigRootText(self) -> str:
+        return self._runtime_config_root_text or self._py_xiaozhi_root_text
+
+    @Property(str, notify=statusChanged)
+    def runtimeConfigPythonText(self) -> str:
+        return self._runtime_config_python_text or self._py_xiaozhi_python_text
+
+    @Property(str, notify=statusChanged)
+    def runtimeConfigStartMode(self) -> str:
+        return self._runtime_config_start_mode
+
+    @Property(str, notify=statusChanged)
+    def runtimeConfigWindowMode(self) -> str:
+        return self._runtime_config_window_mode
+
+    @Property(bool, notify=statusChanged)
+    def runtimeConfigAutoStart(self) -> bool:
+        return self._runtime_config_auto_start
+
+    @Property(str, notify=statusChanged)
+    def lastRuntimeConfigText(self) -> str:
+        return self._last_runtime_config_text
+
+    @Property(str, notify=statusChanged)
     def notesToolStatusText(self) -> str:
         return self._notes_tool_status_text
 
@@ -235,6 +270,31 @@ class SidecarClient(QObject):
             self.start()
             return
         self._outbox.put({"type": "refresh_status"})
+
+    @Slot()
+    def refreshRuntimeConfig(self) -> None:
+        if not self._connected:
+            self.start()
+            return
+        self._outbox.put({"type": "get_runtime_config"})
+
+    @Slot(str, str, str, str, bool)
+    def savePyXiaozhiRuntimeConfig(self, root: str, python: str, start_mode: str, window_mode: str, auto_start: bool) -> None:
+        if not self._connected:
+            self.start()
+
+        payload = {
+            "type": "save_runtime_config",
+            "py_xiaozhi_root": root,
+            "py_xiaozhi_python": python,
+            "py_xiaozhi_start_mode": start_mode,
+            "py_xiaozhi_window_mode": window_mode,
+            "py_xiaozhi_auto_start": bool(auto_start),
+        }
+        self._outbox.put(payload)
+        self._last_runtime_config_text = "正在保存 py-xiaozhi 运行时配置"
+        self._last_event_text = self._last_runtime_config_text
+        self.statusChanged.emit()
 
     @Slot()
     def startListen(self) -> None:
@@ -406,6 +466,7 @@ class SidecarClient(QObject):
                     close_timeout=2,
                 ) as websocket:
                     self._connection_changed.emit(True)
+                    await websocket.send(json.dumps({"type": "get_runtime_config"}, ensure_ascii=False))
                     await websocket.send(json.dumps({"type": "refresh_status"}, ensure_ascii=False))
                     await websocket.send(json.dumps({"type": "refresh_events"}, ensure_ascii=False))
 
@@ -494,7 +555,23 @@ class SidecarClient(QObject):
             self.statusChanged.emit()
             return
 
+        if event_type == "runtime_config":
+            self._apply_runtime_config(payload)
+            return
+
+        if event_type == "runtime_config_saved":
+            self._last_runtime_config_text = payload.get("message", "py-xiaozhi 运行时配置已保存")
+            self._last_event_text = self._last_runtime_config_text
+            config_payload = payload.get("config", {}) or {}
+            if isinstance(config_payload, dict):
+                self._apply_runtime_config(config_payload)
+            self.statusChanged.emit()
+            return
+
         if event_type == "sidecar_status":
+            runtime_config = payload.get("runtime_config", {}) or {}
+            if isinstance(runtime_config, dict):
+                self._apply_runtime_config(runtime_config)
             self._apply_status(payload)
             return
 
@@ -730,6 +807,18 @@ class SidecarClient(QObject):
 
         if bool(payload.get("note_changed")):
             self.notesChanged.emit()
+
+    def _apply_runtime_config(self, payload: dict[str, Any]) -> None:
+        settings = payload.get("settings", {}) or {}
+        self._runtime_config_env_path = str(payload.get("env_path") or self._runtime_config_env_path or "")
+        self._runtime_config_root_text = str(settings.get("py_xiaozhi_root") or self._runtime_config_root_text or "")
+        self._runtime_config_python_text = str(settings.get("py_xiaozhi_python") or self._runtime_config_python_text or "")
+        self._runtime_config_start_mode = str(settings.get("py_xiaozhi_start_mode") or self._runtime_config_start_mode or "minimized")
+        self._runtime_config_window_mode = str(settings.get("py_xiaozhi_window_mode") or self._runtime_config_window_mode or "minimized")
+        self._runtime_config_auto_start = bool(settings.get("py_xiaozhi_auto_start", self._runtime_config_auto_start))
+        if not self._last_runtime_config_text:
+            self._last_runtime_config_text = "py-xiaozhi 运行时配置已加载"
+        self.statusChanged.emit()
 
     def _apply_py_xiaozhi_status(self, py_xiaozhi: dict[str, Any]) -> None:
         root_exists = bool(py_xiaozhi.get("root_exists"))

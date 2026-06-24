@@ -6,7 +6,7 @@ import time
 from pathlib import Path
 from typing import Any
 
-from config import SidecarConfig
+from config import SidecarConfig, load_config
 
 
 class PyXiaozhiProcessManager:
@@ -20,6 +20,10 @@ class PyXiaozhiProcessManager:
 
     def __init__(self, config: SidecarConfig) -> None:
         self.config = config
+
+    def reload_config(self) -> SidecarConfig:
+        self.config = load_config()
+        return self.config
 
     def detect_python_exe(self) -> str:
         if self.config.py_xiaozhi_python:
@@ -150,6 +154,7 @@ class PyXiaozhiProcessManager:
 
     def start(self, mode: str | None = None) -> dict[str, Any]:
         current = self.status()
+        self.reload_config()
         requested_mode = self._normalize_mode(mode or self.config.py_xiaozhi_start_mode)
         requested_window_mode = self._normalize_mode(self.config.py_xiaozhi_window_mode or requested_mode)
 
@@ -234,6 +239,7 @@ class PyXiaozhiProcessManager:
         }
 
     def stop(self) -> dict[str, Any]:
+        self.reload_config()
         processes = self.list_processes()
         if not processes:
             return {
@@ -404,6 +410,8 @@ Write-Output $changed
             "gui": "normal",
             "cli": "hidden",
         }
+        if mode == "debug":
+            return "normal"
         return aliases.get(mode, "minimized")
 
     def _mode_text(self, mode: str) -> str:

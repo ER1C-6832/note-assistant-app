@@ -5,10 +5,11 @@ import json
 import logging
 from urllib.parse import parse_qs, urlparse
 
-from config import SidecarConfig
+from config import SidecarConfig, load_config
 from control_store import ControlCommandHub
 from event_store import SidecarEventHub
 from py_xiaozhi_process_manager import PyXiaozhiProcessManager
+from runtime_config_store import get_runtime_config, save_runtime_config
 from status_checker import collect_status
 
 logger = logging.getLogger("sidecar.health")
@@ -77,16 +78,34 @@ async def _handle_http(
             status = await collect_status(config)
             status.setdefault("sidecar", {})
             status["sidecar"]["control_latest_id"] = control_hub.latest_id()
-            if hasattr(config, "py_xiaozhi_log_path"):
-                status["py_xiaozhi"]["log_path"] = str(config.py_xiaozhi_log_path or "")
+            fresh = load_config()
+            if hasattr(fresh, "py_xiaozhi_log_path"):
+                status["py_xiaozhi"]["log_path"] = str(fresh.py_xiaozhi_log_path or "")
                 status["py_xiaozhi"]["log_path_exists"] = bool(
-                    config.py_xiaozhi_log_path and config.py_xiaozhi_log_path.exists()
+                    fresh.py_xiaozhi_log_path and fresh.py_xiaozhi_log_path.exists()
                 )
             await _write_json(writer, 200, {
                 "ok": True,
                 "type": "sidecar_health",
                 "status": status,
             })
+            return
+
+        if method == "GET" and path == "/api/runtime/config":
+            await _write_json(writer, 200, {
+                "ok": True,
+                **get_runtime_config(load_config()),
+            })
+            return
+
+        if method == "POST" and path == "/api/runtime/config":
+            payload = await _read_json_body(reader, headers)
+            if not isinstance(payload, dict):
+                await _write_json(writer, 400, {"ok": False, "error": "runtime config payload must be an object"})
+                return
+            result = await asyncio.to_thread(save_runtime_config, payload, load_config())
+            runtime_manager.reload_config()
+            await _write_json(writer, 200, result)
             return
 
         if method == "GET" and path == "/api/events":
@@ -146,10 +165,12 @@ async def _handle_http(
             return
 
         if method == "GET" and path == "/api/runtime/py-xiaozhi/status":
+            runtime_manager.reload_config()
             await _write_json(writer, 200, {
                 "ok": True,
                 "type": "py_xiaozhi_runtime_status",
                 "status": runtime_manager.status(),
+                "config": get_runtime_config(runtime_manager.config),
             })
             return
 
@@ -163,6 +184,7 @@ async def _handle_http(
             if isinstance(payload, dict):
                 mode = str(payload.get("mode", "") or "")
 
+            runtime_manager.reload_config()
             if path.endswith("/start"):
                 result = await asyncio.to_thread(runtime_manager.start, mode or None)
             elif path.endswith("/stop"):

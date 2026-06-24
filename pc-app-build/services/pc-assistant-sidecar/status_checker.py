@@ -5,8 +5,9 @@ from typing import Any
 
 import httpx
 
-from config import SidecarConfig
+from config import SidecarConfig, load_config
 from py_xiaozhi_process_manager import PyXiaozhiProcessManager
+from runtime_config_store import get_runtime_config
 
 
 async def check_notes_api(config: SidecarConfig) -> dict[str, Any]:
@@ -35,8 +36,10 @@ def check_py_xiaozhi(config: SidecarConfig) -> dict[str, Any]:
 
 
 async def collect_status(config: SidecarConfig) -> dict[str, Any]:
-    notes_api = await check_notes_api(config)
-    py_xiaozhi = await asyncio.to_thread(check_py_xiaozhi, config)
+    # Runtime path/mode may be edited in .env while Sidecar is running, so reload.
+    runtime_config = load_config()
+    notes_api = await check_notes_api(runtime_config)
+    py_xiaozhi = await asyncio.to_thread(check_py_xiaozhi, runtime_config)
 
     return {
         "type": "sidecar_status",
@@ -47,4 +50,5 @@ async def collect_status(config: SidecarConfig) -> dict[str, Any]:
         },
         "notes_api": notes_api,
         "py_xiaozhi": py_xiaozhi,
+        "runtime_config": get_runtime_config(runtime_config),
     }

@@ -8,11 +8,12 @@ from typing import Any
 import websockets
 from websockets.server import WebSocketServerProtocol
 
-from config import SidecarConfig
+from config import SidecarConfig, load_config
 from control_store import ControlCommandHub
 from event_store import SidecarEventHub
 from notes_watcher import NotesSnapshotWatcher
 from py_xiaozhi_process_manager import PyXiaozhiProcessManager
+from runtime_config_store import get_runtime_config, save_runtime_config
 from status_checker import collect_status
 
 logger = logging.getLogger("sidecar.ws")
@@ -65,6 +66,7 @@ class SidecarWebSocketServer:
             "message": "PC Assistant Sidecar connected",
             "ws_url": self.config.ws_url,
         })
+        await self._send(websocket, get_runtime_config(load_config()))
         await self._send(websocket, await collect_status(self.config))
         await self._send(websocket, {
             "type": "sidecar_events",
@@ -94,6 +96,17 @@ class SidecarWebSocketServer:
             return
 
         if message_type == "refresh_status":
+            await self._send(websocket, await collect_status(self.config))
+            return
+
+        if message_type == "get_runtime_config":
+            await self._send(websocket, get_runtime_config(load_config()))
+            return
+
+        if message_type == "save_runtime_config":
+            result = await asyncio.to_thread(save_runtime_config, message, load_config())
+            self.runtime_manager.reload_config()
+            await self._send(websocket, result)
             await self._send(websocket, await collect_status(self.config))
             return
 
@@ -169,6 +182,7 @@ class SidecarWebSocketServer:
         })
 
         try:
+            self.runtime_manager.reload_config()
             if message_type == "start_py_xiaozhi":
                 result = await asyncio.to_thread(self.runtime_manager.start, mode or None)
             elif message_type == "stop_py_xiaozhi":
