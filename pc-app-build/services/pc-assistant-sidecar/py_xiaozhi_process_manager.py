@@ -146,11 +146,21 @@ class PyXiaozhiProcessManager:
             "process_running": bool(processes),
             "process_count": len(processes),
             "process_pids": [item["pid"] for item in processes],
+            "runtime_mode": self.config.py_xiaozhi_runtime_mode,
+            "protocol": self.config.py_xiaozhi_protocol,
+            "skip_activation": self.config.py_xiaozhi_skip_activation,
             "start_mode": self.config.py_xiaozhi_start_mode,
             "window_mode": self.config.py_xiaozhi_window_mode,
             "auto_start": self.config.py_xiaozhi_auto_start,
             "launchable": self.config.py_xiaozhi_root.exists() and main_py.exists(),
         }
+
+    def _runtime_args(self) -> list[str]:
+        runtime_mode = getattr(self.config, "py_xiaozhi_runtime_mode", "headless") or "headless"
+        args = ["--mode", str(runtime_mode), "--protocol", str(self.config.py_xiaozhi_protocol or "websocket")]
+        if bool(getattr(self.config, "py_xiaozhi_skip_activation", False)):
+            args.append("--skip-activation")
+        return args
 
     def start(self, mode: str | None = None) -> dict[str, Any]:
         current = self.status()
@@ -181,8 +191,12 @@ class PyXiaozhiProcessManager:
         env.setdefault("PYTHONIOENCODING", "utf-8")
 
         # Preserve existing PY_XIAOZHI_MODE=cli for py-xiaozhi itself if the repo uses it.
+        runtime_mode = getattr(self.config, "py_xiaozhi_runtime_mode", "headless") or "headless"
+        env.setdefault("PY_XIAOZHI_MODE", runtime_mode)
+        env.setdefault("PY_XIAOZHI_RUNTIME_MODE", runtime_mode)
+
         if requested_mode == "hidden":
-            env.setdefault("PY_XIAOZHI_MODE", "cli")
+            env.setdefault("PY_XIAOZHI_WINDOW_MODE", "hidden")
 
         creationflags = 0
         startupinfo = None
@@ -195,12 +209,15 @@ class PyXiaozhiProcessManager:
                 creationflags |= getattr(subprocess, "CREATE_NO_WINDOW", 0)
                 executable = self.detect_pythonw_exe()
 
+            if runtime_mode == "headless" and requested_mode != "debug":
+                executable = self.detect_pythonw_exe()
+
             if requested_mode == "minimized":
                 startupinfo = subprocess.STARTUPINFO()
                 startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
                 startupinfo.wShowWindow = 6  # SW_MINIMIZE
 
-        command = [executable, str(self.main_py())]
+        command = [executable, str(self.main_py()), *self._runtime_args()]
 
         try:
             process = subprocess.Popen(
@@ -232,6 +249,7 @@ class PyXiaozhiProcessManager:
             "message": "已请求启动 py-xiaozhi",
             "pid": process.pid,
             "command": command,
+            "runtime_mode": runtime_mode,
             "start_mode": requested_mode,
             "window_mode": requested_window_mode,
             "window_result": window_result,

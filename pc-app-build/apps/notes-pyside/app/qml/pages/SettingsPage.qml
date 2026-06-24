@@ -9,10 +9,15 @@ Item {
 
     signal backRequested()
 
-    function modeIndex(value, isWindowMode) {
-        var model = isWindowMode ? ["normal", "minimized", "hidden"] : ["normal", "minimized", "hidden", "debug"]
+    function modeIndex(value, modeKind) {
+        var model = ["normal", "minimized", "hidden", "debug"]
+        if (modeKind === "runtime") {
+            model = ["headless", "gui", "cli"]
+        } else if (modeKind === "window") {
+            model = ["normal", "minimized", "hidden"]
+        }
         var idx = model.indexOf(value)
-        return idx >= 0 ? idx : 1
+        return idx >= 0 ? idx : 0
     }
 
     function syncRuntimeForm() {
@@ -22,11 +27,14 @@ Item {
         if (!pythonField.activeFocus) {
             pythonField.text = sidecarClient.runtimeConfigPythonText
         }
+        if (!runtimeModeBox.activeFocus) {
+            runtimeModeBox.currentIndex = modeIndex(sidecarClient.runtimeConfigRuntimeMode, "runtime")
+        }
         if (!startModeBox.activeFocus) {
-            startModeBox.currentIndex = modeIndex(sidecarClient.runtimeConfigStartMode, false)
+            startModeBox.currentIndex = modeIndex(sidecarClient.runtimeConfigStartMode, "start")
         }
         if (!windowModeBox.activeFocus) {
-            windowModeBox.currentIndex = modeIndex(sidecarClient.runtimeConfigWindowMode, true)
+            windowModeBox.currentIndex = modeIndex(sidecarClient.runtimeConfigWindowMode, "window")
         }
         if (!autoStartBox.activeFocus) {
             autoStartBox.checked = sidecarClient.runtimeConfigAutoStart
@@ -66,7 +74,7 @@ Item {
                 // The settings content became taller in Phase 7.1.
                 // The old fixed 1080 height clipped the bottom runtime action row,
                 // so the ScrollView could not scroll far enough to reveal it.
-                implicitHeight: 1520
+                implicitHeight: 1600
 
                 ColumnLayout {
                     anchors.fill: parent
@@ -214,6 +222,16 @@ Item {
 
                                 ColumnLayout {
                                     Layout.fillWidth: true
+                                    Text { text: "运行时模式"; color: "#374151"; font.pixelSize: 13; font.bold: true }
+                                    ComboBox {
+                                        id: runtimeModeBox
+                                        Layout.fillWidth: true
+                                        model: ["headless", "gui", "cli"]
+                                    }
+                                }
+
+                                ColumnLayout {
+                                    Layout.fillWidth: true
                                     Text { text: "启动模式"; color: "#374151"; font.pixelSize: 13; font.bold: true }
                                     ComboBox {
                                         id: startModeBox
@@ -251,6 +269,7 @@ Item {
                                     onClicked: sidecarClient.savePyXiaozhiRuntimeConfig(
                                         rootField.text,
                                         pythonField.text,
+                                        runtimeModeBox.currentText,
                                         startModeBox.currentText,
                                         windowModeBox.currentText,
                                         autoStartBox.checked
@@ -327,10 +346,10 @@ Item {
                             anchors.fill: parent
                             anchors.margins: 20
                             spacing: 10
-                            Text { text: "阶段 7.1 说明"; color: "#111827"; font.pixelSize: 18; font.bold: true }
+                            Text { text: "阶段 7.2 说明"; color: "#111827"; font.pixelSize: 18; font.bold: true }
                             Text {
                                 Layout.fillWidth: true
-                                text: "本阶段把运行时管理体验做扎实：路径可配置并写入 .env，支持启动模式/自动拉起，显示完整诊断，提供一键启动和运行时重启脚本。py-xiaozhi GUI 暂时保留为调试窗口；真正 headless/托盘化留到后续阶段。"
+                                text: "阶段 7.2 增加真正的 headless runtime：Sidecar 可用 --mode headless 启动 py-xiaozhi，跳过 GUI/CLI 视图初始化，仅保留音频、协议、MCP 与 PCBridgePlugin。GUI 模式仍可作为调试窗口。"
                                 color: "#4B5563"
                                 font.pixelSize: 13
                                 wrapMode: Text.WordWrap

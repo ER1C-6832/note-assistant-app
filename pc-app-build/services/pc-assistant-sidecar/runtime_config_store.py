@@ -9,14 +9,25 @@ from config import SidecarConfig, load_config
 RUNTIME_KEYS = [
     "PY_XIAOZHI_ROOT",
     "PY_XIAOZHI_PYTHON",
+    "PY_XIAOZHI_RUNTIME_MODE",
     "PY_XIAOZHI_START_MODE",
     "PY_XIAOZHI_WINDOW_MODE",
     "PY_XIAOZHI_AUTO_START",
     "PY_XIAOZHI_MODE",
 ]
 
+ALLOWED_RUNTIME_MODES = ["headless", "gui", "cli"]
 ALLOWED_START_MODES = ["normal", "minimized", "hidden", "debug"]
 ALLOWED_WINDOW_MODES = ["normal", "minimized", "hidden"]
+
+
+def _normalize_runtime_mode(value: str) -> str:
+    mode = (value or "").strip().lower()
+    if mode in {"background", "service", "nogui", "no_gui"}:
+        return "headless"
+    if mode in ALLOWED_RUNTIME_MODES:
+        return mode
+    return "headless"
 
 
 def _normalize_start_mode(value: str) -> str:
@@ -56,11 +67,13 @@ def get_runtime_config(config: SidecarConfig | None = None) -> dict[str, Any]:
         "settings": {
             "py_xiaozhi_root": str(config.py_xiaozhi_root),
             "py_xiaozhi_python": str(config.py_xiaozhi_python or ""),
+            "py_xiaozhi_runtime_mode": config.py_xiaozhi_runtime_mode,
             "py_xiaozhi_start_mode": config.py_xiaozhi_start_mode,
             "py_xiaozhi_window_mode": config.py_xiaozhi_window_mode,
             "py_xiaozhi_auto_start": bool(config.py_xiaozhi_auto_start),
             "py_xiaozhi_protocol": config.py_xiaozhi_protocol,
         },
+        "allowed_runtime_modes": ALLOWED_RUNTIME_MODES,
         "allowed_start_modes": ALLOWED_START_MODES,
         "allowed_window_modes": ALLOWED_WINDOW_MODES,
     }
@@ -71,6 +84,7 @@ def save_runtime_config(payload: dict[str, Any], config: SidecarConfig | None = 
 
     root = str(payload.get("py_xiaozhi_root") or payload.get("root") or config.py_xiaozhi_root).strip()
     python = str(payload.get("py_xiaozhi_python") or payload.get("python") or config.py_xiaozhi_python or "").strip()
+    runtime_mode = _normalize_runtime_mode(str(payload.get("py_xiaozhi_runtime_mode") or payload.get("runtime_mode") or config.py_xiaozhi_runtime_mode))
     start_mode = _normalize_start_mode(str(payload.get("py_xiaozhi_start_mode") or payload.get("start_mode") or config.py_xiaozhi_start_mode))
     window_mode = _normalize_window_mode(str(payload.get("py_xiaozhi_window_mode") or payload.get("window_mode") or config.py_xiaozhi_window_mode))
     auto_start = _as_bool_text(payload.get("py_xiaozhi_auto_start", payload.get("auto_start", config.py_xiaozhi_auto_start)))
@@ -78,13 +92,14 @@ def save_runtime_config(payload: dict[str, Any], config: SidecarConfig | None = 
     updates = {
         "PY_XIAOZHI_ROOT": root,
         "PY_XIAOZHI_PYTHON": python,
+        "PY_XIAOZHI_RUNTIME_MODE": runtime_mode,
         "PY_XIAOZHI_START_MODE": start_mode,
         "PY_XIAOZHI_WINDOW_MODE": window_mode,
         "PY_XIAOZHI_AUTO_START": auto_start,
     }
 
-    # Keep legacy key aligned. Existing packages used PY_XIAOZHI_MODE=cli.
-    updates["PY_XIAOZHI_MODE"] = "cli" if start_mode == "hidden" else "gui"
+    # Keep legacy key aligned for py-xiaozhi and old .env files.
+    updates["PY_XIAOZHI_MODE"] = runtime_mode
 
     _update_env_file(config.env_path, updates)
     for key, value in updates.items():

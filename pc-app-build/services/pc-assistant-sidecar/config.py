@@ -35,6 +35,8 @@ class SidecarConfig:
     py_xiaozhi_root: Path
     py_xiaozhi_python: str
     py_xiaozhi_protocol: str
+    py_xiaozhi_runtime_mode: str
+    py_xiaozhi_skip_activation: bool
     py_xiaozhi_log_path: Path | None
     py_xiaozhi_start_mode: str
     py_xiaozhi_window_mode: str
@@ -87,6 +89,22 @@ def _normalize_mode(value: str, default: str = "minimized") -> str:
     return aliases.get(mode, default)
 
 
+def _normalize_runtime_mode(value: str, default: str = "headless") -> str:
+    mode = (value or "").strip().lower()
+    aliases = {
+        "headless": "headless",
+        "background": "headless",
+        "service": "headless",
+        "nogui": "headless",
+        "no_gui": "headless",
+        "cli": "cli",
+        "console": "cli",
+        "gui": "gui",
+        "normal": "gui",
+    }
+    return aliases.get(mode, default)
+
+
 def _default_py_xiaozhi_log_path() -> Path | None:
     explicit = os.getenv("PY_XIAOZHI_LOG_PATH", "").strip()
     if explicit:
@@ -126,6 +144,11 @@ def load_config() -> SidecarConfig:
         os.getenv("PY_XIAOZHI_WINDOW_MODE", "").strip() or start_mode,
         default=start_mode,
     )
+    runtime_default = "headless" if start_mode in {"hidden", "minimized"} else "gui"
+    runtime_mode = _normalize_runtime_mode(
+        os.getenv("PY_XIAOZHI_RUNTIME_MODE", "").strip() or legacy_mode,
+        default=runtime_default,
+    )
 
     return SidecarConfig(
         pc_build_root=pc_root,
@@ -137,6 +160,8 @@ def load_config() -> SidecarConfig:
         py_xiaozhi_root=py_root,
         py_xiaozhi_python=os.getenv("PY_XIAOZHI_PYTHON", ""),
         py_xiaozhi_protocol=os.getenv("PY_XIAOZHI_PROTOCOL", "websocket"),
+        py_xiaozhi_runtime_mode=runtime_mode,
+        py_xiaozhi_skip_activation=_as_bool(os.getenv("PY_XIAOZHI_SKIP_ACTIVATION", "0"), default=False),
         py_xiaozhi_log_path=_default_py_xiaozhi_log_path(),
         py_xiaozhi_start_mode=start_mode,
         py_xiaozhi_window_mode=window_mode,

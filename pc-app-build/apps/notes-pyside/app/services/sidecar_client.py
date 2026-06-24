@@ -64,6 +64,7 @@ class SidecarClient(QObject):
         self._runtime_config_env_path = ""
         self._runtime_config_root_text = ""
         self._runtime_config_python_text = ""
+        self._runtime_config_runtime_mode = "headless"
         self._runtime_config_start_mode = "minimized"
         self._runtime_config_window_mode = "minimized"
         self._runtime_config_auto_start = False
@@ -181,6 +182,10 @@ class SidecarClient(QObject):
         return self._runtime_config_python_text or self._py_xiaozhi_python_text
 
     @Property(str, notify=statusChanged)
+    def runtimeConfigRuntimeMode(self) -> str:
+        return self._runtime_config_runtime_mode
+
+    @Property(str, notify=statusChanged)
     def runtimeConfigStartMode(self) -> str:
         return self._runtime_config_start_mode
 
@@ -278,8 +283,8 @@ class SidecarClient(QObject):
             return
         self._outbox.put({"type": "get_runtime_config"})
 
-    @Slot(str, str, str, str, bool)
-    def savePyXiaozhiRuntimeConfig(self, root: str, python: str, start_mode: str, window_mode: str, auto_start: bool) -> None:
+    @Slot(str, str, str, str, str, bool)
+    def savePyXiaozhiRuntimeConfig(self, root: str, python: str, runtime_mode: str, start_mode: str, window_mode: str, auto_start: bool) -> None:
         if not self._connected:
             self.start()
 
@@ -287,6 +292,7 @@ class SidecarClient(QObject):
             "type": "save_runtime_config",
             "py_xiaozhi_root": root,
             "py_xiaozhi_python": python,
+            "py_xiaozhi_runtime_mode": runtime_mode,
             "py_xiaozhi_start_mode": start_mode,
             "py_xiaozhi_window_mode": window_mode,
             "py_xiaozhi_auto_start": bool(auto_start),
@@ -813,6 +819,7 @@ class SidecarClient(QObject):
         self._runtime_config_env_path = str(payload.get("env_path") or self._runtime_config_env_path or "")
         self._runtime_config_root_text = str(settings.get("py_xiaozhi_root") or self._runtime_config_root_text or "")
         self._runtime_config_python_text = str(settings.get("py_xiaozhi_python") or self._runtime_config_python_text or "")
+        self._runtime_config_runtime_mode = str(settings.get("py_xiaozhi_runtime_mode") or self._runtime_config_runtime_mode or "headless")
         self._runtime_config_start_mode = str(settings.get("py_xiaozhi_start_mode") or self._runtime_config_start_mode or "minimized")
         self._runtime_config_window_mode = str(settings.get("py_xiaozhi_window_mode") or self._runtime_config_window_mode or "minimized")
         self._runtime_config_auto_start = bool(settings.get("py_xiaozhi_auto_start", self._runtime_config_auto_start))
