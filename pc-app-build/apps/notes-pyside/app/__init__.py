@@ -45,6 +45,7 @@ def run_app() -> int:
     _load_env_file(pc_build_root / ".env")
 
     app = QGuiApplication(sys.argv)
+    app.setQuitOnLastWindowClosed(True)
     app.setApplicationDisplayName("小智便签")
     app.setOrganizationName("NoteAssistant")
 
@@ -53,6 +54,7 @@ def run_app() -> int:
 
     sidecar_client.notesChanged.connect(notes_controller.refresh)
     sidecar_client.start()
+    app.aboutToQuit.connect(sidecar_client.stopPyXiaozhiOnAppExit)
     app.aboutToQuit.connect(sidecar_client.stop)
 
     engine = QQmlApplicationEngine()

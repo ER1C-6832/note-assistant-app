@@ -17,6 +17,7 @@ import queue
 import threading
 import time
 from typing import Any
+from urllib.request import Request, urlopen
 
 import websockets
 from PySide6.QtCore import QObject, Property, Signal, Slot
@@ -97,6 +98,8 @@ class SidecarClient(QObject):
         self._developer_log_lines: list[str] = []
         self._runtime_timeline_started_at = 0.0
         self._runtime_timeline_label = ""
+        self._stop_requested = False
+        self._runtime_stop_on_exit_sent = False
 
         self._raw_message_received.connect(self._handle_raw_message)
         self._connection_changed.connect(self._set_connected)
@@ -268,12 +271,18 @@ class SidecarClient(QObject):
     def start(self) -> None:
         if self._thread and self._thread.is_alive():
             return
+        self._stop_requested = False
+        self._runtime_stop_on_exit_sent = False
         self._stop_event.clear()
         self._thread = threading.Thread(target=self._run_thread, daemon=True)
         self._thread.start()
 
     @Slot()
     def stop(self) -> None:
+        if self._stop_requested:
+            return
+        self._stop_requested = True
+
         self._stop_event.set()
         try:
             self._outbox.put_nowait({"type": "__stop__"})
@@ -282,7 +291,37 @@ class SidecarClient(QObject):
 
         thread = self._thread
         if thread is not None and thread.is_alive() and threading.current_thread() is not thread:
-            thread.join(timeout=1.2)
+            thread.join(timeout=0.8)
+
+    @Slot()
+    def stopPyXiaozhiOnAppExit(self) -> None:
+        if self._runtime_stop_on_exit_sent:
+            return
+        self._runtime_stop_on_exit_sent = True
+
+        enabled = os.getenv("PC_APP_STOP_PY_XIAOZHI_ON_EXIT", "1").strip().lower()
+        if enabled in {"0", "false", "no", "off"}:
+            return
+
+        self._append_developer_log("APP_EXIT stop_py_xiaozhi requested")
+        self._post_runtime_stop_sync()
+
+    def _post_runtime_stop_sync(self) -> None:
+        host = os.getenv("SIDECAR_HEALTH_HOST", "127.0.0.1")
+        port = os.getenv("SIDECAR_HEALTH_PORT", "17891")
+        url = f"http://{host}:{port}/api/runtime/py-xiaozhi/stop"
+        try:
+            request = Request(
+                url,
+                data=b"{}",
+                method="POST",
+                headers={"Content-Type": "application/json"},
+            )
+            with urlopen(request, timeout=1.2) as response:
+                response.read()
+            self._append_developer_log("APP_EXIT stop_py_xiaozhi sent")
+        except Exception as exc:
+            self._append_developer_log(f"APP_EXIT stop_py_xiaozhi failed: {str(exc)[:80]}")
 
     @Slot()
     def refreshStatus(self) -> None:
@@ -386,6 +425,15 @@ class SidecarClient(QObject):
 
     @Slot()
     def startPyXiaozhi(self) -> None:
+        if self._py_xiaozhi_running and not self._voice_runtime_ready:
+            self._begin_runtime_timeline("restart_py_xiaozhi_stale_process")
+            self._assistant_state = "starting"
+            self._assistant_status_text = "检测到残留进程，正在清理并重启"
+            self._voice_button_state = "offline"
+            self.statusChanged.emit()
+            self._queue_runtime_action("restart_py_xiaozhi")
+            return
+
         self._begin_runtime_timeline("start_py_xiaozhi")
         self._assistant_state = "starting"
         self._assistant_status_text = "语音助手启动中"

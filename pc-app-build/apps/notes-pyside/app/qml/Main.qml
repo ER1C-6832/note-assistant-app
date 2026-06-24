@@ -20,9 +20,12 @@ ApplicationWindow {
         developerLogPanelVisible = false
         voicePanelVisible = false
         if (sidecarClient !== null) {
+            sidecarClient.stopPyXiaozhiOnAppExit()
             sidecarClient.stop()
         }
+        Qt.callLater(Qt.quit)
     }
+
 
     property string currentPage: "home"
     property string currentCategory: "all"
