@@ -31,6 +31,7 @@ class SidecarClient(QObject):
         self._connected = False
         self._status_text = "Sidecar 未连接"
         self._assistant_status_text = "语音助手未连接"
+        self._assistant_state = "offline"
         self._notes_api_status_text = "Notes API 未确认"
         self._py_xiaozhi_status_text = "py-xiaozhi 未确认"
         self._notes_tool_status_text = "notes 工具未确认"
@@ -69,6 +70,18 @@ class SidecarClient(QObject):
     @Property(str, notify=statusChanged)
     def assistantStatusText(self) -> str:
         return self._assistant_status_text
+
+    @Property(str, notify=statusChanged)
+    def assistantState(self) -> str:
+        return self._assistant_state
+
+    @Property(bool, notify=statusChanged)
+    def isListening(self) -> bool:
+        return self._assistant_state == "listening"
+
+    @Property(bool, notify=statusChanged)
+    def isSpeaking(self) -> bool:
+        return self._assistant_state == "speaking"
 
     @Property(str, notify=statusChanged)
     def notesApiStatusText(self) -> str:
@@ -149,22 +162,53 @@ class SidecarClient(QObject):
 
     @Slot()
     def startListen(self) -> None:
+        if self._assistant_state == "listening":
+            self._last_control_text = "已经在聆听中"
+            self._last_event_text = self._last_control_text
+            self.statusChanged.emit()
+            return
+
+        self._assistant_state = "starting"
+        self._assistant_status_text = "正在请求开始聆听"
         self._queue_control("start_listen", mode="manual")
 
     @Slot(str)
     def startListenMode(self, mode: str) -> None:
+        if self._assistant_state == "listening":
+            self._last_control_text = "已经在聆听中"
+            self._last_event_text = self._last_control_text
+            self.statusChanged.emit()
+            return
+
+        self._assistant_state = "starting"
+        self._assistant_status_text = "正在请求开始聆听"
         self._queue_control("start_listen", mode=mode or "manual")
 
     @Slot()
     def stopListen(self) -> None:
+        if self._assistant_state in {"idle", "offline", "stopping"}:
+            self._last_control_text = "当前没有正在进行的聆听"
+            self._last_event_text = self._last_control_text
+            self.statusChanged.emit()
+            return
+
+        self._assistant_state = "stopping"
+        self._assistant_status_text = "正在请求停止聆听"
         self._queue_control("stop_listen")
 
     @Slot()
     def toggleListen(self) -> None:
-        self._queue_control("toggle_listen", mode="manual")
+        if self._assistant_state in {"listening", "starting"}:
+            self.stopListen()
+        elif self._assistant_state == "speaking":
+            self.abortSpeaking()
+        else:
+            self.startListen()
 
     @Slot()
     def abortSpeaking(self) -> None:
+        self._assistant_state = "aborting"
+        self._assistant_status_text = "正在请求打断"
         self._queue_control("abort")
 
     def _queue_control(self, command_type: str, **payload: Any) -> None:
@@ -233,10 +277,13 @@ class SidecarClient(QObject):
         if connected:
             self._status_text = "Sidecar 已连接"
             self._assistant_status_text = "语音运行时检测中"
+            if self._assistant_state == "offline":
+                self._assistant_state = "idle"
             self._error_message = ""
         else:
             self._status_text = "Sidecar 未连接"
             self._assistant_status_text = "语音助手未连接"
+            self._assistant_state = "offline"
 
         self.connectedChanged.emit()
         self.statusChanged.emit()
@@ -280,9 +327,18 @@ class SidecarClient(QObject):
             self.statusChanged.emit()
             return
 
-        if event_type in {"assistant_control", "assistant_control_received", "assistant_control_result"}:
+        if event_type in {"assistant_control", "assistant_control_received"}:
             self._last_control_text = payload.get("message", "语音控制事件")
             self._last_event_text = self._last_control_text
+            self.statusChanged.emit()
+            return
+
+        if event_type == "assistant_control_result":
+            self._last_control_text = payload.get("message", "语音控制命令已执行")
+            self._last_event_text = self._last_control_text
+            if self._assistant_state in {"starting", "stopping", "aborting"}:
+                # The real final state should come from assistant_status / assistant_state.
+                self._assistant_state = "idle" if self._assistant_state != "starting" else self._assistant_state
             self.statusChanged.emit()
             return
 
@@ -290,6 +346,9 @@ class SidecarClient(QObject):
             self._error_message = payload.get("message", "语音控制命令执行失败")
             self._last_control_text = self._error_message
             self._last_event_text = self._error_message
+            if self._assistant_state in {"starting", "stopping", "aborting"}:
+                self._assistant_state = "idle"
+                self._assistant_status_text = "语音运行时已就绪"
             self.statusChanged.emit()
             return
 
@@ -309,20 +368,7 @@ class SidecarClient(QObject):
             return
 
         if event_type in {"assistant_status", "assistant_state"}:
-            text = payload.get("message") or payload.get("status") or payload.get("state") or "语音助手状态更新"
-            self._last_runtime_state_text = str(text)
-            self._last_event_text = str(text)
-            status = str(payload.get("status") or payload.get("state") or "").lower()
-            if status in {"idle", "listening", "speaking", "connected", "stopped"}:
-                mapping = {
-                    "idle": "语音助手空闲",
-                    "listening": "语音助手正在聆听",
-                    "speaking": "语音助手正在播报",
-                    "connected": "语音运行时已连接",
-                    "stopped": "语音运行时已停止",
-                }
-                self._assistant_status_text = mapping.get(status, self._assistant_status_text)
-            self.statusChanged.emit()
+            self._handle_assistant_state(payload)
             return
 
         if event_type == "assistant_transcript":
@@ -362,6 +408,25 @@ class SidecarClient(QObject):
             return
 
         self._last_event_text = f"收到 Sidecar 事件：{event_type or 'unknown'}"
+        self.statusChanged.emit()
+
+    def _handle_assistant_state(self, payload: dict[str, Any]) -> None:
+        text = payload.get("message") or payload.get("status") or payload.get("state") or "语音助手状态更新"
+        status = str(payload.get("status") or payload.get("state") or "").lower()
+
+        if status in {"idle", "listening", "speaking", "connected", "stopped"}:
+            mapping = {
+                "idle": "语音助手空闲",
+                "listening": "语音助手正在聆听",
+                "speaking": "语音助手正在播报",
+                "connected": "语音运行时已连接",
+                "stopped": "语音运行时已停止",
+            }
+            self._assistant_state = "idle" if status in {"connected", "stopped"} else status
+            self._assistant_status_text = mapping.get(status, self._assistant_status_text)
+
+        self._last_runtime_state_text = str(text)
+        self._last_event_text = str(text)
         self.statusChanged.emit()
 
     def _apply_recent_event(self, event: dict[str, Any]) -> None:
@@ -409,10 +474,13 @@ class SidecarClient(QObject):
 
         if self._connected and notes_api_ok and root_exists and main_py_exists and notes_tool_installed:
             self._assistant_status_text = "语音运行时已就绪" if process_running else "语音运行时未启动"
+            if self._assistant_state in {"offline", ""}:
+                self._assistant_state = "idle"
         elif self._connected:
             self._assistant_status_text = "语音运行时配置不完整"
         else:
             self._assistant_status_text = "语音助手未连接"
+            self._assistant_state = "offline"
 
         self._status_text = "Sidecar 已连接" if self._connected else "Sidecar 未连接"
         self._error_message = "" if self._connected else self._error_message

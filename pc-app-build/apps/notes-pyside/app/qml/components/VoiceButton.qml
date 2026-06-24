@@ -5,26 +5,31 @@ Rectangle {
     id: root
 
     property bool connected: true
-    property bool active: false
-    property string statusText: active ? "正在聆听" : "语音助手"
+    property string voiceState: "idle"
+    property string statusText: "点击说话"
 
     signal clicked()
     signal pressStarted()
     signal pressEnded()
     signal abortRequested()
 
-    width: active ? 148 : 136
-    height: 48
-    radius: 24
-    color: !connected ? "#F3F4F6" : mouse.containsMouse ? "#F7F8FA" : "#FFFFFF"
-    border.color: active ? "#19B7A8" : "#E5E7EB"
+    readonly property bool active: voiceState === "listening" || voiceState === "speaking" || voiceState === "starting"
+
+    width: 156
+    height: 50
+    radius: 25
+    color: !connected ? "#F3F4F6"
+           : voiceState === "speaking" ? "#FFF7ED"
+           : voiceState === "listening" ? "#ECFDF3"
+           : mouse.containsMouse ? "#F7F8FA"
+           : "#FFFFFF"
+    border.color: !connected ? "#E5E7EB"
+                 : voiceState === "speaking" ? "#F97316"
+                 : voiceState === "listening" ? "#19B7A8"
+                 : "#E5E7EB"
     border.width: active ? 2 : 1
     z: 50
     clip: true
-
-    Behavior on width {
-        NumberAnimation { duration: 120 }
-    }
 
     RowLayout {
         anchors.centerIn: parent
@@ -34,23 +39,41 @@ Rectangle {
             width: 26
             height: 26
             radius: 13
-            color: !root.connected ? "#9CA3AF" : root.active ? "#EF4444" : "#19B7A8"
+            color: !root.connected ? "#9CA3AF"
+                   : root.voiceState === "speaking" ? "#F97316"
+                   : root.voiceState === "listening" ? "#16A34A"
+                   : root.voiceState === "starting" ? "#2563EB"
+                   : "#19B7A8"
 
             Rectangle {
                 anchors.centerIn: parent
-                width: root.active ? 10 : 8
-                height: root.active ? 10 : 8
-                radius: 5
+                width: root.voiceState === "listening" ? 11 : 8
+                height: root.voiceState === "listening" ? 11 : 8
+                radius: 5.5
                 color: "#FFFFFF"
                 opacity: root.connected ? 1 : 0.75
             }
         }
 
-        Text {
-            text: root.statusText
-            color: root.connected ? "#111827" : "#6B7280"
-            font.pixelSize: 14
-            font.bold: true
+        ColumnLayout {
+            spacing: 0
+
+            Text {
+                text: root.statusText
+                color: root.connected ? "#111827" : "#6B7280"
+                font.pixelSize: 14
+                font.bold: true
+                elide: Text.ElideRight
+                Layout.maximumWidth: 96
+            }
+
+            Text {
+                text: root.connected ? "单击控制 · 长按说话" : "Sidecar 未连接"
+                color: "#9CA3AF"
+                font.pixelSize: 10
+                elide: Text.ElideRight
+                Layout.maximumWidth: 100
+            }
         }
     }
 
@@ -60,26 +83,35 @@ Rectangle {
         hoverEnabled: true
         cursorShape: root.connected ? Qt.PointingHandCursor : Qt.ArrowCursor
         acceptedButtons: Qt.LeftButton | Qt.RightButton
-        pressAndHoldInterval: 450
+        pressAndHoldInterval: 520
 
-        property bool ignoreNextClick: false
-        property bool holding: false
+        property bool pressAndHoldActive: false
+        property bool suppressNextClick: false
 
         onPressAndHold: function(mouseEvent) {
             if (!root.connected || mouseEvent.button !== Qt.LeftButton) {
                 return
             }
-            holding = true
-            ignoreNextClick = true
+
+            pressAndHoldActive = true
+            suppressNextClick = true
             root.pressStarted()
         }
 
-        onReleased: {
+        onReleased: function(mouseEvent) {
             if (!root.connected) {
                 return
             }
-            if (holding) {
-                holding = false
+
+            if (pressAndHoldActive && mouseEvent.button === Qt.LeftButton) {
+                pressAndHoldActive = false
+                root.pressEnded()
+            }
+        }
+
+        onCanceled: {
+            if (pressAndHoldActive) {
+                pressAndHoldActive = false
                 root.pressEnded()
             }
         }
@@ -94,8 +126,8 @@ Rectangle {
                 return
             }
 
-            if (ignoreNextClick) {
-                ignoreNextClick = false
+            if (suppressNextClick) {
+                suppressNextClick = false
                 return
             }
 

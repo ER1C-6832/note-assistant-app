@@ -21,13 +21,70 @@ Item {
     signal bulkUnpinRequested(var noteIds)
     signal assistantRequested()
 
-    function voiceActive() {
-        if (sidecarClient === null) {
-            return false
+    function currentVoiceState() {
+        if (sidecarClient === null || !sidecarClient.connected) {
+            return "offline"
         }
-        return sidecarClient.assistantStatusText.indexOf("聆听") >= 0
-            || sidecarClient.lastRuntimeStateText.indexOf("聆听") >= 0
-            || sidecarClient.lastRuntimeStateText.indexOf("listening") >= 0
+
+        if (sidecarClient.assistantState !== undefined && sidecarClient.assistantState.length > 0) {
+            return sidecarClient.assistantState
+        }
+
+        if (sidecarClient.assistantStatusText.indexOf("聆听") >= 0 || sidecarClient.lastRuntimeStateText.indexOf("listening") >= 0) {
+            return "listening"
+        }
+
+        if (sidecarClient.assistantStatusText.indexOf("播报") >= 0 || sidecarClient.lastRuntimeStateText.indexOf("speaking") >= 0) {
+            return "speaking"
+        }
+
+        return "idle"
+    }
+
+    function voiceButtonText() {
+        var state = currentVoiceState()
+
+        if (state === "offline") {
+            return "语音未连接"
+        }
+
+        if (state === "starting") {
+            return "正在启动"
+        }
+
+        if (state === "stopping") {
+            return "正在停止"
+        }
+
+        if (state === "listening") {
+            return "点击停止"
+        }
+
+        if (state === "speaking") {
+            return "点击打断"
+        }
+
+        return "点击说话"
+    }
+
+    function handleVoiceClick() {
+        if (sidecarClient === null) {
+            return
+        }
+
+        var state = currentVoiceState()
+
+        if (state === "speaking") {
+            sidecarClient.abortSpeaking()
+            return
+        }
+
+        if (state === "listening" || state === "starting") {
+            sidecarClient.stopListen()
+            return
+        }
+
+        sidecarClient.startListen()
     }
 
     RowLayout {
@@ -86,19 +143,12 @@ Item {
                 anchors.rightMargin: 32
                 anchors.bottomMargin: 32
                 connected: sidecarClient !== null && sidecarClient.connected
-                active: root.voiceActive()
-                statusText: active ? "正在聆听" : "语音助手"
+                voiceState: root.currentVoiceState()
+                statusText: root.voiceButtonText()
 
-                onClicked: {
-                    // Do not navigate away from HomePage. The floating voice
-                    // button is a runtime control, not a page switch.
-                    if (sidecarClient !== null) {
-                        sidecarClient.toggleListen()
-                    }
-                }
+                onClicked: root.handleVoiceClick()
 
                 onPressStarted: {
-                    // Press-and-hold starts listening in place.
                     if (sidecarClient !== null) {
                         sidecarClient.startListen()
                     }
@@ -111,7 +161,6 @@ Item {
                 }
 
                 onAbortRequested: {
-                    // Right-click aborts speaking in place.
                     if (sidecarClient !== null) {
                         sidecarClient.abortSpeaking()
                     }
