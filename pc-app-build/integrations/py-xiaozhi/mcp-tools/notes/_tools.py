@@ -305,7 +305,7 @@ async def tool_restore_note(args) -> str:
     try:
         note = NotesApiClient().restore_note(note_id)
         message = f"便签已还原：{note.get('title', note_id)}"
-        _emit_ui_action("show_deleted", {"note_id": note_id}, "已刷新已删除列表")
+        _emit_ui_action("refresh_notes", {"note_id": note_id}, "已刷新小智便签列表")
         _emit_tool_result(
             "notes.restore",
             True,
@@ -341,7 +341,7 @@ async def tool_hard_delete_note(args) -> str:
     try:
         result = NotesApiClient().hard_delete_note(note_id)
         message = f"便签已彻底删除：{note_id}"
-        _emit_ui_action("show_deleted", {"note_id": note_id}, "已刷新已删除列表")
+        _emit_ui_action("refresh_notes", {"note_id": note_id}, "已刷新小智便签列表")
         _emit_tool_result(
             "notes.hard_delete",
             True,
@@ -503,7 +503,7 @@ async def tool_delete_note(args) -> str:
     try:
         result = NotesApiClient().delete_note(note_id)
         message = f"便签已移入已删除：{note_id}，可还原或彻底删除"
-        _emit_ui_action("show_deleted", {"note_id": note_id}, "已在小智便签中打开已删除列表")
+        _emit_ui_action("refresh_notes", {"note_id": note_id}, "已刷新小智便签列表")
         _emit_tool_result(
             "notes.delete",
             True,

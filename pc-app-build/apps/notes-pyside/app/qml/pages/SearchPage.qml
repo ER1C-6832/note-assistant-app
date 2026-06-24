@@ -27,6 +27,7 @@ Item {
             Layout.preferredWidth: 560
             Layout.fillHeight: true
             notesModel: root.notesModel
+            notesControllerRef: notesController
             selectedIndex: root.selectedIndex
             activeCategory: "search"
             showCreateButton: false

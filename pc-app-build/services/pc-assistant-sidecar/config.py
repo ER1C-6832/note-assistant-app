@@ -57,7 +57,7 @@ class SidecarConfig:
         return f"http://{self.health_host}:{self.health_port}/api/health"
 
 
-def _as_bool(value: str, default: bool = False) -> bool:
+def _as_bool(value: str | None, default: bool = False) -> bool:
     if value is None:
         return default
     normalized = str(value).strip().lower()
@@ -82,7 +82,6 @@ def _normalize_mode(value: str, default: str = "minimized") -> str:
         "normal": "normal",
         "gui": "normal",
         "debug": "debug",
-        # Legacy env from previous packages. It means the user wants a less visible runtime.
         "cli": "hidden",
     }
 
@@ -150,6 +149,11 @@ def load_config() -> SidecarConfig:
         default=runtime_default,
     )
 
+    skip_activation = _as_bool(
+        os.getenv("PY_XIAOZHI_SKIP_ACTIVATION"),
+        default=True,
+    )
+
     return SidecarConfig(
         pc_build_root=pc_root,
         env_path=env_path,
@@ -161,7 +165,7 @@ def load_config() -> SidecarConfig:
         py_xiaozhi_python=os.getenv("PY_XIAOZHI_PYTHON", ""),
         py_xiaozhi_protocol=os.getenv("PY_XIAOZHI_PROTOCOL", "websocket"),
         py_xiaozhi_runtime_mode=runtime_mode,
-        py_xiaozhi_skip_activation=_as_bool(os.getenv("PY_XIAOZHI_SKIP_ACTIVATION", "0"), default=False),
+        py_xiaozhi_skip_activation=skip_activation,
         py_xiaozhi_log_path=_default_py_xiaozhi_log_path(),
         py_xiaozhi_start_mode=start_mode,
         py_xiaozhi_window_mode=window_mode,

@@ -19,6 +19,7 @@ ApplicationWindow {
     property string currentPage: "home"
     property string currentCategory: "all"
     property string pendingCategory: "all"
+    property bool developerLogPanelVisible: false
 
     function createInitialTags() {
         if (currentCategory === "todo") {
@@ -181,6 +182,11 @@ ApplicationWindow {
         }
     }
 
+    Shortcut {
+        sequence: "Ctrl+Shift+L"
+        onActivated: root.developerLogPanelVisible = !root.developerLogPanelVisible
+    }
+
     Component.onCompleted: startupTimer.start()
 
     ColumnLayout {
@@ -237,8 +243,9 @@ ApplicationWindow {
 
             Loader {
                 id: pageLoader
-                Layout.fillWidth: true
+                Layout.fillWidth: !root.developerLogPanelVisible
                 Layout.fillHeight: true
+                Layout.minimumWidth: 640
 
                 sourceComponent: {
                     if (root.currentPage === "create") return createPage
@@ -254,6 +261,13 @@ ApplicationWindow {
                     if (root.currentPage === "settings") return settingsPage
                     return homePage
                 }
+            }
+
+            DeveloperLogPanel {
+                visible: root.developerLogPanelVisible
+                Layout.preferredWidth: root.developerLogPanelVisible ? 360 : 0
+                Layout.fillHeight: true
+                sidecarClientRef: sidecarClient
             }
         }
     }

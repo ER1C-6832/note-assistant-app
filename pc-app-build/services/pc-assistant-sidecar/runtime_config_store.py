@@ -13,6 +13,7 @@ RUNTIME_KEYS = [
     "PY_XIAOZHI_START_MODE",
     "PY_XIAOZHI_WINDOW_MODE",
     "PY_XIAOZHI_AUTO_START",
+    "PY_XIAOZHI_SKIP_ACTIVATION",
     "PY_XIAOZHI_MODE",
 ]
 
@@ -71,6 +72,7 @@ def get_runtime_config(config: SidecarConfig | None = None) -> dict[str, Any]:
             "py_xiaozhi_start_mode": config.py_xiaozhi_start_mode,
             "py_xiaozhi_window_mode": config.py_xiaozhi_window_mode,
             "py_xiaozhi_auto_start": bool(config.py_xiaozhi_auto_start),
+            "py_xiaozhi_skip_activation": bool(config.py_xiaozhi_skip_activation),
             "py_xiaozhi_protocol": config.py_xiaozhi_protocol,
         },
         "allowed_runtime_modes": ALLOWED_RUNTIME_MODES,
@@ -88,6 +90,7 @@ def save_runtime_config(payload: dict[str, Any], config: SidecarConfig | None = 
     start_mode = _normalize_start_mode(str(payload.get("py_xiaozhi_start_mode") or payload.get("start_mode") or config.py_xiaozhi_start_mode))
     window_mode = _normalize_window_mode(str(payload.get("py_xiaozhi_window_mode") or payload.get("window_mode") or config.py_xiaozhi_window_mode))
     auto_start = _as_bool_text(payload.get("py_xiaozhi_auto_start", payload.get("auto_start", config.py_xiaozhi_auto_start)))
+    skip_activation = _as_bool_text(payload.get("py_xiaozhi_skip_activation", payload.get("skip_activation", config.py_xiaozhi_skip_activation)))
 
     updates = {
         "PY_XIAOZHI_ROOT": root,
@@ -96,9 +99,9 @@ def save_runtime_config(payload: dict[str, Any], config: SidecarConfig | None = 
         "PY_XIAOZHI_START_MODE": start_mode,
         "PY_XIAOZHI_WINDOW_MODE": window_mode,
         "PY_XIAOZHI_AUTO_START": auto_start,
+        "PY_XIAOZHI_SKIP_ACTIVATION": skip_activation,
     }
 
-    # Keep legacy key aligned for py-xiaozhi and old .env files.
     updates["PY_XIAOZHI_MODE"] = runtime_mode
 
     _update_env_file(config.env_path, updates)
@@ -139,7 +142,7 @@ def _update_env_file(env_path: Path, updates: dict[str, str]) -> None:
     if missing:
         if output and output[-1].strip():
             output.append("")
-        output.append("# Phase 7.1 py-xiaozhi runtime settings")
+        output.append("# Phase 8.0.1 safe py-xiaozhi runtime settings")
         for key in missing:
             output.append(f"{key}={updates[key]}")
 
