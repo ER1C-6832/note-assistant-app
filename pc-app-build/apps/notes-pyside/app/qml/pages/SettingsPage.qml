@@ -47,11 +47,14 @@ Item {
     }
 
     ScrollView {
+        id: scrollView
         anchors.fill: parent
         clip: true
+        contentWidth: availableWidth
+        ScrollBar.vertical.policy: ScrollBar.AlwaysOn
 
         ColumnLayout {
-            width: root.width
+            width: scrollView.availableWidth
             spacing: 18
 
             Rectangle {
@@ -60,7 +63,10 @@ Item {
                 Layout.rightMargin: 0
                 radius: 20
                 color: "#FFFFFF"
-                implicitHeight: 1080
+                // The settings content became taller in Phase 7.1.
+                // The old fixed 1080 height clipped the bottom runtime action row,
+                // so the ScrollView could not scroll far enough to reveal it.
+                implicitHeight: 1520
 
                 ColumnLayout {
                     anchors.fill: parent
