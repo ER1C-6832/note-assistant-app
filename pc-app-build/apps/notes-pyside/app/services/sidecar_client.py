@@ -1,5 +1,10 @@
 """
 WebSocket client for the PC Assistant Sidecar.
+
+Phase 6.1.1 hotfix:
+- Avoid blocking Queue.get through asyncio.to_thread in the sender task.
+- The previous implementation could leave a worker thread blocked after the
+  PySide window closed, causing start_pc_app.bat to hang instead of returning.
 """
 
 from __future__ import annotations
@@ -154,6 +159,10 @@ class SidecarClient(QObject):
     @Slot()
     def stop(self) -> None:
         self._stop_event.set()
+        try:
+            self._outbox.put_nowait({"type": "__stop__"})
+        except Exception:
+            pass
 
     @Slot()
     def refreshStatus(self) -> None:
@@ -250,22 +259,35 @@ class SidecarClient(QObject):
                             break
                         self._raw_message_received.emit(str(message))
             except Exception as exc:
-                self._connection_changed.emit(False)
-                self._error_received.emit(str(exc))
+                if not self._stop_event.is_set():
+                    self._connection_changed.emit(False)
+                    self._error_received.emit(str(exc))
             finally:
                 if sender_task:
                     sender_task.cancel()
                     try:
                         await sender_task
+                    except asyncio.CancelledError:
+                        pass
                     except Exception:
                         pass
 
             if not self._stop_event.is_set():
                 await asyncio.sleep(3)
 
+        self._connection_changed.emit(False)
+
     async def _sender_loop(self, websocket) -> None:
         while not self._stop_event.is_set():
-            message = await asyncio.to_thread(self._outbox.get)
+            try:
+                message = self._outbox.get_nowait()
+            except queue.Empty:
+                await asyncio.sleep(0.08)
+                continue
+
+            if message.get("type") == "__stop__":
+                break
+
             await websocket.send(json.dumps(message, ensure_ascii=False))
 
     def _set_connected(self, connected: bool) -> None:
@@ -337,7 +359,6 @@ class SidecarClient(QObject):
             self._last_control_text = payload.get("message", "语音控制命令已执行")
             self._last_event_text = self._last_control_text
             if self._assistant_state in {"starting", "stopping", "aborting"}:
-                # The real final state should come from assistant_status / assistant_state.
                 self._assistant_state = "idle" if self._assistant_state != "starting" else self._assistant_state
             self.statusChanged.emit()
             return
