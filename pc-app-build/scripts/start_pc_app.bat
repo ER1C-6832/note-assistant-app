@@ -2,23 +2,18 @@
 setlocal
 
 REM Start the PySide6 + QML desktop application.
-REM Phase 8.2: keep this terminal open after the window closes, and allow quick restart.
+REM Hotfix: do not enter a CHOICE restart loop after the Qt window exits.
+REM Let the terminal return normally after a simple pause.
 
+echo Starting Note Assistant PC App...
 cd /d "%~dp0..\apps\notes-pyside"
 
-:RUN_APP
-echo.
-echo Starting Note Assistant PC App...
 python main.py
 set APP_EXIT_CODE=%ERRORLEVEL%
 
 echo.
 echo PC App exited with code %APP_EXIT_CODE%.
-echo.
+echo Press any key to return to the terminal...
+pause >nul
 
-choice /C RQ /N /M "Press R to restart PC App, or Q to quit: "
-if errorlevel 2 goto END
-goto RUN_APP
-
-:END
 exit /b %APP_EXIT_CODE%
