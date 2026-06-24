@@ -32,16 +32,8 @@ Item {
             return "offline"
         }
 
-        if (sidecarClient.assistantState !== undefined && sidecarClient.assistantState.length > 0) {
-            return sidecarClient.assistantState
-        }
-
-        if (sidecarClient.assistantStatusText.indexOf("聆听") >= 0 || sidecarClient.lastRuntimeStateText.indexOf("listening") >= 0) {
-            return "listening"
-        }
-
-        if (sidecarClient.assistantStatusText.indexOf("播报") >= 0 || sidecarClient.lastRuntimeStateText.indexOf("speaking") >= 0) {
-            return "speaking"
+        if (sidecarClient.voiceButtonState !== undefined && sidecarClient.voiceButtonState.length > 0) {
+            return sidecarClient.voiceButtonState
         }
 
         return "idle"
@@ -70,10 +62,6 @@ Item {
             return "点击停止"
         }
 
-        if (state === "speaking") {
-            return "点击打断"
-        }
-
         return "点击说话"
     }
 
@@ -83,11 +71,6 @@ Item {
         }
 
         var state = currentVoiceState()
-
-        if (state === "speaking") {
-            sidecarClient.abortSpeaking()
-            return
-        }
 
         if (state === "listening" || state === "starting") {
             sidecarClient.stopListen()
