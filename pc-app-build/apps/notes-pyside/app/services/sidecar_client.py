@@ -1,13 +1,12 @@
 """
 WebSocket client for the PC Assistant Sidecar.
 
-Phase 7.0.2 hotfix:
-- Disable voice-button control when py-xiaozhi is not running.
-- Avoid stale/replayed assistant_state events driving the button.
-- Add pending command guards to prevent old listening/speaking states from
-  flipping the button back after stop/abort.
-- Treat "播报结束" events as idle even if the event's raw state says speaking.
-- Keep Phase 6.1.1 non-blocking sender-loop exit fix.
+Phase 7.0.3 hotfix:
+- Split "process detection" from "voice bridge is online".
+- If py-xiaozhi PCBridgePlugin is clearly sending events, the voice button is
+  allowed even when Windows process detection misses the runtime.
+- Keep the bottom-right button disabled when neither process detection nor live
+  bridge events are available.
 """
 
 from __future__ import annotations
@@ -18,7 +17,6 @@ import os
 import queue
 import threading
 import time
-from datetime import datetime
 from typing import Any
 
 import websockets
@@ -41,6 +39,7 @@ class SidecarClient(QObject):
         self._status_text = "Sidecar 未连接"
         self._assistant_status_text = "语音助手未连接"
         self._assistant_state = "offline"
+
         self._notes_api_status_text = "Notes API 未确认"
         self._py_xiaozhi_status_text = "py-xiaozhi 未确认"
         self._py_xiaozhi_root_text = ""
@@ -49,6 +48,13 @@ class SidecarClient(QObject):
         self._py_xiaozhi_process_count = 0
         self._py_xiaozhi_launchable = False
         self._py_xiaozhi_running = False
+
+        # Process detection can fail when py-xiaozhi is launched in a way that does
+        # not expose the expected command line. A live bridge event is a stronger
+        # signal for button availability, so keep it separate.
+        self._voice_runtime_ready = False
+        self._last_voice_runtime_event_at = 0.0
+
         self._last_runtime_action_text = ""
         self._notes_tool_status_text = "notes 工具未确认"
         self._last_event_text = ""
@@ -63,13 +69,13 @@ class SidecarClient(QObject):
         self._last_audio_channel_text = ""
         self._last_control_text = ""
         self._error_message = ""
+
         self._thread: threading.Thread | None = None
         self._stop_event = threading.Event()
         self._outbox: queue.Queue[dict[str, Any]] = queue.Queue()
 
         self._pending_control = ""
         self._pending_control_since = 0.0
-        self._client_started_at = time.time()
 
         self._raw_message_received.connect(self._handle_raw_message)
         self._connection_changed.connect(self._set_connected)
@@ -102,6 +108,10 @@ class SidecarClient(QObject):
     @Property(bool, notify=statusChanged)
     def isSpeaking(self) -> bool:
         return self._assistant_state == "speaking"
+
+    @Property(bool, notify=statusChanged)
+    def voiceRuntimeReady(self) -> bool:
+        return self._voice_runtime_ready
 
     @Property(str, notify=statusChanged)
     def notesApiStatusText(self) -> str:
@@ -304,7 +314,7 @@ class SidecarClient(QObject):
         self._queue_runtime_action("restart_py_xiaozhi")
 
     def _can_control_voice(self) -> bool:
-        return self._connected and self._py_xiaozhi_running
+        return self._connected and self._voice_runtime_ready
 
     def _show_runtime_not_ready(self) -> None:
         self._assistant_state = "offline"
@@ -313,6 +323,14 @@ class SidecarClient(QObject):
         self._last_event_text = self._last_control_text
         self._pending_control = ""
         self.statusChanged.emit()
+
+    def _mark_voice_runtime_ready(self, reason: str = "") -> None:
+        self._voice_runtime_ready = True
+        self._last_voice_runtime_event_at = time.time()
+        if self._assistant_state == "offline":
+            self._assistant_state = "idle"
+        if self._assistant_status_text in {"语音助手未连接", "语音助手未启动", "语音助手未启动，请先在设置页启动"}:
+            self._assistant_status_text = "语音运行时已就绪"
 
     def _set_pending(self, command: str) -> None:
         self._pending_control = command
@@ -329,6 +347,8 @@ class SidecarClient(QObject):
 
     def _set_runtime_offline(self) -> None:
         self._py_xiaozhi_running = False
+        self._voice_runtime_ready = False
+        self._last_voice_runtime_event_at = 0.0
         self._py_xiaozhi_process_count = 0
         self._py_xiaozhi_pids_text = ""
         self._assistant_state = "offline"
@@ -428,13 +448,14 @@ class SidecarClient(QObject):
         if connected:
             self._status_text = "Sidecar 已连接"
             self._assistant_status_text = "语音运行时检测中"
-            if self._assistant_state == "offline" and self._py_xiaozhi_running:
+            if self._assistant_state == "offline" and self._voice_runtime_ready:
                 self._assistant_state = "idle"
             self._error_message = ""
         else:
             self._status_text = "Sidecar 未连接"
             self._assistant_status_text = "语音助手未连接"
             self._assistant_state = "offline"
+            self._voice_runtime_ready = False
             self._clear_pending()
 
         self.connectedChanged.emit()
@@ -468,8 +489,6 @@ class SidecarClient(QObject):
             return
 
         if event_type == "sidecar_events":
-            # Recent-event replay is useful for visible history, but stale assistant_state
-            # should not drive the live voice button.
             items = payload.get("items", []) or []
             if items:
                 self._apply_recent_event(items[-1])
@@ -482,24 +501,27 @@ class SidecarClient(QObject):
             return
 
         if event_type in {"assistant_control", "assistant_control_received"}:
+            self._mark_voice_runtime_ready("assistant_control")
             self._last_control_text = payload.get("message", "语音控制事件")
             self._last_event_text = self._last_control_text
             self.statusChanged.emit()
             return
 
         if event_type == "assistant_control_result":
+            self._mark_voice_runtime_ready("assistant_control_result")
             self._last_control_text = payload.get("message", "语音控制命令已执行")
             self._last_event_text = self._last_control_text
             self.statusChanged.emit()
             return
 
         if event_type == "assistant_control_error":
+            self._mark_voice_runtime_ready("assistant_control_error")
             self._error_message = payload.get("message", "语音控制命令执行失败")
             self._last_control_text = self._error_message
             self._last_event_text = self._error_message
             if self._assistant_state in {"starting", "stopping", "aborting"}:
-                self._assistant_state = "idle" if self._py_xiaozhi_running else "offline"
-                self._assistant_status_text = "语音运行时已就绪" if self._py_xiaozhi_running else "语音助手未启动"
+                self._assistant_state = "idle"
+                self._assistant_status_text = "语音运行时已就绪"
             self._clear_pending()
             self.statusChanged.emit()
             return
@@ -540,24 +562,28 @@ class SidecarClient(QObject):
             return
 
         if event_type == "assistant_transcript":
+            self._mark_voice_runtime_ready("assistant_transcript")
             self._last_transcript_text = payload.get("text", "")
             self._last_event_text = payload.get("message", "收到语音识别文本")
             self.statusChanged.emit()
             return
 
         if event_type == "assistant_reply":
+            self._mark_voice_runtime_ready("assistant_reply")
             self._last_assistant_reply_text = payload.get("text", "")
             self._last_event_text = payload.get("message", "收到助手回复")
             self.statusChanged.emit()
             return
 
         if event_type == "audio_channel":
+            self._mark_voice_runtime_ready("audio_channel")
             self._last_audio_channel_text = payload.get("message", payload.get("state", ""))
             self._last_event_text = self._last_audio_channel_text
             self.statusChanged.emit()
             return
 
         if event_type == "runtime_error":
+            self._mark_voice_runtime_ready("runtime_error")
             self._error_message = payload.get("message", "py-xiaozhi runtime error")
             self._last_event_text = self._error_message
             self.statusChanged.emit()
@@ -579,24 +605,14 @@ class SidecarClient(QObject):
         self.statusChanged.emit()
 
     def _handle_assistant_state(self, payload: dict[str, Any]) -> None:
+        self._mark_voice_runtime_ready("assistant_state")
+
         text = str(payload.get("message") or payload.get("status") or payload.get("state") or "语音助手状态更新")
         status = str(payload.get("status") or payload.get("state") or "").lower()
 
-        if not self._py_xiaozhi_running:
-            self._assistant_state = "offline"
-            self._assistant_status_text = "语音助手未启动"
-            self._last_runtime_state_text = text
-            self._last_event_text = text
-            self._clear_pending()
-            self.statusChanged.emit()
-            return
-
-        # PCBridge may emit tts-stop with a stale snapshot state. Treat the semantic
-        # "播报结束" event as idle to avoid returning to 点击打断 after speech is done.
         if "播报结束" in text or "语音播报结束" in text:
             status = "idle"
 
-        # Ignore non-state status updates for button control.
         if status in {"connected", "stopped", "emotion", "tooling", "manual_toggle", "aborted"}:
             self._last_runtime_state_text = text
             self._last_event_text = text
@@ -637,24 +653,20 @@ class SidecarClient(QObject):
 
     def _should_ignore_state(self, status: str) -> bool:
         if self._pending_control == "start_listen":
-            # During start, older idle events often arrive from status replay.
             if status == "idle" and self._pending_active("start_listen", seconds=4.0):
                 return True
 
         if self._pending_control == "stop_listen":
-            # After stop, stale listening events can arrive out-of-order.
             if status == "listening" and self._pending_active("stop_listen", seconds=4.0):
                 return True
 
         if self._pending_control == "abort":
-            # After abort, stale speaking events can arrive out-of-order.
             if status == "speaking" and self._pending_active("abort", seconds=4.0):
                 return True
 
         return False
 
     def _apply_recent_event(self, event: dict[str, Any]) -> None:
-        # Do not let replayed assistant_status/assistant_state mutate live button state.
         if event.get("type") in {"assistant_status", "assistant_state"}:
             self._last_event_text = event.get("message") or f"历史事件：{event.get('type')}"
             self.statusChanged.emit()
@@ -692,7 +704,6 @@ class SidecarClient(QObject):
         process_count = int(py_xiaozhi.get("process_count") or 0)
         process_pids = py_xiaozhi.get("process_pids") or []
 
-        was_running = self._py_xiaozhi_running
         self._py_xiaozhi_running = process_running
         self._py_xiaozhi_process_count = process_count
         self._py_xiaozhi_launchable = bool(py_xiaozhi.get("launchable"))
@@ -700,25 +711,34 @@ class SidecarClient(QObject):
         self._py_xiaozhi_python_text = str(py_xiaozhi.get("python") or "")
         self._py_xiaozhi_pids_text = ", ".join([str(pid) for pid in process_pids]) if process_pids else ""
 
+        if process_running:
+            self._voice_runtime_ready = True
+            self._last_voice_runtime_event_at = time.time()
+
         bridge_ok = bool(py_xiaozhi.get("pc_bridge_installed"))
         bridge_text = "bridge 已安装" if bridge_ok else "bridge 未安装"
 
-        self._py_xiaozhi_status_text = (
-            f"py-xiaozhi 运行中（{process_count} 个进程）" if process_running else
-            "py-xiaozhi 已配置，未运行" if root_exists and main_py_exists else
-            "py-xiaozhi 未配置"
-        )
+        if process_running:
+            self._py_xiaozhi_status_text = f"py-xiaozhi 运行中（{process_count} 个进程）"
+        elif self._voice_runtime_ready:
+            self._py_xiaozhi_status_text = "py-xiaozhi 语音桥接在线（进程检测未命中）"
+        elif root_exists and main_py_exists:
+            self._py_xiaozhi_status_text = "py-xiaozhi 已配置，未运行"
+        else:
+            self._py_xiaozhi_status_text = "py-xiaozhi 未配置"
+
         self._notes_tool_status_text = (
             ("notes 工具已安装" if notes_tool_installed else "notes 工具未安装")
             + " · "
             + bridge_text
         )
 
-        if not process_running:
+        # Only force offline if both process detection and bridge evidence are absent.
+        if not process_running and not self._voice_runtime_ready:
             self._assistant_state = "offline"
             self._assistant_status_text = "语音助手未启动"
             self._clear_pending()
-        elif process_running and not was_running and self._assistant_state == "offline":
+        elif self._voice_runtime_ready and self._assistant_state == "offline":
             self._assistant_state = "idle"
             self._assistant_status_text = "语音运行时已就绪"
 
@@ -734,12 +754,12 @@ class SidecarClient(QObject):
         self._notes_api_status_text = "Notes API 已连接" if notes_api_ok else "Notes API 未连接"
         self._apply_py_xiaozhi_status(py_xiaozhi)
 
-        if self._connected and notes_api_ok and root_exists and main_py_exists and notes_tool_installed and self._py_xiaozhi_running:
+        if self._connected and notes_api_ok and root_exists and main_py_exists and notes_tool_installed and self._voice_runtime_ready:
             if self._assistant_state == "offline":
                 self._assistant_state = "idle"
             if self._assistant_status_text in {"语音助手未连接", "语音助手未启动"}:
                 self._assistant_status_text = "语音运行时已就绪"
-        elif self._connected and not self._py_xiaozhi_running:
+        elif self._connected and not self._voice_runtime_ready:
             self._assistant_status_text = "语音助手未启动"
             self._assistant_state = "offline"
         elif self._connected:

@@ -24,7 +24,7 @@ Item {
     function voiceAvailable() {
         return sidecarClient !== null
             && sidecarClient.connected
-            && sidecarClient.pyXiaozhiRunning
+            && sidecarClient.voiceRuntimeReady
     }
 
     function currentVoiceState() {
@@ -152,7 +152,9 @@ Item {
                 anchors.bottom: parent.bottom
                 anchors.rightMargin: 32
                 anchors.bottomMargin: 32
-                connected: root.voiceAvailable()
+                connected: sidecarClient !== null && sidecarClient.connected
+                enabledForControl: root.voiceAvailable()
+                unavailableText: sidecarClient !== null && sidecarClient.connected ? "请先在设置启动" : "Sidecar 未连接"
                 voiceState: root.currentVoiceState()
                 statusText: root.voiceButtonText()
 

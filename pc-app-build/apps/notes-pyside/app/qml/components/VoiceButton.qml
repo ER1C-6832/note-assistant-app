@@ -5,29 +5,32 @@ Rectangle {
     id: root
 
     property bool connected: true
+    property bool enabledForControl: true
     property string voiceState: "idle"
     property string statusText: "点击说话"
+    property string unavailableText: "请先在设置启动"
 
     signal clicked()
     signal pressStarted()
     signal pressEnded()
     signal abortRequested()
 
+    readonly property bool available: connected && enabledForControl
     readonly property bool active: voiceState === "listening" || voiceState === "speaking" || voiceState === "starting"
 
     width: 156
     height: 50
     radius: 25
-    color: !connected ? "#F3F4F6"
+    color: !root.available ? "#F3F4F6"
            : voiceState === "speaking" ? "#FFF7ED"
            : voiceState === "listening" ? "#ECFDF3"
            : mouse.containsMouse ? "#F7F8FA"
            : "#FFFFFF"
-    border.color: !connected ? "#E5E7EB"
+    border.color: !root.available ? "#E5E7EB"
                  : voiceState === "speaking" ? "#F97316"
                  : voiceState === "listening" ? "#19B7A8"
                  : "#E5E7EB"
-    border.width: active ? 2 : 1
+    border.width: root.available && active ? 2 : 1
     z: 50
     clip: true
 
@@ -39,7 +42,7 @@ Rectangle {
             width: 26
             height: 26
             radius: 13
-            color: !root.connected ? "#9CA3AF"
+            color: !root.available ? "#9CA3AF"
                    : root.voiceState === "speaking" ? "#F97316"
                    : root.voiceState === "listening" ? "#16A34A"
                    : root.voiceState === "starting" ? "#2563EB"
@@ -51,7 +54,7 @@ Rectangle {
                 height: root.voiceState === "listening" ? 11 : 8
                 radius: 5.5
                 color: "#FFFFFF"
-                opacity: root.connected ? 1 : 0.75
+                opacity: root.available ? 1 : 0.75
             }
         }
 
@@ -60,7 +63,7 @@ Rectangle {
 
             Text {
                 text: root.statusText
-                color: root.connected ? "#111827" : "#6B7280"
+                color: root.available ? "#111827" : "#6B7280"
                 font.pixelSize: 14
                 font.bold: true
                 elide: Text.ElideRight
@@ -68,7 +71,7 @@ Rectangle {
             }
 
             Text {
-                text: root.connected ? "单击控制 · 长按说话" : "Sidecar 未连接"
+                text: root.available ? "单击控制 · 长按说话" : root.unavailableText
                 color: "#9CA3AF"
                 font.pixelSize: 10
                 elide: Text.ElideRight
@@ -81,7 +84,7 @@ Rectangle {
         id: mouse
         anchors.fill: parent
         hoverEnabled: true
-        cursorShape: root.connected ? Qt.PointingHandCursor : Qt.ArrowCursor
+        cursorShape: root.available ? Qt.PointingHandCursor : Qt.ArrowCursor
         acceptedButtons: Qt.LeftButton | Qt.RightButton
         pressAndHoldInterval: 520
 
@@ -89,7 +92,7 @@ Rectangle {
         property bool suppressNextClick: false
 
         onPressAndHold: function(mouseEvent) {
-            if (!root.connected || mouseEvent.button !== Qt.LeftButton) {
+            if (!root.available || mouseEvent.button !== Qt.LeftButton) {
                 return
             }
 
@@ -99,7 +102,7 @@ Rectangle {
         }
 
         onReleased: function(mouseEvent) {
-            if (!root.connected) {
+            if (!root.available) {
                 return
             }
 
@@ -117,7 +120,7 @@ Rectangle {
         }
 
         onClicked: function(mouseEvent) {
-            if (!root.connected) {
+            if (!root.available) {
                 return
             }
 
