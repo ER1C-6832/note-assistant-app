@@ -17,12 +17,13 @@ ApplicationWindow {
     color: "#F4F7FB"
 
     onClosing: function(close) {
+        // Phase 8.9.3:
+        // Do not synchronously stop py-xiaozhi or join SidecarClient here.
+        // Python bootstrap already handles App-exit runtime stop in a non-blocking
+        // fire-and-forget path. The visible window should close immediately.
         developerLogPanelVisible = false
         voicePanelVisible = false
-        if (sidecarClient !== null) {
-            sidecarClient.stopPyXiaozhiOnAppExit()
-            sidecarClient.stop()
-        }
+        root.visible = false
         Qt.callLater(Qt.quit)
     }
 
