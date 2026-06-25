@@ -183,6 +183,26 @@ class SidecarWebSocketServer:
 
         try:
             self.runtime_manager.reload_config()
+
+            # Phase 8.8.3:
+            # Clear stale PC App voice controls before changing runtime lifecycle.
+            # Otherwise, commands queued while py-xiaozhi was stopped can be replayed
+            # by the next py-xiaozhi process as soon as PCBridge starts polling.
+            cleared_control_commands = 0
+            try:
+                cleared_control_commands = self.control_hub.clear()
+            except Exception:
+                logger.debug("Failed to clear control queue before runtime action", exc_info=True)
+
+            if cleared_control_commands:
+                await self.event_hub.publish({
+                    "type": "runtime_control_queue_cleared",
+                    "source": "sidecar.runtime_manager",
+                    "action": message_type,
+                    "cleared": cleared_control_commands,
+                    "message": f"已清空 {cleared_control_commands} 条过期语音控制命令",
+                })
+
             if message_type == "start_py_xiaozhi":
                 result = await asyncio.to_thread(self.runtime_manager.start, mode or None)
             elif message_type == "stop_py_xiaozhi":

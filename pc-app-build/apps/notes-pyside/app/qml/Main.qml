@@ -68,6 +68,13 @@ ApplicationWindow {
             && sidecarClient.voiceRuntimeReady
     }
 
+    function voiceCanRequestStartup() {
+        return sidecarClient !== null
+            && sidecarClient.connected
+            && !sidecarClient.voiceRuntimeReady
+            && !sidecarClient.pyXiaozhiRunning
+    }
+
     function currentVoiceState() {
         if (sidecarClient !== null && (sidecarClient.assistantState === "starting" || (sidecarClient.pyXiaozhiRunning && !sidecarClient.voiceRuntimeReady))) {
             return "starting"
@@ -88,7 +95,7 @@ ApplicationWindow {
         var state = currentVoiceState()
 
         if (state === "offline") {
-            return "未启动"
+            return voiceCanRequestStartup() ? "启动语音" : "未启动"
         }
 
         if (state === "starting") {
@@ -116,6 +123,10 @@ ApplicationWindow {
 
     function handleVoiceClick() {
         if (!voiceAvailable()) {
+            if (voiceCanRequestStartup()) {
+                root.voiceRuntimeWarmupDone = false
+                sidecarClient.startPyXiaozhi()
+            }
             return
         }
 
@@ -353,9 +364,20 @@ ApplicationWindow {
             root.voiceRuntimeWarmupAttempts += 1
 
             if (sidecarClient !== null && sidecarClient.connected) {
+                if (sidecarClient.voiceRuntimeReady) {
+                    root.voiceRuntimeWarmupDone = true
+                    stop()
+                    return
+                }
+
                 sidecarClient.prewarmPyXiaozhi()
-                root.voiceRuntimeWarmupDone = true
-                stop()
+
+                if (sidecarClient.voiceRuntimeReady || sidecarClient.pyXiaozhiRunning) {
+                    root.voiceRuntimeWarmupDone = true
+                    stop()
+                    return
+                }
+
                 return
             }
 
@@ -467,8 +489,8 @@ ApplicationWindow {
         anchors.bottomMargin: 28
 
         connected: sidecarClient !== null && sidecarClient.connected
-        enabledForControl: root.voiceAvailable()
-        unavailableText: root.currentVoiceState() === "starting" ? "请稍后" : sidecarClient !== null && sidecarClient.connected ? "请先在设置启动" : "Sidecar 未连接"
+        enabledForControl: root.voiceAvailable() || root.voiceCanRequestStartup()
+        unavailableText: root.currentVoiceState() === "starting" ? "请稍后" : sidecarClient !== null && sidecarClient.connected ? "点击启动语音" : "Sidecar 未连接"
         voiceState: root.currentVoiceState()
         statusText: root.voiceButtonText()
 

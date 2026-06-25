@@ -36,3 +36,15 @@ class ControlCommandHub:
         if not self._commands:
             return 0
         return int(self._commands[-1].get("command_id", 0))
+
+    def clear(self) -> int:
+        """Clear pending voice controls and return how many were removed.
+
+        Used when py-xiaozhi is started/restarted/stopped so a new runtime process
+        does not replay controls that were queued while the old runtime was absent.
+        The command id epoch intentionally keeps increasing to avoid confusing an
+        already-running PCBridge poller.
+        """
+        count = len(self._commands)
+        self._commands.clear()
+        return count

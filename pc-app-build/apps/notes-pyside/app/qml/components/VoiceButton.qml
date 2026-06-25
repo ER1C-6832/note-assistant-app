@@ -106,7 +106,10 @@ Rectangle {
             }
 
             Text {
-                text: root.starting ? "请稍后，正在准备" : root.available ? "单击开始/停止/打断" : root.unavailableText
+                text: root.starting ? "请稍后，正在准备"
+                      : root.available && root.voiceState === "offline" ? "单击启动语音助手"
+                      : root.available ? "单击开始/停止/打断"
+                      : root.unavailableText
                 color: root.starting ? "#64748B" : "#9CA3AF"
                 font.pixelSize: 10
                 elide: Text.ElideRight
