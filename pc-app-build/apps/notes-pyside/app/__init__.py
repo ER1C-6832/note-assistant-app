@@ -35,14 +35,17 @@ def run_app() -> int:
     os.environ.setdefault("QT_QUICK_CONTROLS_STYLE", "Basic")
     os.environ.setdefault("QT_API", "pyside6")
 
+    pc_build_root = Path(__file__).resolve().parents[3]
+    _load_env_file(pc_build_root / ".env")
+
     from PySide6.QtGui import QGuiApplication
     from PySide6.QtQml import QQmlApplicationEngine
 
     from app.controllers.notes_controller import NotesController
     from app.services.sidecar_client import SidecarClient
+    from app.services.login_prewarm import apply_login_prewarm_patch
 
-    pc_build_root = Path(__file__).resolve().parents[3]
-    _load_env_file(pc_build_root / ".env")
+    apply_login_prewarm_patch(SidecarClient)
 
     app = QGuiApplication(sys.argv)
     app.setQuitOnLastWindowClosed(True)

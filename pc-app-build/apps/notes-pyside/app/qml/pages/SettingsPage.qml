@@ -39,6 +39,9 @@ Item {
         if (!autoStartBox.activeFocus) {
             autoStartBox.checked = sidecarClient.runtimeConfigAutoStart
         }
+        if (!loginPrewarmBox.activeFocus) {
+            loginPrewarmBox.checked = sidecarClient.loginPrewarmEnabled
+        }
     }
 
     Connections {
@@ -48,6 +51,7 @@ Item {
 
     Component.onCompleted: {
         sidecarClient.refreshRuntimeConfig()
+        sidecarClient.refreshLoginPrewarmStatus()
         sidecarClient.refreshStatus()
         root.syncRuntimeForm()
     }
@@ -67,7 +71,7 @@ Item {
                 Layout.fillWidth: true
                 radius: 20
                 color: "#FFFFFF"
-                implicitHeight: 1180
+                implicitHeight: 1320
 
                 ColumnLayout {
                     anchors.fill: parent
@@ -145,6 +149,32 @@ Item {
                             }
 
                             Text { Layout.fillWidth: true; visible: sidecarClient.lastRuntimeConfigText.length > 0; text: "配置状态：" + sidecarClient.lastRuntimeConfigText; color: "#075985"; font.pixelSize: 13; wrapMode: Text.WordWrap }
+                        }
+                    }
+
+                    Rectangle {
+                        Layout.fillWidth: true
+                        radius: 18
+                        color: "#F8FAFC"
+                        implicitHeight: 150
+
+                        ColumnLayout {
+                            anchors.fill: parent
+                            anchors.margins: 20
+                            spacing: 12
+
+                            Text { text: "Windows 登录预热"; color: "#111827"; font.pixelSize: 18; font.bold: true }
+                            Text { Layout.fillWidth: true; text: "默认关闭。开启后，Windows 登录时会后台启动 Sidecar + py-xiaozhi，打开 App 时可直接复用。"; color: "#6B7280"; font.pixelSize: 13; wrapMode: Text.WordWrap }
+
+                            RowLayout {
+                                Layout.fillWidth: true
+                                spacing: 12
+                                CheckBox { id: loginPrewarmBox; text: "登录后后台预热语音助手" }
+                                AppButton { text: "应用"; variant: "primary"; compact: true; enabled: sidecarClient.connected; onClicked: sidecarClient.setLoginPrewarmEnabled(loginPrewarmBox.checked) }
+                                AppButton { text: "刷新状态"; variant: "ghost"; compact: true; enabled: sidecarClient.connected; onClicked: sidecarClient.refreshLoginPrewarmStatus() }
+                            }
+
+                            Text { Layout.fillWidth: true; text: sidecarClient.loginPrewarmStatusText; color: sidecarClient.loginPrewarmEnabled ? "#166534" : "#92400E"; font.pixelSize: 13; wrapMode: Text.WordWrap }
                         }
                     }
 
