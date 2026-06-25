@@ -10,8 +10,6 @@ Rectangle {
     property var notesControllerRef: null
     property var sidecarClientRef: null
 
-    readonly property bool apiBusy: notesControllerRef !== null && notesControllerRef.isBusy
-    readonly property bool apiConnected: notesControllerRef !== null && notesControllerRef.apiConnected
     readonly property bool sidecarConnected: sidecarClientRef !== null && sidecarClientRef.connected
 
     signal categoryRequested(string categoryKey)
@@ -27,49 +25,14 @@ Rectangle {
         anchors.margins: 18
         spacing: 10
 
-        Text {
-            text: "分类"
-            color: "#9CA3AF"
-            font.pixelSize: 13
-        }
+        Text { text: "分类"; color: "#9CA3AF"; font.pixelSize: 13 }
 
-        SidebarItem {
-            Layout.fillWidth: true
-            text: "全部"
-            iconText: "•"
-            active: root.activeCategory === "all"
-            onClicked: root.categoryRequested("all")
-        }
+        SidebarItem { Layout.fillWidth: true; text: "全部"; iconText: "•"; active: root.activeCategory === "all"; onClicked: root.categoryRequested("all") }
+        SidebarItem { Layout.fillWidth: true; text: "置顶"; iconText: "•"; active: root.activeCategory === "pinned"; onClicked: root.categoryRequested("pinned") }
+        SidebarItem { Layout.fillWidth: true; text: "待办"; iconText: "•"; active: root.activeCategory === "todo"; onClicked: root.categoryRequested("todo") }
+        SidebarItem { Layout.fillWidth: true; text: "已删除"; iconText: "•"; active: root.activeCategory === "deleted"; onClicked: root.deletedRequested() }
 
-        SidebarItem {
-            Layout.fillWidth: true
-            text: "置顶"
-            iconText: "•"
-            active: root.activeCategory === "pinned"
-            onClicked: root.categoryRequested("pinned")
-        }
-
-        SidebarItem {
-            Layout.fillWidth: true
-            text: "待办"
-            iconText: "•"
-            active: root.activeCategory === "todo"
-            onClicked: root.categoryRequested("todo")
-        }
-
-        SidebarItem {
-            Layout.fillWidth: true
-            text: "已删除"
-            iconText: "•"
-            active: root.activeCategory === "deleted"
-            onClicked: root.deletedRequested()
-        }
-
-        Rectangle {
-            Layout.fillWidth: true
-            height: 1
-            color: "#EEF2F7"
-        }
+        Rectangle { Layout.fillWidth: true; height: 1; color: "#EEF2F7" }
 
         RowLayout {
             Layout.fillWidth: true
@@ -82,12 +45,7 @@ Rectangle {
                 placeholderText: "新增标签"
                 font.pixelSize: 12
                 selectByMouse: true
-
-                background: Rectangle {
-                    color: "#F7F8FA"
-                    radius: 12
-                    border.color: "#E5E7EB"
-                }
+                background: Rectangle { color: "#F7F8FA"; radius: 12; border.color: "#E5E7EB" }
 
                 onAccepted: {
                     if (root.notesControllerRef !== null && root.notesControllerRef.addCustomTag(tagInput.text)) {
@@ -100,7 +58,6 @@ Rectangle {
                 text: "+"
                 compact: true
                 variant: "secondary"
-
                 onClicked: {
                     if (root.notesControllerRef !== null && root.notesControllerRef.addCustomTag(tagInput.text)) {
                         tagInput.text = ""
@@ -126,9 +83,7 @@ Rectangle {
                         text: modelData.name
                         active: root.activeCategory === "tag:" + modelData.name
                         deletable: modelData.deletable
-
                         onClicked: root.tagRequested(modelData.name)
-
                         onDeleteRequested: {
                             if (root.notesControllerRef !== null) {
                                 root.notesControllerRef.deleteTag(modelData.name)
@@ -139,73 +94,33 @@ Rectangle {
             }
         }
 
-        Rectangle {
-            Layout.fillWidth: true
-            height: 1
-            color: "#EEF2F7"
-        }
+        Rectangle { Layout.fillWidth: true; height: 1; color: "#EEF2F7" }
 
-        SidebarItem {
-            Layout.fillWidth: true
-            text: "语音助手"
-            iconText: "●"
-            active: root.activeCategory === "assistantIdle" || root.currentPage.indexOf("assistant") === 0
-            onClicked: root.pageRequested("assistantIdle")
-        }
-
-        SidebarItem {
-            Layout.fillWidth: true
-            text: "设置"
-            iconText: "⚙"
-            active: root.activeCategory === "settings" || root.currentPage === "settings"
-            onClicked: root.pageRequested("settings")
-        }
+        SidebarItem { Layout.fillWidth: true; text: "设置"; iconText: "⚙"; active: root.activeCategory === "settings" || root.currentPage === "settings"; onClicked: root.pageRequested("settings") }
 
         Rectangle {
             Layout.fillWidth: true
             radius: 16
             color: "#F7F8FA"
-            implicitHeight: 146
+            implicitHeight: 108
 
             ColumnLayout {
                 anchors.fill: parent
                 anchors.margins: 14
-                spacing: 9
+                spacing: 8
 
-                Text {
-                    text: "服务状态"
-                    color: "#9CA3AF"
-                    font.pixelSize: 13
-                }
+                Text { text: "最近语音状态"; color: "#9CA3AF"; font.pixelSize: 13 }
 
                 RowLayout {
                     spacing: 8
-
                     Rectangle {
                         width: 8
                         height: 8
                         radius: 4
-                        color: root.apiConnected ? "#16A34A" : root.apiBusy ? "#4F7CFF" : "#EF4444"
+                        color: root.sidecarClientRef !== null && root.sidecarClientRef.voiceRuntimeReady ? "#16A34A" : root.sidecarConnected ? "#F59E0B" : "#9CA3AF"
                     }
-
                     Text {
-                        text: root.apiConnected ? "Notes API 已连接" : root.apiBusy ? "Notes API 正在连接" : "Notes API 未连接"
-                        color: "#4B5563"
-                        font.pixelSize: 12
-                    }
-                }
-
-                RowLayout {
-                    spacing: 8
-
-                    Rectangle {
-                        width: 8
-                        height: 8
-                        radius: 4
-                        color: root.sidecarConnected ? "#16A34A" : "#F59E0B"
-                    }
-
-                    Text {
+                        Layout.fillWidth: true
                         text: root.sidecarClientRef !== null ? root.sidecarClientRef.assistantStatusText : "语音助手未连接"
                         color: "#4B5563"
                         font.pixelSize: 12
@@ -215,9 +130,7 @@ Rectangle {
 
                 Text {
                     Layout.fillWidth: true
-                    text: root.sidecarClientRef !== null && root.sidecarClientRef.lastEventText.length > 0
-                          ? root.sidecarClientRef.lastEventText
-                          : root.notesControllerRef !== null ? root.notesControllerRef.statusMessage : "准备就绪"
+                    text: root.sidecarClientRef !== null && root.sidecarClientRef.userVoiceEventText.length > 0 ? root.sidecarClientRef.userVoiceEventText : "暂无语音事件"
                     color: "#9CA3AF"
                     font.pixelSize: 11
                     elide: Text.ElideRight

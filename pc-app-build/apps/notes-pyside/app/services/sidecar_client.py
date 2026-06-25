@@ -84,6 +84,7 @@ class SidecarClient(QObject):
         self._last_runtime_state_text = ""
         self._last_audio_channel_text = ""
         self._last_control_text = ""
+        self._user_voice_event_text = ""
         self._error_message = ""
 
         self._thread: threading.Thread | None = None
@@ -258,6 +259,10 @@ class SidecarClient(QObject):
         return self._last_control_text
 
     @Property(str, notify=statusChanged)
+    def userVoiceEventText(self) -> str:
+        return self._user_voice_event_text
+
+    @Property(str, notify=statusChanged)
     def errorMessage(self) -> str:
         return self._error_message
 
@@ -299,7 +304,7 @@ class SidecarClient(QObject):
             return
         self._runtime_stop_on_exit_sent = True
 
-        enabled = os.getenv("PC_APP_STOP_PY_XIAOZHI_ON_EXIT", "1").strip().lower()
+        enabled = os.getenv("PC_APP_STOP_PY_XIAOZHI_ON_EXIT", "0").strip().lower()
         if enabled in {"0", "false", "no", "off"}:
             return
 
@@ -437,7 +442,29 @@ class SidecarClient(QObject):
         self._begin_runtime_timeline("start_py_xiaozhi")
         self._assistant_state = "starting"
         self._assistant_status_text = "语音助手启动中"
-        self._voice_button_state = "offline"
+        self._voice_button_state = "starting"
+        self.statusChanged.emit()
+        self._queue_runtime_action("start_py_xiaozhi")
+
+    @Slot()
+    def prewarmPyXiaozhi(self) -> None:
+        enabled = os.getenv("PC_APP_AUTO_START_PY_XIAOZHI", "1").strip().lower()
+        if enabled in {"0", "false", "no", "off"}:
+            return
+        if self._voice_runtime_ready:
+            return
+        if self._py_xiaozhi_running:
+            # If a process exists but the bridge is not ready, do not spam start.
+            # The manual Start button still performs a clean restart for stale processes.
+            self._assistant_state = "starting"
+            self._assistant_status_text = "语音助手启动中"
+            self._voice_button_state = "starting"
+            self.statusChanged.emit()
+            return
+        self._begin_runtime_timeline("auto_start_py_xiaozhi")
+        self._assistant_state = "starting"
+        self._assistant_status_text = "语音助手启动中"
+        self._voice_button_state = "starting"
         self.statusChanged.emit()
         self._queue_runtime_action("start_py_xiaozhi")
 
@@ -455,11 +482,18 @@ class SidecarClient(QObject):
         return self._connected and self._voice_runtime_ready
 
     def _show_runtime_not_ready(self) -> None:
-        self._voice_button_state = "offline"
-        self._assistant_state = "offline"
-        self._assistant_status_text = "语音助手未启动，请先在设置页启动"
-        self._last_control_text = "语音助手未启动，右下角按钮不可控制运行时"
-        self._last_event_text = self._last_control_text
+        if self._py_xiaozhi_running and not self._voice_runtime_ready:
+            self._voice_button_state = "starting"
+            self._assistant_state = "starting"
+            self._assistant_status_text = "语音助手启动中，请稍后"
+            self._last_control_text = "语音助手正在启动，暂不可控制"
+            self._last_event_text = self._last_control_text
+        else:
+            self._voice_button_state = "offline"
+            self._assistant_state = "offline"
+            self._assistant_status_text = "语音助手未启动，请先在设置页启动"
+            self._last_control_text = "语音助手未启动，右下角按钮不可控制运行时"
+            self._last_event_text = self._last_control_text
         self._pending_control = ""
         self.statusChanged.emit()
 
@@ -469,6 +503,7 @@ class SidecarClient(QObject):
         self._last_voice_runtime_event_at = time.time()
         if not was_ready:
             self._append_developer_log("RUNTIME_READY voice runtime became ready")
+            self._user_voice_event_text = "语音助手已就绪"
         if self._voice_button_state == "offline":
             self._voice_button_state = "idle"
         if self._assistant_state == "offline":
@@ -831,10 +866,12 @@ class SidecarClient(QObject):
             self._voice_button_state = "listening"
             self._assistant_state = "listening"
             self._assistant_status_text = "语音助手正在聆听"
+            self._user_voice_event_text = "语音助手正在聆听"
         elif command in {"stop_listen", "abort", "abort_speaking"}:
             self._voice_button_state = "idle"
             self._assistant_state = "idle"
             self._assistant_status_text = "语音助手空闲"
+            self._user_voice_event_text = "语音助手空闲"
         self._clear_pending()
         self.statusChanged.emit()
 
@@ -880,6 +917,7 @@ class SidecarClient(QObject):
         }
         self._assistant_state = status
         self._assistant_status_text = mapping.get(status, self._assistant_status_text)
+        self._user_voice_event_text = self._assistant_status_text
 
         if status == "idle":
             self._voice_button_state = "idle"
@@ -1020,7 +1058,7 @@ class SidecarClient(QObject):
         )
 
         if process_running and not self._voice_runtime_ready:
-            self._voice_button_state = "offline"
+            self._voice_button_state = "starting"
             if self._assistant_state in {"offline", "starting"}:
                 self._assistant_state = "starting"
                 self._assistant_status_text = "语音助手启动中"

@@ -44,6 +44,8 @@ ApplicationWindow {
     property bool voicePanelDanger: false
     property bool voicePanelSuccess: true
     property int searchResetToken: 0
+    property bool voiceRuntimeWarmupDone: false
+    property int voiceRuntimeWarmupAttempts: 0
 
     function createInitialTags() {
         if (currentCategory === "todo") {
@@ -67,6 +69,10 @@ ApplicationWindow {
     }
 
     function currentVoiceState() {
+        if (sidecarClient !== null && (sidecarClient.assistantState === "starting" || (sidecarClient.pyXiaozhiRunning && !sidecarClient.voiceRuntimeReady))) {
+            return "starting"
+        }
+
         if (!voiceAvailable()) {
             return "offline"
         }
@@ -331,6 +337,34 @@ ApplicationWindow {
         }
     }
 
+
+    Timer {
+        id: voiceRuntimeWarmupTimer
+        interval: 900
+        repeat: true
+        running: false
+
+        onTriggered: {
+            if (root.voiceRuntimeWarmupDone) {
+                stop()
+                return
+            }
+
+            root.voiceRuntimeWarmupAttempts += 1
+
+            if (sidecarClient !== null && sidecarClient.connected) {
+                sidecarClient.prewarmPyXiaozhi()
+                root.voiceRuntimeWarmupDone = true
+                stop()
+                return
+            }
+
+            if (root.voiceRuntimeWarmupAttempts > 20) {
+                stop()
+            }
+        }
+    }
+
     Connections {
         target: sidecarClient
         function onUiActionRequested(action, payloadJson) {
@@ -343,7 +377,10 @@ ApplicationWindow {
         onActivated: root.developerLogPanelVisible = !root.developerLogPanelVisible
     }
 
-    Component.onCompleted: startupTimer.start()
+    Component.onCompleted: {
+        startupTimer.start()
+        voiceRuntimeWarmupTimer.start()
+    }
 
     ColumnLayout {
         anchors.fill: parent
@@ -393,6 +430,9 @@ ApplicationWindow {
                 }
 
                 onPageRequested: function(pageName) {
+                    if (pageName.indexOf("assistant") === 0) {
+                        return
+                    }
                     root.currentCategory = pageName
                     root.openPage(pageName)
                 }
@@ -408,11 +448,6 @@ ApplicationWindow {
                     if (root.currentPage === "deleteConfirm") return deleteConfirmPage
                     if (root.currentPage === "deletedList") return deletedListPage
                     if (root.currentPage === "search") return searchPage
-                    if (root.currentPage === "assistantIdle") return assistantIdlePage
-                    if (root.currentPage === "assistantCreate") return assistantCreatePage
-                    if (root.currentPage === "assistantSearch") return assistantSearchPage
-                    if (root.currentPage === "assistantUpdate") return assistantUpdatePage
-                    if (root.currentPage === "assistantDelete") return assistantDeletePage
                     if (root.currentPage === "settings") return settingsPage
                     return homePage
                 }
@@ -433,7 +468,7 @@ ApplicationWindow {
 
         connected: sidecarClient !== null && sidecarClient.connected
         enabledForControl: root.voiceAvailable()
-        unavailableText: sidecarClient !== null && sidecarClient.connected ? "请先在设置启动" : "Sidecar 未连接"
+        unavailableText: root.currentVoiceState() === "starting" ? "请稍后" : sidecarClient !== null && sidecarClient.connected ? "请先在设置启动" : "Sidecar 未连接"
         voiceState: root.currentVoiceState()
         statusText: root.voiceButtonText()
 
@@ -605,8 +640,7 @@ ApplicationWindow {
             }
 
             onAssistantRequested: {
-                root.currentCategory = "assistantIdle"
-                root.openPage("assistantIdle")
+                // The old assistant demo page has been retired.
             }
         }
     }
@@ -733,73 +767,6 @@ ApplicationWindow {
 
             onBulkUnpinRequested: function(noteIds) {
                 notesController.bulkUnpinNotesByIds(noteIds)
-            }
-        }
-    }
-
-    Component {
-        id: assistantIdlePage
-
-        AssistantIdlePage {
-            onBackRequested: {
-                root.currentCategory = "all"
-                root.openPage("home")
-            }
-
-            onDemoCreateRequested: {
-                root.openPage("assistantCreate")
-            }
-
-            onDemoSearchRequested: {
-                root.openPage("assistantSearch")
-            }
-
-            onDemoUpdateRequested: {
-                root.openPage("assistantUpdate")
-            }
-
-            onDemoDeleteRequested: {
-                root.openPage("assistantDelete")
-            }
-        }
-    }
-
-    Component {
-        id: assistantCreatePage
-
-        AssistantCreatePage {
-            onBackRequested: {
-                root.openPage("assistantIdle")
-            }
-        }
-    }
-
-    Component {
-        id: assistantSearchPage
-
-        AssistantSearchPage {
-            onBackRequested: {
-                root.openPage("assistantIdle")
-            }
-        }
-    }
-
-    Component {
-        id: assistantUpdatePage
-
-        AssistantUpdatePage {
-            onBackRequested: {
-                root.openPage("assistantIdle")
-            }
-        }
-    }
-
-    Component {
-        id: assistantDeletePage
-
-        AssistantDeletePage {
-            onBackRequested: {
-                root.openPage("assistantIdle")
             }
         }
     }
