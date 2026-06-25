@@ -40,7 +40,7 @@ Item {
             autoStartBox.checked = sidecarClient.runtimeConfigAutoStart
         }
         if (!loginPrewarmBox.activeFocus) {
-            loginPrewarmBox.checked = sidecarClient.loginPrewarmEnabled
+            loginPrewarmBox.checked = loginPrewarmController.loginPrewarmEnabled
         }
     }
 
@@ -49,9 +49,14 @@ Item {
         function onStatusChanged() { root.syncRuntimeForm() }
     }
 
+    Connections {
+        target: loginPrewarmController
+        function onStatusChanged() { root.syncRuntimeForm() }
+    }
+
     Component.onCompleted: {
         sidecarClient.refreshRuntimeConfig()
-        sidecarClient.refreshLoginPrewarmStatus()
+        loginPrewarmController.refreshLoginPrewarmStatus()
         sidecarClient.refreshStatus()
         root.syncRuntimeForm()
     }
@@ -170,11 +175,11 @@ Item {
                                 Layout.fillWidth: true
                                 spacing: 12
                                 CheckBox { id: loginPrewarmBox; text: "登录后后台预热语音助手" }
-                                AppButton { text: "应用"; variant: "primary"; compact: true; enabled: sidecarClient.connected; onClicked: sidecarClient.setLoginPrewarmEnabled(loginPrewarmBox.checked) }
-                                AppButton { text: "刷新状态"; variant: "ghost"; compact: true; enabled: sidecarClient.connected; onClicked: sidecarClient.refreshLoginPrewarmStatus() }
+                                AppButton { text: "应用"; variant: "primary"; compact: true; enabled: sidecarClient.connected; onClicked: loginPrewarmController.setLoginPrewarmEnabled(loginPrewarmBox.checked) }
+                                AppButton { text: "刷新状态"; variant: "ghost"; compact: true; enabled: sidecarClient.connected; onClicked: loginPrewarmController.refreshLoginPrewarmStatus() }
                             }
 
-                            Text { Layout.fillWidth: true; text: sidecarClient.loginPrewarmStatusText; color: sidecarClient.loginPrewarmEnabled ? "#166534" : "#92400E"; font.pixelSize: 13; wrapMode: Text.WordWrap }
+                            Text { Layout.fillWidth: true; text: loginPrewarmController.loginPrewarmStatusText; color: loginPrewarmController.loginPrewarmEnabled ? "#166534" : "#92400E"; font.pixelSize: 13; wrapMode: Text.WordWrap }
                         }
                     }
 

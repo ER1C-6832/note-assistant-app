@@ -43,9 +43,7 @@ def run_app() -> int:
 
     from app.controllers.notes_controller import NotesController
     from app.services.sidecar_client import SidecarClient
-    from app.services.login_prewarm import apply_login_prewarm_patch
-
-    apply_login_prewarm_patch(SidecarClient)
+    from app.services.login_prewarm import LoginPrewarmController
 
     app = QGuiApplication(sys.argv)
     app.setQuitOnLastWindowClosed(True)
@@ -54,6 +52,7 @@ def run_app() -> int:
 
     notes_controller = NotesController()
     sidecar_client = SidecarClient()
+    login_prewarm_controller = LoginPrewarmController(pc_build_root)
 
     sidecar_client.notesChanged.connect(notes_controller.refresh)
     sidecar_client.start()
@@ -69,9 +68,11 @@ def run_app() -> int:
     context.setContextProperty("notesListModel", notes_controller.notes_model)
     context.setContextProperty("deletedNotesListModel", notes_controller.deleted_notes_model)
     context.setContextProperty("sidecarClient", sidecar_client)
+    context.setContextProperty("loginPrewarmController", login_prewarm_controller)
 
     engine.notes_controller = notes_controller  # type: ignore[attr-defined]
     engine.sidecar_client = sidecar_client  # type: ignore[attr-defined]
+    engine.login_prewarm_controller = login_prewarm_controller  # type: ignore[attr-defined]
 
     qml_path = Path(__file__).resolve().parent / "qml" / "Main.qml"
     engine.load(qml_path.as_uri())
