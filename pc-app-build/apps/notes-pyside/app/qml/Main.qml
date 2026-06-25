@@ -96,11 +96,11 @@ ApplicationWindow {
         var state = currentVoiceState()
 
         if (state === "offline") {
-            return voiceCanRequestStartup() ? "启动语音" : "未启动"
+            return voiceCanRequestStartup() ? "启动助手" : "未启动"
         }
 
         if (state === "starting") {
-            return "正在启动"
+            return "正在准备"
         }
 
         if (state === "stopping") {
@@ -112,11 +112,11 @@ ApplicationWindow {
         }
 
         if (state === "listening") {
-            return "点击停止"
+            return "停止聆听"
         }
 
         if (state === "speaking") {
-            return "点击打断"
+            return "打断播报"
         }
 
         return "点击说话"
@@ -491,7 +491,7 @@ ApplicationWindow {
 
         connected: sidecarClient !== null && sidecarClient.connected
         enabledForControl: root.voiceAvailable() || root.voiceCanRequestStartup()
-        unavailableText: root.currentVoiceState() === "starting" ? "请稍后" : sidecarClient !== null && sidecarClient.connected ? "点击启动语音" : "Sidecar 未连接"
+        unavailableText: root.currentVoiceState() === "starting" ? "请稍后" : sidecarClient !== null && sidecarClient.connected ? "单击启动语音助手" : "本地助手未连接"
         voiceState: root.currentVoiceState()
         statusText: root.voiceButtonText()
 

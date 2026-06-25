@@ -19,7 +19,7 @@ Rectangle {
     readonly property bool available: connected && enabledForControl
     readonly property bool active: voiceState === "listening" || voiceState === "speaking" || voiceState === "starting"
 
-    width: root.starting ? 176 : 156
+    width: root.starting ? 188 : 164
     height: 50
     radius: 25
     color: root.starting ? "#EAF0FF"
@@ -102,18 +102,20 @@ Rectangle {
                 font.pixelSize: 14
                 font.bold: true
                 elide: Text.ElideRight
-                Layout.maximumWidth: root.starting ? 116 : 96
+                Layout.maximumWidth: root.starting ? 128 : 104
             }
 
             Text {
-                text: root.starting ? "请稍后，正在准备"
+                text: root.starting ? "正在准备语音助手"
                       : root.available && root.voiceState === "offline" ? "单击启动语音助手"
-                      : root.available ? "单击开始/停止/打断"
+                      : root.voiceState === "listening" ? "单击停止聆听"
+                      : root.voiceState === "speaking" ? "单击打断播报"
+                      : root.available ? "单击开始说话"
                       : root.unavailableText
                 color: root.starting ? "#64748B" : "#9CA3AF"
                 font.pixelSize: 10
                 elide: Text.ElideRight
-                Layout.maximumWidth: root.starting ? 120 : 100
+                Layout.maximumWidth: root.starting ? 132 : 108
             }
         }
     }

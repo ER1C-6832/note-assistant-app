@@ -76,7 +76,7 @@ Item {
                 Layout.fillWidth: true
                 radius: 20
                 color: "#FFFFFF"
-                implicitHeight: 1320
+                implicitHeight: 1360
 
                 ColumnLayout {
                     anchors.fill: parent
@@ -100,14 +100,14 @@ Item {
                             anchors.margins: 20
                             spacing: 12
 
-                            Text { text: "基础服务"; color: "#111827"; font.pixelSize: 18; font.bold: true }
-                            TextField { Layout.fillWidth: true; text: "http://127.0.0.1:18080"; placeholderText: "Notes API 地址"; readOnly: true; background: Rectangle { color: "#FFFFFF"; radius: 14; border.color: "#E5E7EB" } }
-                            TextField { Layout.fillWidth: true; text: sidecarClient.wsUrl; placeholderText: "Sidecar WebSocket 地址"; readOnly: true; background: Rectangle { color: "#FFFFFF"; radius: 14; border.color: "#E5E7EB" } }
+                            Text { text: "连接状态"; color: "#111827"; font.pixelSize: 18; font.bold: true }
+                            TextField { Layout.fillWidth: true; text: "http://127.0.0.1:18080"; placeholderText: "便签服务地址"; readOnly: true; background: Rectangle { color: "#FFFFFF"; radius: 14; border.color: "#E5E7EB" } }
+                            TextField { Layout.fillWidth: true; text: sidecarClient.wsUrl; placeholderText: "语音桥接地址"; readOnly: true; background: Rectangle { color: "#FFFFFF"; radius: 14; border.color: "#E5E7EB" } }
 
                             RowLayout {
                                 spacing: 12
                                 StatusBadge { text: notesController.apiConnected ? "Notes API 已连接" : "Notes API 未连接"; dotColor: notesController.apiConnected ? "#16A34A" : "#EF4444"; bgColor: notesController.apiConnected ? "#ECFDF3" : "#FEF2F2"; textColor: notesController.apiConnected ? "#166534" : "#991B1B" }
-                                StatusBadge { text: sidecarClient.connected ? "Sidecar 已连接" : "Sidecar 未连接"; dotColor: sidecarClient.connected ? "#16A34A" : "#F59E0B"; bgColor: sidecarClient.connected ? "#ECFDF3" : "#FFF7ED"; textColor: sidecarClient.connected ? "#166534" : "#92400E" }
+                                StatusBadge { text: sidecarClient.connected ? "本地助手已连接" : "本地助手未连接"; dotColor: sidecarClient.connected ? "#16A34A" : "#F59E0B"; bgColor: sidecarClient.connected ? "#ECFDF3" : "#FFF7ED"; textColor: sidecarClient.connected ? "#166534" : "#92400E" }
                                 StatusBadge { text: sidecarClient.voiceRuntimeReady ? "语音助手已就绪" : sidecarClient.pyXiaozhiRunning ? "语音助手启动中" : "语音助手未启动"; dotColor: sidecarClient.voiceRuntimeReady ? "#16A34A" : "#F59E0B"; bgColor: sidecarClient.voiceRuntimeReady ? "#ECFDF3" : "#FFF7ED"; textColor: sidecarClient.voiceRuntimeReady ? "#166534" : "#92400E" }
                                 AppButton { text: "刷新"; variant: "secondary"; compact: true; enabled: sidecarClient.connected; onClicked: sidecarClient.refreshStatus() }
                             }
@@ -127,33 +127,34 @@ Item {
 
                             RowLayout {
                                 Layout.fillWidth: true
-                                Text { Layout.fillWidth: true; text: "语音助手运行时"; color: "#111827"; font.pixelSize: 18; font.bold: true }
+                                Text { Layout.fillWidth: true; text: "语音助手"; color: "#111827"; font.pixelSize: 18; font.bold: true }
                                 StatusBadge { text: sidecarClient.pyXiaozhiStatusText; dotColor: sidecarClient.voiceRuntimeReady ? "#16A34A" : "#F59E0B"; bgColor: sidecarClient.voiceRuntimeReady ? "#ECFDF3" : "#FFF7ED"; textColor: sidecarClient.voiceRuntimeReady ? "#166534" : "#92400E" }
                             }
 
-                            Text { Layout.fillWidth: true; text: "配置文件：" + (sidecarClient.runtimeConfigEnvPath.length > 0 ? sidecarClient.runtimeConfigEnvPath : "pc-app-build\\.env"); color: "#6B7280"; font.pixelSize: 12; wrapMode: Text.WordWrap }
-                            Text { text: "py-xiaozhi 根目录"; color: "#374151"; font.pixelSize: 13; font.bold: true }
-                            TextField { id: rootField; Layout.fillWidth: true; placeholderText: "C:\\yuyinzhushou\\py-xiaozhi-tao"; background: Rectangle { color: "#FFFFFF"; radius: 14; border.color: "#E5E7EB" } }
-                            Text { text: "Python 解释器，可留空自动检测"; color: "#374151"; font.pixelSize: 13; font.bold: true }
-                            TextField { id: pythonField; Layout.fillWidth: true; placeholderText: "留空自动检测 .venv / venv / PATH"; background: Rectangle { color: "#FFFFFF"; radius: 14; border.color: "#E5E7EB" } }
+                            Text { Layout.fillWidth: true; text: "高级配置：" + (sidecarClient.runtimeConfigEnvPath.length > 0 ? sidecarClient.runtimeConfigEnvPath : "pc-app-build\\.env"); color: "#6B7280"; font.pixelSize: 12; wrapMode: Text.WordWrap }
+                            Text { Layout.fillWidth: true; text: "普通演示无需修改路径；只有移动语音助手目录或 Python 环境时才需要调整。"; color: "#6B7280"; font.pixelSize: 12; wrapMode: Text.WordWrap }
+                            Text { text: "语音助手程序目录"; color: "#374151"; font.pixelSize: 13; font.bold: true }
+                            TextField { id: rootField; Layout.fillWidth: true; placeholderText: "默认自动检测，也可指定语音助手目录"; background: Rectangle { color: "#FFFFFF"; radius: 14; border.color: "#E5E7EB" } }
+                            Text { text: "启动程序，可留空自动检测"; color: "#374151"; font.pixelSize: 13; font.bold: true }
+                            TextField { id: pythonField; Layout.fillWidth: true; placeholderText: "留空时自动使用内置虚拟环境或系统 Python"; background: Rectangle { color: "#FFFFFF"; radius: 14; border.color: "#E5E7EB" } }
 
                             RowLayout {
                                 Layout.fillWidth: true
                                 spacing: 16
-                                ColumnLayout { Layout.fillWidth: true; Text { text: "运行时模式"; color: "#374151"; font.pixelSize: 13; font.bold: true } ComboBox { id: runtimeModeBox; Layout.fillWidth: true; model: ["headless", "gui", "cli"] } }
-                                ColumnLayout { Layout.fillWidth: true; Text { text: "启动模式"; color: "#374151"; font.pixelSize: 13; font.bold: true } ComboBox { id: startModeBox; Layout.fillWidth: true; model: ["normal", "minimized", "hidden", "debug"] } }
-                                ColumnLayout { Layout.fillWidth: true; Text { text: "窗口模式"; color: "#374151"; font.pixelSize: 13; font.bold: true } ComboBox { id: windowModeBox; Layout.fillWidth: true; model: ["normal", "minimized", "hidden"] } }
-                                ColumnLayout { Layout.preferredWidth: 190; Text { text: "自动拉起"; color: "#374151"; font.pixelSize: 13; font.bold: true } CheckBox { id: autoStartBox; text: "Sidecar 启动时自动启动" } }
+                                ColumnLayout { Layout.fillWidth: true; Text { text: "运行方式"; color: "#374151"; font.pixelSize: 13; font.bold: true } ComboBox { id: runtimeModeBox; Layout.fillWidth: true; model: ["headless", "gui", "cli"] } }
+                                ColumnLayout { Layout.fillWidth: true; Text { text: "启动窗口"; color: "#374151"; font.pixelSize: 13; font.bold: true } ComboBox { id: startModeBox; Layout.fillWidth: true; model: ["normal", "minimized", "hidden", "debug"] } }
+                                ColumnLayout { Layout.fillWidth: true; Text { text: "运行窗口"; color: "#374151"; font.pixelSize: 13; font.bold: true } ComboBox { id: windowModeBox; Layout.fillWidth: true; model: ["normal", "minimized", "hidden"] } }
+                                ColumnLayout { Layout.preferredWidth: 190; Text { text: "自动准备"; color: "#374151"; font.pixelSize: 13; font.bold: true } CheckBox { id: autoStartBox; text: "打开应用时准备语音" } }
                             }
 
                             RowLayout {
                                 spacing: 12
-                                AppButton { text: "保存到 .env"; variant: "primary"; enabled: sidecarClient.connected; onClicked: sidecarClient.savePyXiaozhiRuntimeConfig(rootField.text, pythonField.text, runtimeModeBox.currentText, startModeBox.currentText, windowModeBox.currentText, autoStartBox.checked) }
-                                AppButton { text: "重新读取配置"; variant: "secondary"; enabled: sidecarClient.connected; onClicked: sidecarClient.refreshRuntimeConfig() }
-                                AppButton { text: "刷新诊断"; variant: "ghost"; enabled: sidecarClient.connected; onClicked: sidecarClient.refreshStatus() }
+                                AppButton { text: "保存设置"; variant: "primary"; enabled: sidecarClient.connected; onClicked: sidecarClient.savePyXiaozhiRuntimeConfig(rootField.text, pythonField.text, runtimeModeBox.currentText, startModeBox.currentText, windowModeBox.currentText, autoStartBox.checked) }
+                                AppButton { text: "重新读取"; variant: "secondary"; enabled: sidecarClient.connected; onClicked: sidecarClient.refreshRuntimeConfig() }
+                                AppButton { text: "刷新状态"; variant: "ghost"; enabled: sidecarClient.connected; onClicked: sidecarClient.refreshStatus() }
                             }
 
-                            Text { Layout.fillWidth: true; visible: sidecarClient.lastRuntimeConfigText.length > 0; text: "配置状态：" + sidecarClient.lastRuntimeConfigText; color: "#075985"; font.pixelSize: 13; wrapMode: Text.WordWrap }
+                            Text { Layout.fillWidth: true; visible: sidecarClient.lastRuntimeConfigText.length > 0; text: "保存结果：" + sidecarClient.lastRuntimeConfigText; color: "#075985"; font.pixelSize: 13; wrapMode: Text.WordWrap }
                         }
                     }
 
@@ -168,13 +169,13 @@ Item {
                             anchors.margins: 20
                             spacing: 12
 
-                            Text { text: "Windows 登录预热"; color: "#111827"; font.pixelSize: 18; font.bold: true }
-                            Text { Layout.fillWidth: true; text: "默认关闭。开启后，Windows 登录时会后台启动 Sidecar + py-xiaozhi，打开 App 时可直接复用。"; color: "#6B7280"; font.pixelSize: 13; wrapMode: Text.WordWrap }
+                            Text { text: "开机后后台准备"; color: "#111827"; font.pixelSize: 18; font.bold: true }
+                            Text { Layout.fillWidth: true; text: "默认关闭。开启后，Windows 登录时会在后台准备语音助手，之后打开应用会更快；关闭后不会常驻后台 Python 进程。"; color: "#6B7280"; font.pixelSize: 13; wrapMode: Text.WordWrap }
 
                             RowLayout {
                                 Layout.fillWidth: true
                                 spacing: 12
-                                CheckBox { id: loginPrewarmBox; text: "登录后后台预热语音助手" }
+                                CheckBox { id: loginPrewarmBox; text: "登录 Windows 后自动准备语音助手" }
                                 AppButton { text: "应用"; variant: "primary"; compact: true; enabled: sidecarClient.connected; onClicked: loginPrewarmController.setLoginPrewarmEnabled(loginPrewarmBox.checked) }
                                 AppButton { text: "刷新状态"; variant: "ghost"; compact: true; enabled: sidecarClient.connected; onClicked: loginPrewarmController.refreshLoginPrewarmStatus() }
                             }
@@ -196,21 +197,21 @@ Item {
 
                             RowLayout {
                                 Layout.fillWidth: true
-                                Text { Layout.fillWidth: true; text: "运行时诊断"; color: "#111827"; font.pixelSize: 18; font.bold: true }
+                                Text { Layout.fillWidth: true; text: "语音助手状态"; color: "#111827"; font.pixelSize: 18; font.bold: true }
                                 StatusBadge { text: sidecarClient.voiceRuntimeReady ? "可用" : sidecarClient.pyXiaozhiRunning ? "启动中" : "未运行"; dotColor: sidecarClient.voiceRuntimeReady ? "#16A34A" : "#F59E0B"; bgColor: sidecarClient.voiceRuntimeReady ? "#ECFDF3" : "#FFF7ED"; textColor: sidecarClient.voiceRuntimeReady ? "#166534" : "#92400E" }
                             }
 
                             Text { Layout.fillWidth: true; text: sidecarClient.notesToolStatusText; color: "#4B5563"; font.pixelSize: 13; wrapMode: Text.WordWrap }
-                            Text { Layout.fillWidth: true; text: "Root: " + (sidecarClient.pyXiaozhiRootText.length > 0 ? sidecarClient.pyXiaozhiRootText : "未确认"); color: "#6B7280"; font.pixelSize: 12; wrapMode: Text.WordWrap }
-                            Text { Layout.fillWidth: true; text: "Python: " + (sidecarClient.pyXiaozhiPythonText.length > 0 ? sidecarClient.pyXiaozhiPythonText : "未确认"); color: "#6B7280"; font.pixelSize: 12; wrapMode: Text.WordWrap }
-                            Text { Layout.fillWidth: true; text: sidecarClient.pyXiaozhiPidsText.length > 0 ? "PID: " + sidecarClient.pyXiaozhiPidsText : "PID: 暂无"; color: "#6B7280"; font.pixelSize: 12; wrapMode: Text.WordWrap }
-                            Text { Layout.fillWidth: true; visible: sidecarClient.lastRuntimeActionText.length > 0; text: "最近运行时操作：" + sidecarClient.lastRuntimeActionText; color: "#075985"; font.pixelSize: 13; wrapMode: Text.WordWrap }
+                            Text { Layout.fillWidth: true; text: "程序目录：" + (sidecarClient.pyXiaozhiRootText.length > 0 ? sidecarClient.pyXiaozhiRootText : "未确认"); color: "#6B7280"; font.pixelSize: 12; wrapMode: Text.WordWrap }
+                            Text { Layout.fillWidth: true; text: "启动程序：" + (sidecarClient.pyXiaozhiPythonText.length > 0 ? sidecarClient.pyXiaozhiPythonText : "未确认"); color: "#6B7280"; font.pixelSize: 12; wrapMode: Text.WordWrap }
+                            Text { Layout.fillWidth: true; text: sidecarClient.pyXiaozhiPidsText.length > 0 ? "后台进程：" + sidecarClient.pyXiaozhiPidsText : "后台进程：暂无"; color: "#6B7280"; font.pixelSize: 12; wrapMode: Text.WordWrap }
+                            Text { Layout.fillWidth: true; visible: sidecarClient.lastRuntimeActionText.length > 0; text: "最近操作：" + sidecarClient.lastRuntimeActionText; color: "#075985"; font.pixelSize: 13; wrapMode: Text.WordWrap }
 
                             RowLayout {
                                 spacing: 12
-                                AppButton { text: sidecarClient.pyXiaozhiRunning && !sidecarClient.voiceRuntimeReady ? "清理并重启" : "启动 py-xiaozhi"; variant: "primary"; enabled: sidecarClient.connected && !sidecarClient.voiceRuntimeReady && sidecarClient.pyXiaozhiLaunchable; onClicked: sidecarClient.startPyXiaozhi() }
-                                AppButton { text: "重启"; variant: "secondary"; enabled: sidecarClient.connected && sidecarClient.pyXiaozhiLaunchable; onClicked: sidecarClient.restartPyXiaozhi() }
-                                AppButton { text: "停止"; variant: "softDanger"; enabled: sidecarClient.connected && (sidecarClient.pyXiaozhiRunning || sidecarClient.voiceRuntimeReady); onClicked: sidecarClient.stopPyXiaozhi() }
+                                AppButton { text: sidecarClient.pyXiaozhiRunning && !sidecarClient.voiceRuntimeReady ? "修复并重启" : "启动语音助手"; variant: "primary"; enabled: sidecarClient.connected && !sidecarClient.voiceRuntimeReady && sidecarClient.pyXiaozhiLaunchable; onClicked: sidecarClient.startPyXiaozhi() }
+                                AppButton { text: "重启助手"; variant: "secondary"; enabled: sidecarClient.connected && sidecarClient.pyXiaozhiLaunchable; onClicked: sidecarClient.restartPyXiaozhi() }
+                                AppButton { text: "停止助手"; variant: "softDanger"; enabled: sidecarClient.connected && (sidecarClient.pyXiaozhiRunning || sidecarClient.voiceRuntimeReady); onClicked: sidecarClient.stopPyXiaozhi() }
                                 AppButton { text: "刷新"; variant: "ghost"; enabled: sidecarClient.connected; onClicked: sidecarClient.refreshStatus() }
                             }
                         }
@@ -225,7 +226,7 @@ Item {
                         Text { anchors.centerIn: parent; text: notesController.errorMessage.length > 0 ? notesController.errorMessage : sidecarClient.errorMessage; color: "#991B1B"; font.pixelSize: 13 }
                     }
 
-                    Text { Layout.fillWidth: true; text: sidecarClient.userVoiceEventText.length > 0 ? "最近语音事件：" + sidecarClient.userVoiceEventText : "最近语音事件：暂无"; color: "#6B7280"; font.pixelSize: 13; wrapMode: Text.WordWrap }
+                    Text { Layout.fillWidth: true; text: sidecarClient.userVoiceEventText.length > 0 ? "最近语音提示：" + sidecarClient.userVoiceEventText : "最近语音提示：暂无"; color: "#6B7280"; font.pixelSize: 13; wrapMode: Text.WordWrap }
                 }
             }
         }
