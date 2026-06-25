@@ -29,6 +29,39 @@ def _load_env_file(path: Path) -> None:
             os.environ[key] = value
 
 
+def _request_stop_py_xiaozhi_fire_and_forget() -> None:
+    """Ask Sidecar to stop py-xiaozhi without blocking the Qt close path."""
+    enabled = os.getenv("PC_APP_STOP_PY_XIAOZHI_ON_EXIT", "0").strip().lower()
+    if enabled in {"0", "false", "no", "off"}:
+        return
+
+    host = os.getenv("SIDECAR_HEALTH_HOST", "127.0.0.1")
+    port = os.getenv("SIDECAR_HEALTH_PORT", "17891")
+    url = f"http://{host}:{port}/api/runtime/py-xiaozhi/stop"
+
+    try:
+        import subprocess
+
+        command = (
+            "$ProgressPreference='SilentlyContinue'; "
+            f"try {{ Invoke-WebRequest -UseBasicParsing -Method POST -ContentType 'application/json' -Body '{{}}' '{url}' | Out-Null }} catch {{ }}"
+        )
+        creationflags = 0
+        creationflags |= getattr(subprocess, "CREATE_NO_WINDOW", 0)
+        creationflags |= getattr(subprocess, "DETACHED_PROCESS", 0)
+        creationflags |= getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+
+        subprocess.Popen(
+            ["powershell", "-NoProfile", "-WindowStyle", "Hidden", "-Command", command],
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            creationflags=creationflags,
+        )
+    except Exception:
+        pass
+
+
 def run_app() -> int:
     """Create the Qt application, load QML, and start the event loop."""
 
@@ -56,7 +89,7 @@ def run_app() -> int:
 
     sidecar_client.notesChanged.connect(notes_controller.refresh)
     sidecar_client.start()
-    app.aboutToQuit.connect(sidecar_client.stopPyXiaozhiOnAppExit)
+    app.aboutToQuit.connect(_request_stop_py_xiaozhi_fire_and_forget)
     app.aboutToQuit.connect(sidecar_client.stop)
 
     engine = QQmlApplicationEngine()
