@@ -2,35 +2,37 @@
 setlocal EnableExtensions
 cd /d "%~dp0.."
 
+set PY_XIAOZHI_ROOT_VALUE=
+
 echo ==========================================
-echo  准备语音助手运行环境
+echo  Bootstrap py-xiaozhi runtime
 echo ==========================================
 echo.
 
 if exist ".env" (
-  for /f "tokens=1,* delims==" %%A in ('findstr /B /I "PY_XIAOZHI_ROOT=" ".env"') do set PY_XIAOZHI_ROOT_VALUE=%%B
+  for /f "usebackq tokens=1,* delims==" %%A in (`findstr /B /I "PY_XIAOZHI_ROOT=" ".env"`) do set "PY_XIAOZHI_ROOT_VALUE=%%B"
 )
 
-if "%PY_XIAOZHI_ROOT_VALUE%"=="" set PY_XIAOZHI_ROOT_VALUE=C:\yuyinzhushou\py-xiaozhi-tao
+if "%PY_XIAOZHI_ROOT_VALUE%"=="" set "PY_XIAOZHI_ROOT_VALUE=C:\yuyinzhushou\py-xiaozhi-tao"
 
 echo py-xiaozhi root: %PY_XIAOZHI_ROOT_VALUE%
 
 if not exist "%PY_XIAOZHI_ROOT_VALUE%\main.py" (
-  echo ERROR: 未找到 py-xiaozhi main.py
-  echo 请在 pc-app-build\.env 中设置 PY_XIAOZHI_ROOT
+  echo ERROR: py-xiaozhi main.py not found.
+  echo Set PY_XIAOZHI_ROOT in pc-app-build\.env or update the Settings page.
   pause
   exit /b 1
 )
 
 if exist "%PY_XIAOZHI_ROOT_VALUE%\.venv\Scripts\python.exe" (
-  echo OK: 找到 .venv Python
+  echo OK: found .venv Python
   "%PY_XIAOZHI_ROOT_VALUE%\.venv\Scripts\python.exe" -V
 ) else (
-  echo WARN: 未找到 .venv Python，将依赖系统 Python 或设置页配置。
+  echo WARN: .venv Python not found. The app will use configured Python or system Python.
 )
 
 echo.
-echo 推荐 .env：
+echo Recommended env values:
 echo PY_XIAOZHI_ROOT=%PY_XIAOZHI_ROOT_VALUE%
 echo PY_XIAOZHI_RUNTIME_MODE=headless
 echo PY_XIAOZHI_START_MODE=hidden
