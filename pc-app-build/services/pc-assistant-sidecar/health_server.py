@@ -122,7 +122,6 @@ async def _handle_http(
             if not isinstance(payload, dict):
                 await _write_json(writer, 400, {"ok": False, "error": "event payload must be an object"})
                 return
-
             stored = await event_hub.publish(payload)
             await _write_json(writer, 200, {
                 "ok": True,
@@ -147,7 +146,6 @@ async def _handle_http(
             if not isinstance(payload, dict):
                 await _write_json(writer, 400, {"ok": False, "error": "control payload must be an object"})
                 return
-
             command = await control_hub.publish(payload)
             await event_hub.publish({
                 "type": "assistant_control",
@@ -185,6 +183,25 @@ async def _handle_http(
                 mode = str(payload.get("mode", "") or "")
 
             runtime_manager.reload_config()
+
+            # Phase 8.8.4:
+            # HTTP runtime actions include App-exit stop. Clear pending voice controls
+            # here too so the next py-xiaozhi process never replays old commands.
+            cleared_control_commands = 0
+            try:
+                cleared_control_commands = control_hub.clear()
+            except Exception:
+                logger.debug("Failed to clear control queue before HTTP runtime action", exc_info=True)
+
+            if cleared_control_commands:
+                await event_hub.publish({
+                    "type": "runtime_control_queue_cleared",
+                    "source": "sidecar.runtime_manager",
+                    "action": path.rsplit("/", 1)[-1],
+                    "cleared": cleared_control_commands,
+                    "message": f"已清空 {cleared_control_commands} 条过期语音控制命令",
+                })
+
             if path.endswith("/start"):
                 result = await asyncio.to_thread(runtime_manager.start, mode or None)
             elif path.endswith("/stop"):

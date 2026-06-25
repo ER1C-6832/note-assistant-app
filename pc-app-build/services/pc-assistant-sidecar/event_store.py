@@ -16,7 +16,17 @@ class SidecarEventHub:
 
     def recent_events(self, limit: int = 20) -> list[dict[str, Any]]:
         limit = max(1, min(int(limit or 20), 200))
-        return list(self._events)[-limit:]
+
+        # Phase 8.8.4:
+        # Do not replay historical assistant_bridge_heartbeat through sidecar_events.
+        # A heartbeat is only reliable as a live broadcast. Replaying an old heartbeat
+        # after PC_APP_STOP_PY_XIAOZHI_ON_EXIT=1 can make the PC App believe a killed
+        # py-xiaozhi runtime is still ready.
+        replayable = [
+            event for event in self._events
+            if event.get("type") != "assistant_bridge_heartbeat"
+        ]
+        return replayable[-limit:]
 
     async def publish(self, event: dict[str, Any]) -> dict[str, Any]:
         normalized = dict(event)
