@@ -68,6 +68,11 @@ def _as_bool(value: str | None, default: bool = False) -> bool:
     return default
 
 
+def _env_default(key: str, value: str) -> None:
+    if not os.getenv(key, "").strip():
+        os.environ[key] = value
+
+
 def _normalize_mode(value: str, default: str = "minimized") -> str:
     mode = (value or "").strip().lower()
 
@@ -125,6 +130,28 @@ def _default_py_xiaozhi_log_path() -> Path | None:
     return candidates[0] if candidates else None
 
 
+def _apply_pc_managed_defaults(runtime_mode: str, start_mode: str) -> None:
+    """Provide safe py-xiaozhi defaults for PC App hosted runtime.
+
+    The Sidecar launches py-xiaozhi with os.environ.copy(), so defaults set here
+    are inherited by the py-xiaozhi child process.
+    """
+    managed = _as_bool(
+        os.getenv("XIAOZHI_PC_MANAGED_MODE"),
+        default=(runtime_mode == "headless" and start_mode in {"hidden", "minimized"}),
+    )
+    if not managed:
+        return
+
+    _env_default("XIAOZHI_PC_MANAGED_MODE", "1")
+    _env_default("XIAOZHI_DISABLE_WAKE_WORD", "1")
+    _env_default("XIAOZHI_DISABLE_SHORTCUTS", "1")
+    _env_default("XIAOZHI_MCP_TOOL_ALLOWLIST", "notes")
+    _env_default("PC_BRIDGE_HEARTBEAT_SECONDS", "1.0")
+    _env_default("PC_BRIDGE_SUPPRESS_STARTUP_AUTO_LISTEN", "1")
+    _env_default("PC_BRIDGE_STARTUP_GUARD_SECONDS", "10")
+
+
 def load_config() -> SidecarConfig:
     pc_root = _pc_build_root()
     env_path = pc_root / ".env"
@@ -148,6 +175,7 @@ def load_config() -> SidecarConfig:
         os.getenv("PY_XIAOZHI_RUNTIME_MODE", "").strip() or legacy_mode,
         default=runtime_default,
     )
+    _apply_pc_managed_defaults(runtime_mode, start_mode)
 
     skip_activation = _as_bool(
         os.getenv("PY_XIAOZHI_SKIP_ACTIVATION"),
