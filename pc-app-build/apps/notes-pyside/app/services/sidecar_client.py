@@ -101,6 +101,8 @@ class SidecarClient(QObject):
         self._runtime_timeline_label = ""
         self._stop_requested = False
         self._runtime_stop_on_exit_sent = False
+        self._last_bridge_heartbeat_at = 0.0
+        self._stale_runtime_restart_requested = False
 
         self._raw_message_received.connect(self._handle_raw_message)
         self._connection_changed.connect(self._set_connected)
@@ -453,14 +455,17 @@ class SidecarClient(QObject):
             return
         if self._voice_runtime_ready:
             return
+
         if self._py_xiaozhi_running:
-            # If a process exists but the bridge is not ready, do not spam start.
-            # The manual Start button still performs a clean restart for stale processes.
+            if not self._runtime_timeline_started_at:
+                self._begin_runtime_timeline("await_existing_py_xiaozhi_bridge")
             self._assistant_state = "starting"
-            self._assistant_status_text = "语音助手启动中"
+            self._assistant_status_text = "正在连接后台语音助手"
             self._voice_button_state = "starting"
+            self._append_developer_log("WAIT_BRIDGE_HEARTBEAT existing py-xiaozhi process detected")
             self.statusChanged.emit()
             return
+
         self._begin_runtime_timeline("auto_start_py_xiaozhi")
         self._assistant_state = "starting"
         self._assistant_status_text = "语音助手启动中"
@@ -691,8 +696,15 @@ class SidecarClient(QObject):
 
         if event_type == "sidecar_events":
             items = payload.get("items", []) or []
+            for item in items:
+                if isinstance(item, dict) and item.get("type") == "assistant_bridge_heartbeat":
+                    self._handle_bridge_heartbeat(item)
             if items:
                 self._apply_recent_event(items[-1])
+            return
+
+        if event_type == "assistant_bridge_heartbeat":
+            self._handle_bridge_heartbeat(payload)
             return
 
         if event_type == "ui_action":
@@ -816,6 +828,63 @@ class SidecarClient(QObject):
         self._last_event_text = f"收到 Sidecar 事件：{event_type or 'unknown'}"
         self.statusChanged.emit()
 
+
+    def _handle_bridge_heartbeat(self, payload: dict[str, Any]) -> None:
+        self._last_bridge_heartbeat_at = time.time()
+        self._stale_runtime_restart_requested = False
+
+        data = payload.get("data", {}) or {}
+        status = str(payload.get("status") or data.get("status") or "idle").lower()
+        pid = payload.get("pid") or data.get("pid")
+        session_id = str(payload.get("bridge_session_id") or data.get("bridge_session_id") or "")
+
+        self._py_xiaozhi_running = True
+        if pid:
+            self._py_xiaozhi_process_count = max(1, self._py_xiaozhi_process_count or 1)
+            self._py_xiaozhi_pids_text = str(pid)
+        self._py_xiaozhi_status_text = "py-xiaozhi 已连接"
+        self._mark_voice_runtime_ready()
+
+        mapping = {
+            "idle": "语音助手空闲",
+            "listening": "语音助手正在聆听",
+            "speaking": "语音助手正在播报",
+        }
+        if status in mapping:
+            self._assistant_state = status
+            self._assistant_status_text = mapping[status]
+            self._voice_button_state = status
+
+        self._user_voice_event_text = self._assistant_status_text
+        detail = f"BRIDGE_HEARTBEAT status={status}"
+        if pid:
+            detail += f" pid={pid}"
+        if session_id:
+            detail += f" session={session_id}"
+        self._append_developer_log(detail)
+        self.statusChanged.emit()
+
+    def _maybe_restart_stale_runtime(self) -> None:
+        if self._voice_runtime_ready:
+            return
+        if not self._py_xiaozhi_running:
+            return
+        if self._stale_runtime_restart_requested:
+            return
+
+        timeout = float(os.getenv("PC_APP_STALE_RUNTIME_RESTART_SECONDS", "8"))
+        now = time.time()
+        if self._runtime_timeline_started_at and (now - self._runtime_timeline_started_at) < timeout:
+            return
+        if self._last_bridge_heartbeat_at and (now - self._last_bridge_heartbeat_at) < timeout:
+            return
+
+        self._stale_runtime_restart_requested = True
+        self._assistant_state = "starting"
+        self._assistant_status_text = "语音助手连接异常，正在重启"
+        self._voice_button_state = "starting"
+        self._append_developer_log("STALE_RUNTIME_RESTART no bridge heartbeat, restart py-xiaozhi")
+        self._queue_runtime_action("restart_py_xiaozhi")
 
     def _begin_runtime_timeline(self, label: str) -> None:
         self._runtime_timeline_started_at = time.time()
@@ -1036,6 +1105,7 @@ class SidecarClient(QObject):
                 self._voice_runtime_ready = False
         # A process alone is not enough to make the voice button usable. The runtime
         # becomes controllable only after trusted PC Bridge / EventBus events arrive.
+        self._maybe_restart_stale_runtime()
 
         bridge_ok = bool(py_xiaozhi.get("pc_bridge_installed"))
         bridge_text = "bridge 已安装" if bridge_ok else "bridge 未安装"
