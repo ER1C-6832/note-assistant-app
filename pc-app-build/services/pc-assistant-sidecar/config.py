@@ -147,6 +147,7 @@ def _apply_pc_managed_defaults(runtime_mode: str, start_mode: str) -> None:
     _env_default("XIAOZHI_DISABLE_WAKE_WORD", "1")
     _env_default("XIAOZHI_DISABLE_SHORTCUTS", "1")
     _env_default("XIAOZHI_MCP_TOOL_ALLOWLIST", "notes")
+    _env_default("XIAOZHI_EARLY_PC_BRIDGE", "1")
     _env_default("PC_BRIDGE_HEARTBEAT_SECONDS", "1.0")
     _env_default("PC_BRIDGE_SUPPRESS_STARTUP_AUTO_LISTEN", "1")
     _env_default("PC_BRIDGE_STARTUP_GUARD_SECONDS", "10")

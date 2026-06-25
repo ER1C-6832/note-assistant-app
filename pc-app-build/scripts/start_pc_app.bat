@@ -8,8 +8,9 @@ REM - Background reuse remains enabled; py-xiaozhi is not killed on normal app e
 
 set PC_APP_AUTO_START_PY_XIAOZHI=1
 set PC_APP_STOP_PY_XIAOZHI_ON_EXIT=0
-set PC_APP_STALE_RUNTIME_RESTART_SECONDS=25
+set PC_APP_STALE_RUNTIME_RESTART_SECONDS=35
 set PYTHONIOENCODING=utf-8
+set XIAOZHI_EARLY_PC_BRIDGE=1
 
 echo Starting Note Assistant PC App...
 cd /d "%~dp0..\apps\notes-pyside"
