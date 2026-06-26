@@ -75,8 +75,9 @@ def run_app() -> int:
     from PySide6.QtQml import QQmlApplicationEngine
 
     from app.controllers.notes_controller import NotesController
-    from app.services.sidecar_client import SidecarClient
+    from app.services.continuous_sidecar_client import ContinuousSidecarClient
     from app.services.login_prewarm import LoginPrewarmController
+    from app.services.voice_mode import VoiceModeController
 
     app = QGuiApplication(sys.argv)
     app.setQuitOnLastWindowClosed(True)
@@ -84,7 +85,8 @@ def run_app() -> int:
     app.setOrganizationName("NoteAssistant")
 
     notes_controller = NotesController()
-    sidecar_client = SidecarClient()
+    voice_mode_controller = VoiceModeController(pc_build_root)
+    sidecar_client = ContinuousSidecarClient(voice_mode_controller=voice_mode_controller)
     login_prewarm_controller = LoginPrewarmController(pc_build_root)
 
     sidecar_client.notesChanged.connect(notes_controller.refresh)
@@ -102,10 +104,12 @@ def run_app() -> int:
     context.setContextProperty("deletedNotesListModel", notes_controller.deleted_notes_model)
     context.setContextProperty("sidecarClient", sidecar_client)
     context.setContextProperty("loginPrewarmController", login_prewarm_controller)
+    context.setContextProperty("voiceModeController", voice_mode_controller)
 
     engine.notes_controller = notes_controller  # type: ignore[attr-defined]
     engine.sidecar_client = sidecar_client  # type: ignore[attr-defined]
     engine.login_prewarm_controller = login_prewarm_controller  # type: ignore[attr-defined]
+    engine.voice_mode_controller = voice_mode_controller  # type: ignore[attr-defined]
 
     qml_path = Path(__file__).resolve().parent / "qml" / "Main.qml"
     engine.load(qml_path.as_uri())

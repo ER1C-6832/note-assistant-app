@@ -42,6 +42,9 @@ Item {
         if (!loginPrewarmBox.activeFocus) {
             loginPrewarmBox.checked = loginPrewarmController.loginPrewarmEnabled
         }
+        if (voiceModeController !== null && !continuousConversationBox.activeFocus) {
+            continuousConversationBox.checked = voiceModeController.continuousConversationEnabled
+        }
     }
 
     Connections {
@@ -54,9 +57,17 @@ Item {
         function onStatusChanged() { root.syncRuntimeForm() }
     }
 
+    Connections {
+        target: voiceModeController
+        function onStatusChanged() { root.syncRuntimeForm() }
+    }
+
     Component.onCompleted: {
         sidecarClient.refreshRuntimeConfig()
         loginPrewarmController.refreshLoginPrewarmStatus()
+        if (voiceModeController !== null) {
+            voiceModeController.refreshVoiceModeStatus()
+        }
         sidecarClient.refreshStatus()
         root.syncRuntimeForm()
     }
@@ -76,7 +87,7 @@ Item {
                 Layout.fillWidth: true
                 radius: 20
                 color: "#FFFFFF"
-                implicitHeight: 1360
+                implicitHeight: 1510
 
                 ColumnLayout {
                     anchors.fill: parent
@@ -191,6 +202,32 @@ Item {
                             }
 
                             Text { Layout.fillWidth: true; text: loginPrewarmController.loginPrewarmStatusText; color: loginPrewarmController.loginPrewarmEnabled ? "#166534" : "#92400E"; font.pixelSize: 13; wrapMode: Text.WordWrap }
+                        }
+                    }
+
+                    Rectangle {
+                        Layout.fillWidth: true
+                        radius: 18
+                        color: "#F8FAFC"
+                        implicitHeight: 150
+
+                        ColumnLayout {
+                            anchors.fill: parent
+                            anchors.margins: 20
+                            spacing: 12
+
+                            Text { text: "连续对话"; color: "#111827"; font.pixelSize: 18; font.bold: true }
+                            Text { Layout.fillWidth: true; text: "开启后，点击说话会进入免按住连续对话；助手播报结束后会继续聆听。关闭后仍是单轮语音操作。唤醒词保持关闭。"; color: "#6B7280"; font.pixelSize: 13; wrapMode: Text.WordWrap }
+
+                            RowLayout {
+                                Layout.fillWidth: true
+                                spacing: 12
+                                CheckBox { id: continuousConversationBox; text: "点击说话后保持连续聆听" }
+                                AppButton { text: "应用"; variant: "primary"; compact: true; onClicked: voiceModeController.setContinuousConversationEnabled(continuousConversationBox.checked) }
+                                AppButton { text: "刷新状态"; variant: "ghost"; compact: true; onClicked: voiceModeController.refreshVoiceModeStatus() }
+                            }
+
+                            Text { Layout.fillWidth: true; text: voiceModeController.continuousConversationStatusText; color: voiceModeController.continuousConversationEnabled ? "#166534" : "#92400E"; font.pixelSize: 13; wrapMode: Text.WordWrap }
                         }
                     }
 
