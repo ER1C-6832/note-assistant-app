@@ -5,7 +5,7 @@ import QtQuick.Layouts
 Rectangle {
     id: root
 
-    property string mode: "hidden"       // candidates / confirm_delete / result / failure
+    property string mode: "hidden"
     property string title: ""
     property string message: ""
     property string actionType: ""
@@ -17,7 +17,11 @@ Rectangle {
     property bool success: true
     property int autoCloseSeconds: 3
     property int countdown: autoCloseSeconds
-    readonly property bool autoCloseEnabled: visible && (mode === "result" || mode === "failure")
+    property var recentResults: []
+    property string lastResultKey: ""
+
+    readonly property bool resultLikeMode: mode === "result" || mode === "failure" || mode === "results"
+    readonly property bool autoCloseEnabled: visible && resultLikeMode
 
     signal closed()
     signal candidateSelected(int noteId, string title, string content)
@@ -25,46 +29,75 @@ Rectangle {
     signal retryRequested(string actionType)
 
     width: 390
-    implicitHeight: Math.min(520, contentColumn.implicitHeight + 28)
+    implicitHeight: Math.min(560, contentColumn.implicitHeight + 28)
     radius: 22
     color: "#FFFFFF"
     border.color: root.danger ? "#FCA5A5" : root.mode === "failure" ? "#FCA5A5" : "#DDE7FF"
     border.width: 1
     z: 200
-
     layer.enabled: true
 
-    onVisibleChanged: resetAutoClose()
-    onModeChanged: resetAutoClose()
-    onMessageChanged: resetAutoClose()
-    onTitleChanged: resetAutoClose()
+    onVisibleChanged: {
+        if (!visible) {
+            recentResults = []
+            lastResultKey = ""
+        } else {
+            scheduleResultAppend()
+        }
+        resetAutoClose()
+    }
+    onModeChanged: {
+        if (!resultLikeMode) {
+            recentResults = []
+            lastResultKey = ""
+        }
+        scheduleResultAppend()
+        resetAutoClose()
+    }
+    onMessageChanged: {
+        scheduleResultAppend()
+        resetAutoClose()
+    }
+    onTitleChanged: {
+        scheduleResultAppend()
+        resetAutoClose()
+    }
+    onSuccessChanged: scheduleResultAppend()
 
     function resetAutoClose() {
         countdown = autoCloseSeconds
-        if (autoCloseEnabled) {
-            autoCloseTimer.restart()
-        } else {
-            autoCloseTimer.stop()
-        }
+        if (autoCloseEnabled) autoCloseTimer.restart()
+        else autoCloseTimer.stop()
+    }
+    function scheduleResultAppend() {
+        if (visible && resultLikeMode) appendResultTimer.restart()
+    }
+    function appendCurrentResult() {
+        if (!visible || !resultLikeMode) return
+        var cleanTitle = String(root.title || (root.success ? "操作完成" : "操作失败"))
+        var cleanMessage = String(root.message || "")
+        if (cleanTitle.length === 0 && cleanMessage.length === 0) return
+        var key = root.mode + "|" + cleanTitle + "|" + cleanMessage + "|" + String(root.success)
+        if (key === root.lastResultKey) return
+        root.lastResultKey = key
+        var next = []
+        var existing = root.recentResults || []
+        for (var i = 0; i < existing.length; i++) next.push(existing[i])
+        next.push({"title": cleanTitle, "message": cleanMessage, "success": root.success !== false, "danger": root.danger === true})
+        if (next.length > 12) next = next.slice(next.length - 12)
+        root.recentResults = next
     }
 
+    Timer { id: appendResultTimer; interval: 0; repeat: false; onTriggered: root.appendCurrentResult() }
     Timer {
         id: autoCloseTimer
         interval: 1000
         repeat: true
         running: root.autoCloseEnabled
-
         onTriggered: {
-            if (!root.autoCloseEnabled) {
-                stop()
-                return
-            }
-
+            if (!root.autoCloseEnabled) { stop(); return }
             root.countdown -= 1
-            if (root.countdown <= 0) {
-                stop()
-                root.closed()
-            }
+            if (root.countdown <= 0) { stop(); root.closed() }
         }
     }
 
@@ -77,156 +110,47 @@ Rectangle {
         RowLayout {
             Layout.fillWidth: true
             spacing: 8
-
             Rectangle {
-                width: 28
-                height: 28
-                radius: 14
-                color: root.mode === "failure" ? "#FEF2F2"
-                     : root.danger ? "#FFF1F2"
-                     : root.mode === "result" ? (root.success ? "#ECFDF3" : "#FEF2F2")
-                     : "#EEF4FF"
-
-                Text {
-                    anchors.centerIn: parent
-                    text: root.mode === "failure" ? "!" : root.danger ? "删" : root.mode === "result" ? "✓" : "?"
-                    color: root.mode === "failure" || root.danger ? "#DC2626" : root.mode === "result" ? "#16A34A" : "#2563EB"
-                    font.pixelSize: 13
-                    font.bold: true
-                }
+                width: 28; height: 28; radius: 14
+                color: root.mode === "failure" ? "#FEF2F2" : root.danger ? "#FFF1F2" : root.resultLikeMode ? (root.success ? "#ECFDF3" : "#FEF2F2") : "#EEF4FF"
+                Text { anchors.centerIn: parent; text: root.mode === "failure" ? "!" : root.danger ? "删" : root.resultLikeMode ? "✓" : "?"; color: root.mode === "failure" || root.danger ? "#DC2626" : root.resultLikeMode ? "#16A34A" : "#2563EB"; font.pixelSize: 13; font.bold: true }
             }
-
             ColumnLayout {
-                Layout.fillWidth: true
-                spacing: 1
-
-                Text {
-                    Layout.fillWidth: true
-                    text: root.title || "语音操作"
-                    color: "#0F172A"
-                    font.pixelSize: 16
-                    font.bold: true
-                    elide: Text.ElideRight
-                }
-
-                Text {
-                    Layout.fillWidth: true
-                    text: root.message
-                    color: "#64748B"
-                    font.pixelSize: 12
-                    wrapMode: Text.Wrap
-                    visible: text.length > 0
-                }
+                Layout.fillWidth: true; spacing: 1
+                Text { Layout.fillWidth: true; text: (root.recentResults || []).length > 1 && root.resultLikeMode ? "批量操作结果" : (root.title || "语音操作"); color: "#0F172A"; font.pixelSize: 16; font.bold: true; elide: Text.ElideRight }
+                Text { Layout.fillWidth: true; text: (root.recentResults || []).length > 1 && root.resultLikeMode ? ("已收到 " + String((root.recentResults || []).length) + " 条操作结果") : root.message; color: "#64748B"; font.pixelSize: 12; wrapMode: Text.Wrap; visible: text.length > 0 }
             }
-
-            AppButton {
-                text: "×"
-                variant: "ghost"
-                implicitWidth: 34
-                implicitHeight: 34
-                onClicked: root.closed()
-            }
+            AppButton { text: "×"; variant: "ghost"; implicitWidth: 34; implicitHeight: 34; onClicked: root.closed() }
         }
 
-        Rectangle {
-            Layout.fillWidth: true
-            height: 1
-            color: "#EEF2F7"
-        }
+        Rectangle { Layout.fillWidth: true; height: 1; color: "#EEF2F7" }
 
         ScrollView {
             Layout.fillWidth: true
             Layout.preferredHeight: root.mode === "candidates" ? 285 : 0
             visible: root.mode === "candidates"
             clip: true
-
             ColumnLayout {
-                width: parent.width
-                spacing: 8
-
+                width: parent.width; spacing: 8
                 Repeater {
                     model: root.candidates || []
-
                     Rectangle {
                         Layout.fillWidth: true
                         implicitHeight: Math.max(78, itemColumn.implicitHeight + 18)
-                        radius: 14
-                        color: "#F8FAFC"
-                        border.color: "#E2E8F0"
-                        border.width: 1
-
+                        radius: 14; color: "#F8FAFC"; border.color: "#E2E8F0"; border.width: 1
                         ColumnLayout {
                             id: itemColumn
-                            anchors.fill: parent
-                            anchors.margins: 10
-                            spacing: 4
-
+                            anchors.fill: parent; anchors.margins: 10; spacing: 4
                             RowLayout {
-                                Layout.fillWidth: true
-                                spacing: 8
-
-                                Rectangle {
-                                    width: 24
-                                    height: 24
-                                    radius: 12
-                                    color: "#E0EAFF"
-
-                                    Text {
-                                        anchors.centerIn: parent
-                                        text: String(index + 1)
-                                        color: "#2563EB"
-                                        font.pixelSize: 12
-                                        font.bold: true
-                                    }
-                                }
-
-                                Text {
-                                    Layout.fillWidth: true
-                                    text: modelData.title || "未命名便签"
-                                    color: "#111827"
-                                    font.pixelSize: 14
-                                    font.bold: true
-                                    elide: Text.ElideRight
-                                }
-
-                                Text {
-                                    text: "#" + String(modelData.id || "")
-                                    color: "#94A3B8"
-                                    font.pixelSize: 11
-                                }
+                                Layout.fillWidth: true; spacing: 8
+                                Rectangle { width: 24; height: 24; radius: 12; color: "#E0EAFF"; Text { anchors.centerIn: parent; text: String(index + 1); color: "#2563EB"; font.pixelSize: 12; font.bold: true } }
+                                Text { Layout.fillWidth: true; text: modelData.title || "未命名便签"; color: "#111827"; font.pixelSize: 14; font.bold: true; elide: Text.ElideRight }
+                                Text { text: "#" + String(modelData.id || ""); color: "#94A3B8"; font.pixelSize: 11 }
                             }
-
-                            Text {
-                                Layout.fillWidth: true
-                                text: modelData.content || ""
-                                color: "#475569"
-                                font.pixelSize: 12
-                                maximumLineCount: 2
-                                elide: Text.ElideRight
-                                wrapMode: Text.Wrap
-                            }
-
-                            Text {
-                                Layout.fillWidth: true
-                                text: modelData.tags ? ("标签：" + modelData.tags) : ""
-                                visible: text.length > 3
-                                color: "#94A3B8"
-                                font.pixelSize: 11
-                                elide: Text.ElideRight
-                            }
+                            Text { Layout.fillWidth: true; text: modelData.content || ""; color: "#475569"; font.pixelSize: 12; maximumLineCount: 2; elide: Text.ElideRight; wrapMode: Text.Wrap }
+                            Text { Layout.fillWidth: true; text: modelData.tags ? ("标签：" + modelData.tags) : ""; visible: text.length > 3; color: "#94A3B8"; font.pixelSize: 11; elide: Text.ElideRight }
                         }
-
-                        MouseArea {
-                            anchors.fill: parent
-                            cursorShape: Qt.PointingHandCursor
-                            onClicked: {
-                                root.candidateSelected(
-                                    Number(modelData.id || -1),
-                                    String(modelData.title || ""),
-                                    String(modelData.content || "")
-                                )
-                            }
-                        }
+                        MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: root.candidateSelected(Number(modelData.id || -1), String(modelData.title || ""), String(modelData.content || "")) }
                     }
                 }
             }
@@ -236,83 +160,54 @@ Rectangle {
             Layout.fillWidth: true
             visible: root.mode === "confirm_delete"
             implicitHeight: confirmColumn.implicitHeight + 20
-            radius: 16
-            color: "#FFF7ED"
-            border.color: "#FDBA74"
-
+            radius: 16; color: "#FFF7ED"; border.color: "#FDBA74"
             ColumnLayout {
                 id: confirmColumn
-                anchors.fill: parent
-                anchors.margins: 12
-                spacing: 6
+                anchors.fill: parent; anchors.margins: 12; spacing: 6
+                Text { Layout.fillWidth: true; text: root.noteTitle || ("#" + root.noteId); color: "#111827"; font.pixelSize: 15; font.bold: true; elide: Text.ElideRight }
+                Text { Layout.fillWidth: true; text: root.noteContent || "该操作会把便签移入“已删除”，之后仍可还原。"; color: "#475569"; font.pixelSize: 12; wrapMode: Text.Wrap; maximumLineCount: 4; elide: Text.ElideRight }
+            }
+        }
 
-                Text {
-                    Layout.fillWidth: true
-                    text: root.noteTitle || ("#" + root.noteId)
-                    color: "#111827"
-                    font.pixelSize: 15
-                    font.bold: true
-                    elide: Text.ElideRight
-                }
-
-                Text {
-                    Layout.fillWidth: true
-                    text: root.noteContent || "该操作会把便签移入“已删除”，之后仍可还原。"
-                    color: "#475569"
-                    font.pixelSize: 12
-                    wrapMode: Text.Wrap
-                    maximumLineCount: 4
-                    elide: Text.ElideRight
+        ScrollView {
+            Layout.fillWidth: true
+            Layout.preferredHeight: root.resultLikeMode && (root.recentResults || []).length > 1 ? Math.min(320, 78 * (root.recentResults || []).length) : 0
+            visible: root.resultLikeMode && (root.recentResults || []).length > 1
+            clip: true
+            ColumnLayout {
+                width: parent.width; spacing: 8
+                Repeater {
+                    model: root.recentResults || []
+                    Rectangle {
+                        Layout.fillWidth: true
+                        implicitHeight: Math.max(68, resultCardColumn.implicitHeight + 18)
+                        radius: 14
+                        color: modelData.success === false ? "#FEF2F2" : "#F0FDF4"
+                        border.color: modelData.success === false ? "#FCA5A5" : "#BBF7D0"
+                        border.width: 1
+                        RowLayout {
+                            anchors.fill: parent; anchors.margins: 10; spacing: 8
+                            Rectangle { width: 24; height: 24; radius: 12; color: modelData.success === false ? "#FEE2E2" : "#DCFCE7"; Text { anchors.centerIn: parent; text: modelData.success === false ? "!" : "✓"; color: modelData.success === false ? "#DC2626" : "#16A34A"; font.pixelSize: 12; font.bold: true } }
+                            ColumnLayout {
+                                id: resultCardColumn
+                                Layout.fillWidth: true; spacing: 3
+                                Text { Layout.fillWidth: true; text: modelData.title || (modelData.success === false ? "操作失败" : "操作完成"); color: "#111827"; font.pixelSize: 14; font.bold: true; elide: Text.ElideRight }
+                                Text { Layout.fillWidth: true; text: modelData.message || ""; visible: text.length > 0; color: "#475569"; font.pixelSize: 12; wrapMode: Text.Wrap; maximumLineCount: 3; elide: Text.ElideRight }
+                            }
+                        }
+                    }
                 }
             }
         }
 
-        Text {
-            Layout.fillWidth: true
-            visible: root.mode === "result" || root.mode === "failure"
-            text: root.message
-            color: root.mode === "failure" ? "#991B1B" : "#334155"
-            font.pixelSize: 13
-            wrapMode: Text.Wrap
-        }
+        Text { Layout.fillWidth: true; visible: root.resultLikeMode && (root.recentResults || []).length <= 1; text: root.message; color: root.mode === "failure" ? "#991B1B" : "#334155"; font.pixelSize: 13; wrapMode: Text.Wrap }
 
         RowLayout {
-            Layout.fillWidth: true
-            spacing: 10
-
-            AppButton {
-                visible: root.mode === "confirm_delete"
-                text: "取消"
-                variant: "secondary"
-                Layout.fillWidth: true
-                onClicked: root.closed()
-            }
-
-            AppButton {
-                visible: root.mode === "confirm_delete"
-                text: root.actionType === "hard_delete" ? "彻底删除" : "确认删除"
-                variant: "danger"
-                Layout.fillWidth: true
-                onClicked: root.confirmRequested(root.noteId, root.actionType || "delete")
-            }
-
-            AppButton {
-                visible: root.mode === "failure"
-                text: "重试"
-                variant: "secondary"
-                Layout.fillWidth: true
-                onClicked: root.retryRequested(root.actionType)
-            }
-
-            AppButton {
-                visible: root.mode === "result" || root.mode === "failure" || root.mode === "candidates"
-                text: root.mode === "candidates"
-                      ? "稍后处理"
-                      : ("知道了（" + Math.max(0, root.countdown) + "）")
-                variant: root.mode === "failure" ? "secondary" : "primary"
-                Layout.fillWidth: true
-                onClicked: root.closed()
-            }
+            Layout.fillWidth: true; spacing: 10
+            AppButton { visible: root.mode === "confirm_delete"; text: "取消"; variant: "secondary"; Layout.fillWidth: true; onClicked: root.closed() }
+            AppButton { visible: root.mode === "confirm_delete"; text: root.actionType === "hard_delete" ? "彻底删除" : "确认删除"; variant: "danger"; Layout.fillWidth: true; onClicked: root.confirmRequested(root.noteId, root.actionType || "delete") }
+            AppButton { visible: root.mode === "failure"; text: "重试"; variant: "secondary"; Layout.fillWidth: true; onClicked: root.retryRequested(root.actionType) }
+            AppButton { visible: root.resultLikeMode || root.mode === "candidates"; text: root.mode === "candidates" ? "稍后处理" : ("知道了（" + Math.max(0, root.countdown) + "）"); variant: root.mode === "failure" ? "secondary" : "primary"; Layout.fillWidth: true; onClicked: root.closed() }
         }
     }
 }
