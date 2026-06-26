@@ -192,6 +192,16 @@ class PyXiaozhiProcessManager:
         current = self._status_from_processes(existing_processes)
         requested_mode = self._normalize_mode(mode or self.config.py_xiaozhi_start_mode)
         requested_window_mode = self._normalize_mode(self.config.py_xiaozhi_window_mode or requested_mode)
+        runtime_mode = getattr(self.config, "py_xiaozhi_runtime_mode", "headless") or "headless"
+
+        # Phase 9.3.0.1:
+        # GUI runtime must be launched with a visible console/window. A stale
+        # hidden/minimized start mode would choose pythonw.exe or hide the window,
+        # so selecting GUI looked ineffective.
+        if runtime_mode == "gui":
+            if requested_mode in {"hidden", "minimized"}:
+                requested_mode = "normal"
+            requested_window_mode = "normal"
 
         if current["process_running"]:
             self._apply_window_mode_background(requested_window_mode)

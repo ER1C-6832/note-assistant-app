@@ -131,26 +131,40 @@ def _default_py_xiaozhi_log_path() -> Path | None:
 
 
 def _apply_pc_managed_defaults(runtime_mode: str, start_mode: str) -> None:
-    """Provide safe py-xiaozhi defaults for PC App hosted runtime.
+    # Phase 9.3.0.1:
+    # GUI mode must be a true GUI launch. Earlier loads could leave
+    # XIAOZHI_PC_MANAGED_MODE=1 and related headless defaults in the Sidecar
+    # process environment. Since the Sidecar passes os.environ.copy() to
+    # py-xiaozhi, those stale values made GUI mode look ineffective.
+    managed_defaults = {
+        "XIAOZHI_DISABLE_WAKE_WORD": "1",
+        "XIAOZHI_DISABLE_SHORTCUTS": "1",
+        "XIAOZHI_MCP_TOOL_ALLOWLIST": "notes",
+        "XIAOZHI_EARLY_PC_BRIDGE": "1",
+        "PC_BRIDGE_HEARTBEAT_SECONDS": "1.0",
+        "PC_BRIDGE_SUPPRESS_STARTUP_AUTO_LISTEN": "1",
+        "PC_BRIDGE_STARTUP_GUARD_SECONDS": "10",
+    }
 
-    The Sidecar launches py-xiaozhi with os.environ.copy(), so defaults set here
-    are inherited by the py-xiaozhi child process.
-    """
+    # GUI/debug/normal launch must not inherit PC-managed headless defaults.
+    if runtime_mode == "gui" or start_mode in {"normal", "debug"}:
+        os.environ["XIAOZHI_PC_MANAGED_MODE"] = "0"
+        for key, default_value in managed_defaults.items():
+            if os.environ.get(key) == default_value:
+                os.environ.pop(key, None)
+        return
+
     managed = _as_bool(
         os.getenv("XIAOZHI_PC_MANAGED_MODE"),
         default=(runtime_mode == "headless" and start_mode in {"hidden", "minimized"}),
     )
     if not managed:
+        os.environ["XIAOZHI_PC_MANAGED_MODE"] = "0"
         return
 
-    _env_default("XIAOZHI_PC_MANAGED_MODE", "1")
-    _env_default("XIAOZHI_DISABLE_WAKE_WORD", "1")
-    _env_default("XIAOZHI_DISABLE_SHORTCUTS", "1")
-    _env_default("XIAOZHI_MCP_TOOL_ALLOWLIST", "notes")
-    _env_default("XIAOZHI_EARLY_PC_BRIDGE", "1")
-    _env_default("PC_BRIDGE_HEARTBEAT_SECONDS", "1.0")
-    _env_default("PC_BRIDGE_SUPPRESS_STARTUP_AUTO_LISTEN", "1")
-    _env_default("PC_BRIDGE_STARTUP_GUARD_SECONDS", "10")
+    os.environ["XIAOZHI_PC_MANAGED_MODE"] = "1"
+    for key, value in managed_defaults.items():
+        _env_default(key, value)
 
 
 def load_config() -> SidecarConfig:

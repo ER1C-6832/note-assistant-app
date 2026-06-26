@@ -141,7 +141,17 @@ Item {
                             RowLayout {
                                 Layout.fillWidth: true
                                 spacing: 16
-                                ColumnLayout { Layout.fillWidth: true; Text { text: "运行方式"; color: "#374151"; font.pixelSize: 13; font.bold: true } ComboBox { id: runtimeModeBox; Layout.fillWidth: true; model: ["headless", "gui", "cli"] } }
+                                ColumnLayout { Layout.fillWidth: true; Text { text: "运行方式"; color: "#374151"; font.pixelSize: 13; font.bold: true } ComboBox {
+                                        id: runtimeModeBox
+                                        Layout.fillWidth: true
+                                        model: ["headless", "gui", "cli"]
+                                        onActivated: {
+                                            if (currentText === "gui") {
+                                                startModeBox.currentIndex = modeIndex("normal", "start")
+                                                windowModeBox.currentIndex = modeIndex("normal", "window")
+                                            }
+                                        }
+                                    } }
                                 ColumnLayout { Layout.fillWidth: true; Text { text: "启动窗口"; color: "#374151"; font.pixelSize: 13; font.bold: true } ComboBox { id: startModeBox; Layout.fillWidth: true; model: ["normal", "minimized", "hidden", "debug"] } }
                                 ColumnLayout { Layout.fillWidth: true; Text { text: "运行窗口"; color: "#374151"; font.pixelSize: 13; font.bold: true } ComboBox { id: windowModeBox; Layout.fillWidth: true; model: ["normal", "minimized", "hidden"] } }
                                 ColumnLayout { Layout.preferredWidth: 190; Text { text: "自动准备"; color: "#374151"; font.pixelSize: 13; font.bold: true } CheckBox { id: autoStartBox; text: "打开应用时准备语音" } }

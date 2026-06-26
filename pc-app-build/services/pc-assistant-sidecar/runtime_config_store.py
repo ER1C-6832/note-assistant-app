@@ -15,6 +15,7 @@ RUNTIME_KEYS = [
     "PY_XIAOZHI_AUTO_START",
     "PY_XIAOZHI_SKIP_ACTIVATION",
     "PY_XIAOZHI_MODE",
+    "XIAOZHI_PC_MANAGED_MODE",
 ]
 
 ALLOWED_RUNTIME_MODES = ["headless", "gui", "cli"]
@@ -89,6 +90,15 @@ def save_runtime_config(payload: dict[str, Any], config: SidecarConfig | None = 
     runtime_mode = _normalize_runtime_mode(str(payload.get("py_xiaozhi_runtime_mode") or payload.get("runtime_mode") or config.py_xiaozhi_runtime_mode))
     start_mode = _normalize_start_mode(str(payload.get("py_xiaozhi_start_mode") or payload.get("start_mode") or config.py_xiaozhi_start_mode))
     window_mode = _normalize_window_mode(str(payload.get("py_xiaozhi_window_mode") or payload.get("window_mode") or config.py_xiaozhi_window_mode))
+
+    # Phase 9.3.0.1:
+    # Selecting GUI should be enough to get a visible GUI runtime. Otherwise the
+    # previous hidden/minimized start/window values keep launching pythonw/no
+    # visible window, making GUI mode appear broken.
+    if runtime_mode == "gui":
+        start_mode = "normal"
+        window_mode = "normal"
+
     auto_start = _as_bool_text(payload.get("py_xiaozhi_auto_start", payload.get("auto_start", config.py_xiaozhi_auto_start)))
     skip_activation = _as_bool_text(payload.get("py_xiaozhi_skip_activation", payload.get("skip_activation", config.py_xiaozhi_skip_activation)))
 
@@ -100,6 +110,7 @@ def save_runtime_config(payload: dict[str, Any], config: SidecarConfig | None = 
         "PY_XIAOZHI_WINDOW_MODE": window_mode,
         "PY_XIAOZHI_AUTO_START": auto_start,
         "PY_XIAOZHI_SKIP_ACTIVATION": skip_activation,
+        "XIAOZHI_PC_MANAGED_MODE": "0" if runtime_mode == "gui" else ("1" if runtime_mode == "headless" and start_mode in {"hidden", "minimized"} else "0"),
     }
 
     updates["PY_XIAOZHI_MODE"] = runtime_mode
