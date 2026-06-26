@@ -24,13 +24,7 @@ def _as_bool(value: object, default: bool = False) -> bool:
 
 
 class VoiceModeController(QObject):
-    """Small settings controller for voice interaction mode.
-
-    Phase 9.3.1:
-    Continuous conversation is a PC App preference, independent from py-xiaozhi
-    runtime mode. It only changes the control mode sent on the next click-to-talk:
-    manual -> realtime. Wake word remains disabled.
-    """
+    """Small settings controller for voice interaction mode."""
 
     statusChanged = Signal()
 
@@ -42,6 +36,7 @@ class VoiceModeController(QObject):
             "PC_APP_CONTINUOUS_CONVERSATION_ENABLED",
             default=False,
         )
+        self._just_changed = False
         self._status_text = self._status_message()
 
     @Property(bool, notify=statusChanged)
@@ -58,12 +53,14 @@ class VoiceModeController(QObject):
             "PC_APP_CONTINUOUS_CONVERSATION_ENABLED",
             default=False,
         )
+        self._just_changed = False
         self._status_text = self._status_message()
         self.statusChanged.emit()
 
     @Slot(bool)
     def setContinuousConversationEnabled(self, enabled: bool) -> None:
         self._continuous_enabled = bool(enabled)
+        self._just_changed = True
         os.environ["PC_APP_CONTINUOUS_CONVERSATION_ENABLED"] = "1" if enabled else "0"
         self._update_env_file({
             "PC_APP_CONTINUOUS_CONVERSATION_ENABLED": "1" if enabled else "0",
@@ -72,9 +69,10 @@ class VoiceModeController(QObject):
         self.statusChanged.emit()
 
     def _status_message(self) -> str:
+        restart_hint = " 建议重启语音助手或重启应用后再测试，连续对话状态会更稳定。" if self._just_changed else ""
         if self._continuous_enabled:
-            return "连续对话已开启：点击说话会进入自动连续聆听；点击停止后退出。"
-        return "连续对话已关闭：点击说话只进行单轮语音操作。"
+            return "连续对话已开启：点击说话会进入自动连续聆听；点击停止后退出。" + restart_hint
+        return "连续对话已关闭：点击说话只进行单轮语音操作。" + restart_hint
 
     def _read_env_bool(self, key: str, default: bool = False) -> bool:
         file_value = self._read_env_file_value(key)

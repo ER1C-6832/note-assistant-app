@@ -4,16 +4,26 @@ PySide6 + QML application bootstrap.
 
 from __future__ import annotations
 
+import json
 import os
+import subprocess
 import sys
 from pathlib import Path
+from urllib.request import Request, urlopen
 
 _PKG_DIR = os.path.dirname(os.path.abspath(__file__))
 if _PKG_DIR not in sys.path:
     sys.path.insert(0, _PKG_DIR)
 
 
-def _load_env_file(path: Path) -> None:
+def _load_env_file(path: Path, *, override: bool = True) -> None:
+    """Load pc-app-build\\.env into the PC App process.
+
+    Phase 9.3.1.2:
+    .env is the App's source of truth for exit behavior. Override inherited
+    terminal variables so stale shell/session values cannot disable
+    PC_APP_STOP_PY_XIAOZHI_ON_EXIT.
+    """
     if not path.exists():
         return
 
@@ -25,41 +35,107 @@ def _load_env_file(path: Path) -> None:
         key, value = line.split("=", 1)
         key = key.strip()
         value = value.strip().strip('"').strip("'")
-        if key and key not in os.environ:
+        if key and (override or key not in os.environ):
             os.environ[key] = value
 
 
-def _request_stop_py_xiaozhi_fire_and_forget() -> None:
-    """Ask Sidecar to stop py-xiaozhi without blocking the Qt close path."""
-    enabled = os.getenv("PC_APP_STOP_PY_XIAOZHI_ON_EXIT", "0").strip().lower()
-    if enabled in {"0", "false", "no", "off"}:
-        return
+def _truthy_env(name: str, default: bool = False) -> bool:
+    raw = os.getenv(name)
+    if raw is None or str(raw).strip() == "":
+        return default
+    value = str(raw).strip().lower()
+    if value in {"1", "true", "yes", "y", "on", "是"}:
+        return True
+    if value in {"0", "false", "no", "n", "off", "否"}:
+        return False
+    return default
 
+
+def _post_runtime_stop_via_sidecar(timeout: float = 5.0) -> bool:
     host = os.getenv("SIDECAR_HEALTH_HOST", "127.0.0.1")
     port = os.getenv("SIDECAR_HEALTH_PORT", "17891")
     url = f"http://{host}:{port}/api/runtime/py-xiaozhi/stop"
 
+    data = json.dumps({"source": "pc_app_exit"}).encode("utf-8")
+    request = Request(
+        url,
+        data=data,
+        method="POST",
+        headers={
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+        },
+    )
+
     try:
-        import subprocess
+        with urlopen(request, timeout=timeout) as response:
+            raw = response.read().decode("utf-8", errors="replace")
+    except Exception:
+        return False
 
-        command = (
-            "$ProgressPreference='SilentlyContinue'; "
-            f"try {{ Invoke-WebRequest -UseBasicParsing -Method POST -ContentType 'application/json' -Body '{{}}' '{url}' | Out-Null }} catch {{ }}"
-        )
-        creationflags = 0
-        creationflags |= getattr(subprocess, "CREATE_NO_WINDOW", 0)
-        creationflags |= getattr(subprocess, "DETACHED_PROCESS", 0)
-        creationflags |= getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+    try:
+        payload = json.loads(raw) if raw else {}
+    except Exception:
+        payload = {}
 
-        subprocess.Popen(
-            ["powershell", "-NoProfile", "-WindowStyle", "Hidden", "-Command", command],
+    return bool(payload.get("ok", response.status == 200))
+
+
+def _kill_py_xiaozhi_processes_fallback(timeout: float = 4.0) -> bool:
+    if os.name != "nt":
+        return False
+
+    py_root = os.getenv("PY_XIAOZHI_ROOT", r"C:\yuyinzhushou\py-xiaozhi-tao").strip()
+    if not py_root:
+        return False
+
+    main_py = str(Path(py_root) / "main.py")
+    escaped_main = main_py.replace("'", "''")
+
+    script = f"""
+$main = '{escaped_main}'.ToLower().Replace('/', [string][char]92);
+$targets = Get-CimInstance Win32_Process | Where-Object {{
+  $_.CommandLine -and
+  ($_.Name.ToLower() -eq 'python.exe' -or $_.Name.ToLower() -eq 'pythonw.exe') -and
+  $_.CommandLine.ToLower().Replace('/', [string][char]92).Contains($main)
+}};
+foreach ($p in $targets) {{
+  try {{
+    Stop-Process -Id $p.ProcessId -Force -ErrorAction Stop;
+  }} catch {{}}
+}}
+"""
+
+    try:
+        result = subprocess.run(
+            ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", script],
             stdin=subprocess.DEVNULL,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
-            creationflags=creationflags,
+            timeout=timeout,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
         )
+        return result.returncode == 0
     except Exception:
-        pass
+        return False
+
+
+def _request_stop_py_xiaozhi_on_exit(pc_build_root: Path) -> None:
+    """Stop py-xiaozhi reliably when the desktop App exits.
+
+    This replaces the old detached PowerShell fire-and-forget path. Fire-and-
+    forget was fast, but it could silently fail or race with App shutdown. The
+    close path now does a short synchronous HTTP stop through Sidecar and then
+    falls back to killing only the configured py-xiaozhi main.py process.
+    """
+    _load_env_file(pc_build_root / ".env", override=True)
+
+    if not _truthy_env("PC_APP_STOP_PY_XIAOZHI_ON_EXIT", default=False):
+        return
+
+    stopped = _post_runtime_stop_via_sidecar(timeout=5.0)
+    if not stopped:
+        _kill_py_xiaozhi_processes_fallback(timeout=4.0)
 
 
 def run_app() -> int:
@@ -69,7 +145,7 @@ def run_app() -> int:
     os.environ.setdefault("QT_API", "pyside6")
 
     pc_build_root = Path(__file__).resolve().parents[3]
-    _load_env_file(pc_build_root / ".env")
+    _load_env_file(pc_build_root / ".env", override=True)
 
     from PySide6.QtGui import QGuiApplication
     from PySide6.QtQml import QQmlApplicationEngine
@@ -91,7 +167,7 @@ def run_app() -> int:
 
     sidecar_client.notesChanged.connect(notes_controller.refresh)
     sidecar_client.start()
-    app.aboutToQuit.connect(_request_stop_py_xiaozhi_fire_and_forget)
+    app.aboutToQuit.connect(lambda: _request_stop_py_xiaozhi_on_exit(pc_build_root))
     app.aboutToQuit.connect(sidecar_client.stop)
 
     engine = QQmlApplicationEngine()
@@ -115,6 +191,7 @@ def run_app() -> int:
     engine.load(qml_path.as_uri())
 
     if not engine.rootObjects():
+        _request_stop_py_xiaozhi_on_exit(pc_build_root)
         sidecar_client.stop()
         return 1
 
