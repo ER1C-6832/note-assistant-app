@@ -183,6 +183,13 @@ class NotesViewModel(QObject):
         category = str(category_key).strip().lower() or "all"
         if category == "pinned":
             self._submit_query("pinned", "", self._query_service.list_pinned, "置顶便签")
+        elif category == "todo":
+            self._submit_query(
+                "todo",
+                "",
+                lambda: self._query_service.list_by_tag("待办"),
+                "待办便签",
+            )
         elif category == "deleted":
             self.loadDeleted()
         else:
@@ -229,6 +236,8 @@ class NotesViewModel(QObject):
         category = self._active_category
         if category == "pinned":
             self.loadCategory("pinned")
+        elif category == "todo":
+            self.loadCategory("todo")
         elif category == "deleted":
             self.loadDeleted()
         elif category == "search":

@@ -7,8 +7,13 @@ import "../components"
 Item {
     id: root
 
+    property var notesViewModelRef: null
     property string initialTags: ""
     property bool initialPinned: false
+
+    readonly property bool viewModelReady: root.notesViewModelRef !== null
+    readonly property bool mutationBusy: root.viewModelReady && root.notesViewModelRef.mutationBusy
+    readonly property string errorMessage: root.viewModelReady ? root.notesViewModelRef.errorMessage : ""
 
     signal backRequested()
     signal saved(string titleText, string contentText, string tagsText, bool isPinned)
@@ -38,12 +43,24 @@ Item {
                     }
                 }
 
-                AppButton { text: "返回"; variant: "ghost"; compact: true; onClicked: root.backRequested() }
                 AppButton {
-                    text: "保存"
+                    text: "返回"
+                    variant: "ghost"
+                    compact: true
+                    enabled: !root.mutationBusy
+                    onClicked: root.backRequested()
+                }
+                AppButton {
+                    text: root.mutationBusy ? "保存中…" : "保存"
                     variant: "primary"
                     compact: true
-                    onClicked: root.saved(titleField.text, contentArea.text, tagsField.text, pinnedCheck.checked)
+                    enabled: root.viewModelReady && !root.mutationBusy
+                    onClicked: root.saved(
+                        titleField.text,
+                        contentArea.text,
+                        tagsField.text,
+                        pinnedCheck.checked
+                    )
                 }
             }
 
@@ -52,6 +69,7 @@ Item {
                 Layout.fillWidth: true
                 height: 48
                 placeholderText: "标题"
+                enabled: !root.mutationBusy
                 background: Rectangle { color: "#F7F8FA"; radius: 14; border.color: "#E5E7EB" }
             }
 
@@ -61,6 +79,7 @@ Item {
                 Layout.preferredHeight: 220
                 placeholderText: "正文"
                 wrapMode: TextArea.Wrap
+                enabled: !root.mutationBusy
                 background: Rectangle { color: "#F7F8FA"; radius: 16; border.color: "#E5E7EB" }
             }
 
@@ -70,20 +89,27 @@ Item {
                 height: 48
                 text: root.initialTags
                 placeholderText: "标签，例如：客户、跟进"
+                enabled: !root.mutationBusy
                 background: Rectangle { color: "#F7F8FA"; radius: 14; border.color: "#E5E7EB" }
             }
 
-            CheckBox { id: pinnedCheck; text: "置顶"; checked: root.initialPinned; font.pixelSize: 14 }
+            CheckBox {
+                id: pinnedCheck
+                text: "置顶"
+                checked: root.initialPinned
+                enabled: !root.mutationBusy
+                font.pixelSize: 14
+            }
 
             Rectangle {
                 Layout.fillWidth: true
-                visible: notesViewModel !== null && notesViewModel.errorMessage.length > 0
+                visible: root.errorMessage.length > 0
                 radius: 14
                 color: "#FEF2F2"
                 implicitHeight: 48
                 Text {
                     anchors.centerIn: parent
-                    text: notesViewModel !== null ? notesViewModel.errorMessage : ""
+                    text: root.errorMessage
                     color: "#991B1B"
                     font.pixelSize: 13
                 }

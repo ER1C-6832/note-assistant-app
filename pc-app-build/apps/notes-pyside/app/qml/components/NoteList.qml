@@ -14,6 +14,7 @@ Rectangle {
     property var selectedIds: []
 
     readonly property bool viewModelReady: root.notesViewModelRef !== null
+    readonly property bool mutationBusy: root.viewModelReady && root.notesViewModelRef.mutationBusy
     readonly property int safeResultCount: root.viewModelReady ? root.notesViewModelRef.resultCount : 0
     readonly property string safeErrorMessage: root.viewModelReady ? root.notesViewModelRef.errorMessage : ""
 
@@ -58,6 +59,19 @@ Rectangle {
         selectedIds = []
     }
 
+    Connections {
+        target: root.notesViewModelRef
+        ignoreUnknownSignals: true
+
+        function onNotesSoftDeleted(noteIds) {
+            if (root.multiSelectMode) root.exitMultiSelect()
+        }
+
+        function onPinStateChanged(noteIds, pinned) {
+            if (root.multiSelectMode) root.exitMultiSelect()
+        }
+    }
+
     color: "#FFFFFF"
     radius: 20
 
@@ -87,7 +101,7 @@ Rectangle {
                 text: "多选"
                 variant: "secondary"
                 compact: true
-                enabled: root.viewModelReady
+                enabled: root.viewModelReady && !root.mutationBusy
                 onClicked: { root.multiSelectMode = true; root.selectedIds = [] }
             }
 
@@ -96,6 +110,7 @@ Rectangle {
                 text: "+ 新建"
                 variant: "primary"
                 compact: true
+                enabled: root.viewModelReady && !root.mutationBusy
                 onClicked: root.createRequested()
             }
 
@@ -104,7 +119,7 @@ Rectangle {
                 text: root.allVisibleSelected() ? "全不选" : "全选"
                 variant: "secondary"
                 compact: true
-                enabled: root.safeResultCount > 0
+                enabled: root.viewModelReady && root.safeResultCount > 0 && !root.mutationBusy
                 onClicked: root.toggleSelectAll()
             }
 
@@ -113,8 +128,8 @@ Rectangle {
                 text: "置顶"
                 variant: "secondary"
                 compact: true
-                enabled: root.selectedIds.length > 0
-                onClicked: { root.bulkPinRequested(root.selectedIds); root.exitMultiSelect() }
+                enabled: root.viewModelReady && root.selectedIds.length > 0 && !root.mutationBusy
+                onClicked: root.bulkPinRequested(root.selectedIds)
             }
 
             AppButton {
@@ -122,8 +137,8 @@ Rectangle {
                 text: "取消置顶"
                 variant: "secondary"
                 compact: true
-                enabled: root.selectedIds.length > 0
-                onClicked: { root.bulkUnpinRequested(root.selectedIds); root.exitMultiSelect() }
+                enabled: root.viewModelReady && root.selectedIds.length > 0 && !root.mutationBusy
+                onClicked: root.bulkUnpinRequested(root.selectedIds)
             }
 
             AppButton {
@@ -131,8 +146,8 @@ Rectangle {
                 text: "删除"
                 variant: "softDanger"
                 compact: true
-                enabled: root.selectedIds.length > 0
-                onClicked: { root.bulkDeleteRequested(root.selectedIds); root.exitMultiSelect() }
+                enabled: root.viewModelReady && root.selectedIds.length > 0 && !root.mutationBusy
+                onClicked: root.bulkDeleteRequested(root.selectedIds)
             }
 
             AppButton {
@@ -140,6 +155,7 @@ Rectangle {
                 text: "取消"
                 variant: "ghost"
                 compact: true
+                enabled: !root.mutationBusy
                 onClicked: root.exitMultiSelect()
             }
         }

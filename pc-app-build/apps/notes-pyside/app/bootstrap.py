@@ -29,7 +29,7 @@ from .notes import (
     prepare_gate1_local_data,
 )
 from .notes.sqlalchemy_repository import SessionFactory
-from .ui.empty_notes_view_model import EmptyNoteListModel, EmptyNotesViewModel
+from .ui import NoteListModel, NotesViewModel
 
 
 @dataclass(slots=True)
@@ -51,9 +51,9 @@ class ApplicationContext:
     migration_result: MigrationResult
     tag_catalog: TagCatalog
     notes_runtime: NotesRuntime
-    notes_view_model: EmptyNotesViewModel
-    notes_list_model: EmptyNoteListModel
-    deleted_notes_list_model: EmptyNoteListModel
+    notes_view_model: NotesViewModel
+    notes_list_model: NoteListModel
+    deleted_notes_list_model: NoteListModel
 
     @property
     def database_engine(self) -> Engine:
@@ -148,10 +148,30 @@ def create_application_context(
     tag_catalog = TagCatalog(paths.custom_tags)
     tag_catalog.load()
 
+    notes_runtime = create_notes_runtime(paths)
+    notes_list_model = NoteListModel()
+    deleted_notes_list_model = NoteListModel()
+    notes_view_model = NotesViewModel(
+        command_service=notes_runtime.note_command_service,
+        query_service=notes_runtime.note_query_service,
+        tag_catalog=tag_catalog,
+        notes_model=notes_list_model,
+        deleted_notes_model=deleted_notes_list_model,
+    )
+
     lifecycle = ApplicationLifecycle()
-    notes_list_model = EmptyNoteListModel()
-    deleted_notes_list_model = EmptyNoteListModel()
-    notes_view_model = EmptyNotesViewModel()
+    lifecycle.register_async_closer(
+        "sqlalchemy-engine",
+        lambda: dispose_database_engine(notes_runtime.database_engine),
+    )
+    lifecycle.register_async_closer(
+        "database-executor",
+        notes_runtime.database_executor.close,
+    )
+    lifecycle.register_async_closer(
+        "notes-view-model",
+        notes_view_model.close,
+    )
 
     engine = QQmlApplicationEngine()
     context = engine.rootContext()
@@ -162,17 +182,8 @@ def create_application_context(
     qml_file = Path(__file__).resolve().parent / "qml" / "Main.qml"
     engine.load(QUrl.fromLocalFile(str(qml_file)))
     if not engine.rootObjects():
+        notes_runtime.database_engine.dispose()
         raise RuntimeError(f"QML failed to load: {qml_file}")
-
-    notes_runtime = create_notes_runtime(paths)
-    lifecycle.register_async_closer(
-        "sqlalchemy-engine",
-        lambda: dispose_database_engine(notes_runtime.database_engine),
-    )
-    lifecycle.register_async_closer(
-        "database-executor",
-        notes_runtime.database_executor.close,
-    )
 
     engine.quit.connect(app.quit)
     QTimer.singleShot(0, notes_view_model.loadAll)

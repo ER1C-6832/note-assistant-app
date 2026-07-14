@@ -34,22 +34,6 @@ ApplicationWindow {
         return currentCategory === "pinned"
     }
 
-    function reloadCurrentContext() {
-        if (currentCategory === "pinned") {
-            notesViewModel.loadCategory("pinned")
-        } else if (currentCategory === "todo") {
-            notesViewModel.loadCategory("todo")
-        } else if (currentCategory.indexOf("tag:") === 0) {
-            notesViewModel.loadTag(currentCategory.substring(4))
-        } else if (currentCategory === "deleted") {
-            notesViewModel.loadDeleted()
-        } else if (currentCategory === "search" && notesViewModel.searchKeyword.length > 0) {
-            notesViewModel.searchNotes(notesViewModel.searchKeyword)
-        } else {
-            notesViewModel.loadAll()
-        }
-    }
-
     function openPage(pageName) {
         currentPage = pageName
     }
@@ -99,29 +83,14 @@ ApplicationWindow {
 
         function onNoteCreated(noteId) {
             root.openPage("home")
-            root.reloadCurrentContext()
         }
 
         function onNoteUpdated(noteId) {
             root.openPage("home")
-            root.reloadCurrentContext()
         }
 
         function onNotesSoftDeleted(noteIds) {
             root.openPage("home")
-            root.reloadCurrentContext()
-        }
-
-        function onNotesRestored(noteIds) {
-            if (root.currentPage === "deletedList") {
-                notesViewModel.loadDeleted()
-            }
-        }
-
-        function onNotesHardDeleted(noteIds) {
-            if (root.currentPage === "deletedList") {
-                notesViewModel.loadDeleted()
-            }
         }
     }
 
@@ -191,7 +160,7 @@ ApplicationWindow {
         HomePage {
             notesModel: notesListModel
             notesViewModelRef: notesViewModel
-            selectedIndex: notesViewModel !== null ? notesViewModel.selectedIndex : -1
+            selectedIndex: notesViewModel.selectedIndex
             activeCategory: root.currentCategory
 
             onNoteSelected: function(index) {
@@ -232,6 +201,7 @@ ApplicationWindow {
         id: createPage
 
         CreateNotePage {
+            notesViewModelRef: notesViewModel
             initialTags: root.createInitialTags()
             initialPinned: root.createInitialPinned()
 
@@ -249,6 +219,7 @@ ApplicationWindow {
         id: editPage
 
         EditNotePage {
+            notesViewModelRef: notesViewModel
             noteTitle: notesViewModel.selectedTitle
             noteContent: notesViewModel.selectedContent
             noteTags: notesViewModel.selectedTagsText
@@ -268,6 +239,8 @@ ApplicationWindow {
 
         DeleteConfirmPage {
             noteTitle: notesViewModel.selectedTitle
+            mutationBusy: notesViewModel.mutationBusy
+            errorMessage: notesViewModel.errorMessage
 
             onBackRequested: {
                 root.openPage("home")
@@ -284,6 +257,7 @@ ApplicationWindow {
 
         DeletedNotesPage {
             deletedNotesModel: deletedNotesListModel
+            notesViewModelRef: notesViewModel
 
             onBackRequested: {
                 root.currentCategory = "all"
@@ -297,9 +271,10 @@ ApplicationWindow {
         id: searchPage
 
         SearchPage {
+            notesViewModelRef: notesViewModel
             keyword: notesViewModel.searchKeyword
             notesModel: notesListModel
-            selectedIndex: notesViewModel !== null ? notesViewModel.selectedIndex : -1
+            selectedIndex: notesViewModel.selectedIndex
 
             onNoteSelected: function(index) {
                 root.selectNote(index)

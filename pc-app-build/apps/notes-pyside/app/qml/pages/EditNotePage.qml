@@ -7,9 +7,14 @@ import "../components"
 Item {
     id: root
 
+    property var notesViewModelRef: null
     property string noteTitle: ""
     property string noteContent: ""
     property string noteTags: ""
+
+    readonly property bool viewModelReady: root.notesViewModelRef !== null
+    readonly property bool mutationBusy: root.viewModelReady && root.notesViewModelRef.mutationBusy
+    readonly property string errorMessage: root.viewModelReady ? root.notesViewModelRef.errorMessage : ""
 
     signal backRequested()
     signal saved(string titleText, string contentText, string tagsText)
@@ -35,11 +40,18 @@ Item {
                     Text { text: "修改内容后点击保存。"; color: "#6B7280"; font.pixelSize: 13 }
                 }
 
-                AppButton { text: "返回"; variant: "ghost"; compact: true; onClicked: root.backRequested() }
                 AppButton {
-                    text: "保存修改"
+                    text: "返回"
+                    variant: "ghost"
+                    compact: true
+                    enabled: !root.mutationBusy
+                    onClicked: root.backRequested()
+                }
+                AppButton {
+                    text: root.mutationBusy ? "保存中…" : "保存修改"
                     variant: "primary"
                     compact: true
+                    enabled: root.viewModelReady && !root.mutationBusy
                     onClicked: root.saved(titleField.text, contentArea.text, tagsField.text)
                 }
             }
@@ -49,6 +61,7 @@ Item {
                 Layout.fillWidth: true
                 height: 48
                 text: root.noteTitle
+                enabled: !root.mutationBusy
                 background: Rectangle { color: "#F7F8FA"; radius: 14; border.color: "#E5E7EB" }
             }
 
@@ -58,6 +71,7 @@ Item {
                 Layout.preferredHeight: 260
                 text: root.noteContent
                 wrapMode: TextArea.Wrap
+                enabled: !root.mutationBusy
                 background: Rectangle { color: "#F7F8FA"; radius: 16; border.color: "#E5E7EB" }
             }
 
@@ -67,18 +81,19 @@ Item {
                 height: 48
                 text: root.noteTags
                 placeholderText: "标签，例如：客户、跟进"
+                enabled: !root.mutationBusy
                 background: Rectangle { color: "#F7F8FA"; radius: 14; border.color: "#E5E7EB" }
             }
 
             Rectangle {
                 Layout.fillWidth: true
-                visible: notesViewModel !== null && notesViewModel.errorMessage.length > 0
+                visible: root.errorMessage.length > 0
                 radius: 14
                 color: "#FEF2F2"
                 implicitHeight: 48
                 Text {
                     anchors.centerIn: parent
-                    text: notesViewModel !== null ? notesViewModel.errorMessage : ""
+                    text: root.errorMessage
                     color: "#991B1B"
                     font.pixelSize: 13
                 }

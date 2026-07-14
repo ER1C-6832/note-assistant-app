@@ -11,6 +11,9 @@ Item {
     property int selectedIndex: -1
     property string activeCategory: "all"
 
+    readonly property bool viewModelReady: root.notesViewModelRef !== null
+    readonly property bool mutationBusy: root.viewModelReady && root.notesViewModelRef.mutationBusy
+
     signal noteSelected(int index)
     signal createRequested()
     signal editRequested()
@@ -42,13 +45,14 @@ Item {
         DetailPanel {
             Layout.fillWidth: true
             Layout.fillHeight: true
-            hasSelection: root.notesViewModelRef !== null && root.notesViewModelRef.hasSelection
-            isPinned: root.notesViewModelRef !== null && root.notesViewModelRef.selectedIsPinned
-            title: root.notesViewModelRef !== null ? root.notesViewModelRef.selectedTitle : ""
-            content: root.notesViewModelRef !== null ? root.notesViewModelRef.selectedContent : ""
-            tags: root.notesViewModelRef !== null ? root.notesViewModelRef.selectedTagsText : ""
-            updated: root.notesViewModelRef !== null ? root.notesViewModelRef.selectedUpdatedText : ""
-            source: root.notesViewModelRef !== null ? root.notesViewModelRef.selectedSourceText : ""
+            hasSelection: root.viewModelReady && root.notesViewModelRef.hasSelection
+            isPinned: root.viewModelReady && root.notesViewModelRef.selectedIsPinned
+            actionsEnabled: root.viewModelReady && !root.mutationBusy
+            title: root.viewModelReady ? root.notesViewModelRef.selectedTitle : ""
+            content: root.viewModelReady ? root.notesViewModelRef.selectedContent : ""
+            tags: root.viewModelReady ? root.notesViewModelRef.selectedTagsText : ""
+            updated: root.viewModelReady ? root.notesViewModelRef.selectedUpdatedText : ""
+            source: root.viewModelReady ? root.notesViewModelRef.selectedSourceText : ""
 
             onEditRequested: root.editRequested()
             onDeleteRequested: root.deleteRequested()

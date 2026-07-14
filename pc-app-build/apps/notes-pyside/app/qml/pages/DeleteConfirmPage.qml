@@ -7,6 +7,8 @@ Item {
     id: root
 
     property string noteTitle: "便签"
+    property bool mutationBusy: false
+    property string errorMessage: ""
 
     signal backRequested()
     signal deleted()
@@ -18,7 +20,7 @@ Item {
 
         Rectangle {
             width: 520
-            height: 300
+            height: 330
             anchors.centerIn: parent
             color: "#FFFFFF"
             radius: 24
@@ -48,6 +50,23 @@ Item {
                     horizontalAlignment: Text.AlignHCenter
                 }
 
+                Rectangle {
+                    Layout.fillWidth: true
+                    visible: root.errorMessage.length > 0
+                    radius: 12
+                    color: "#FEF2F2"
+                    implicitHeight: 42
+                    Text {
+                        anchors.centerIn: parent
+                        width: parent.width - 20
+                        text: root.errorMessage
+                        color: "#991B1B"
+                        font.pixelSize: 12
+                        elide: Text.ElideRight
+                        horizontalAlignment: Text.AlignHCenter
+                    }
+                }
+
                 Item {
                     Layout.fillHeight: true
                 }
@@ -59,12 +78,14 @@ Item {
                     AppButton {
                         text: "取消"
                         variant: "secondary"
+                        enabled: !root.mutationBusy
                         onClicked: root.backRequested()
                     }
 
                     AppButton {
-                        text: "确认删除"
+                        text: root.mutationBusy ? "删除中…" : "确认删除"
                         variant: "danger"
+                        enabled: !root.mutationBusy
                         onClicked: root.deleted()
                     }
                 }

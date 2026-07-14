@@ -8,15 +8,25 @@ Item {
     id: root
 
     property var deletedNotesModel
+    property var notesViewModelRef: null
     property bool multiSelectMode: false
     property var selectedIds: []
     property bool confirmVisible: false
     property var confirmIds: []
     property string confirmText: ""
 
+    readonly property bool viewModelReady: root.notesViewModelRef !== null
+    readonly property bool mutationBusy: root.viewModelReady && root.notesViewModelRef.mutationBusy
+    readonly property int deletedResultCount: root.viewModelReady ? root.notesViewModelRef.deletedResultCount : 0
+    readonly property int deletedSelectedIndex: root.viewModelReady ? root.notesViewModelRef.deletedSelectedIndex : -1
+    readonly property string errorMessage: root.viewModelReady ? root.notesViewModelRef.errorMessage : ""
+
     signal backRequested()
 
-    function hasSelected(noteId) { return selectedIds.indexOf(noteId) >= 0 }
+    function hasSelected(noteId) {
+        return selectedIds.indexOf(noteId) >= 0
+    }
+
     function toggleSelected(noteId) {
         var arr = selectedIds.slice()
         var pos = arr.indexOf(noteId)
@@ -24,15 +34,42 @@ Item {
         else arr.push(noteId)
         selectedIds = arr
     }
+
     function allVisibleSelected() {
-        return notesViewModel.deletedResultCount > 0 && selectedIds.length === notesViewModel.deletedResultCount
+        return root.deletedResultCount > 0 && selectedIds.length === root.deletedResultCount
     }
+
     function toggleSelectAll() {
         if (allVisibleSelected()) selectedIds = []
-        else selectedIds = notesViewModel.currentDeletedNoteIds()
+        else if (root.viewModelReady) selectedIds = root.notesViewModelRef.currentDeletedNoteIds()
+        else selectedIds = []
     }
-    function exitMultiSelect() { multiSelectMode = false; selectedIds = [] }
-    function askHardDelete(ids, text) { confirmIds = ids; confirmText = text; confirmVisible = true }
+
+    function exitMultiSelect() {
+        multiSelectMode = false
+        selectedIds = []
+    }
+
+    function askHardDelete(ids, text) {
+        confirmIds = ids.slice()
+        confirmText = text
+        confirmVisible = true
+    }
+
+    Connections {
+        target: root.notesViewModelRef
+        ignoreUnknownSignals: true
+
+        function onNotesRestored(noteIds) {
+            root.exitMultiSelect()
+        }
+
+        function onNotesHardDeleted(noteIds) {
+            root.confirmVisible = false
+            root.confirmIds = []
+            root.exitMultiSelect()
+        }
+    }
 
     RowLayout {
         anchors.fill: parent
@@ -58,7 +95,7 @@ Item {
                         spacing: 4
                         Text { text: "已删除"; color: "#111827"; font.pixelSize: 18; font.bold: true }
                         Text {
-                            text: root.multiSelectMode ? "已选择 " + root.selectedIds.length + " 条便签" : notesViewModel.deletedResultCount + " 条便签"
+                            text: root.multiSelectMode ? "已选择 " + root.selectedIds.length + " 条便签" : root.deletedResultCount + " 条便签"
                             color: "#9CA3AF"
                             font.pixelSize: 12
                         }
@@ -69,34 +106,68 @@ Item {
                         text: "多选"
                         variant: "secondary"
                         compact: true
+                        enabled: root.viewModelReady && !root.mutationBusy
                         onClicked: { root.multiSelectMode = true; root.selectedIds = [] }
                     }
-                    AppButton { visible: !root.multiSelectMode; text: "返回全部"; variant: "secondary"; compact: true; onClicked: root.backRequested() }
+                    AppButton {
+                        visible: !root.multiSelectMode
+                        text: "返回全部"
+                        variant: "secondary"
+                        compact: true
+                        enabled: !root.mutationBusy
+                        onClicked: root.backRequested()
+                    }
                     AppButton {
                         visible: root.multiSelectMode
                         text: root.allVisibleSelected() ? "全不选" : "全选"
                         variant: "secondary"
                         compact: true
-                        enabled: notesViewModel.deletedResultCount > 0
+                        enabled: root.viewModelReady && root.deletedResultCount > 0 && !root.mutationBusy
                         onClicked: root.toggleSelectAll()
                     }
                     AppButton {
                         visible: root.multiSelectMode
-                        text: "还原"
+                        text: root.mutationBusy ? "还原中…" : "还原"
                         variant: "secondary"
                         compact: true
-                        enabled: root.selectedIds.length > 0
-                        onClicked: { notesViewModel.requestBulkRestoreDeleted(root.selectedIds); root.exitMultiSelect() }
+                        enabled: root.viewModelReady && root.selectedIds.length > 0 && !root.mutationBusy
+                        onClicked: root.notesViewModelRef.requestBulkRestoreDeleted(root.selectedIds)
                     }
                     AppButton {
                         visible: root.multiSelectMode
                         text: "彻底删除"
                         variant: "danger"
                         compact: true
-                        enabled: root.selectedIds.length > 0
-                        onClicked: root.askHardDelete(root.selectedIds, "确认彻底删除选中的 " + root.selectedIds.length + " 条便签吗？")
+                        enabled: root.viewModelReady && root.selectedIds.length > 0 && !root.mutationBusy
+                        onClicked: root.askHardDelete(
+                            root.selectedIds,
+                            "确认彻底删除选中的 " + root.selectedIds.length + " 条便签吗？"
+                        )
                     }
-                    AppButton { visible: root.multiSelectMode; text: "取消"; variant: "ghost"; compact: true; onClicked: root.exitMultiSelect() }
+                    AppButton {
+                        visible: root.multiSelectMode
+                        text: "取消"
+                        variant: "ghost"
+                        compact: true
+                        enabled: !root.mutationBusy
+                        onClicked: root.exitMultiSelect()
+                    }
+                }
+
+                Rectangle {
+                    Layout.fillWidth: true
+                    visible: root.errorMessage.length > 0
+                    radius: 14
+                    color: "#FEF2F2"
+                    implicitHeight: 44
+                    Text {
+                        anchors.centerIn: parent
+                        width: parent.width - 24
+                        text: root.errorMessage
+                        color: "#991B1B"
+                        font.pixelSize: 12
+                        elide: Text.ElideRight
+                    }
                 }
 
                 ListView {
@@ -115,8 +186,8 @@ Item {
                         height: 128
                         radius: 18
                         color: "#F3F4F6"
-                        border.color: notesViewModel.deletedSelectedIndex === index || root.hasSelected(model.noteId) ? "#4F7CFF" : "transparent"
-                        border.width: notesViewModel.deletedSelectedIndex === index || root.hasSelected(model.noteId) ? 2 : 0
+                        border.color: root.deletedSelectedIndex === index || root.hasSelected(model.noteId) ? "#4F7CFF" : "transparent"
+                        border.width: root.deletedSelectedIndex === index || root.hasSelected(model.noteId) ? 2 : 0
                         clip: true
 
                         RowLayout {
@@ -126,34 +197,82 @@ Item {
 
                             Rectangle {
                                 visible: root.multiSelectMode
-                                width: 22; height: 22; radius: 11
+                                width: 22
+                                height: 22
+                                radius: 11
                                 color: root.hasSelected(model.noteId) ? "#4F7CFF" : "#FFFFFF"
                                 border.color: root.hasSelected(model.noteId) ? "#4F7CFF" : "#CBD5E1"
                                 border.width: 1
-                                Text { anchors.centerIn: parent; text: "✓"; visible: root.hasSelected(model.noteId); color: "#FFFFFF"; font.pixelSize: 13; font.bold: true }
+                                Text {
+                                    anchors.centerIn: parent
+                                    text: "✓"
+                                    visible: root.hasSelected(model.noteId)
+                                    color: "#FFFFFF"
+                                    font.pixelSize: 13
+                                    font.bold: true
+                                }
                             }
 
                             ColumnLayout {
                                 Layout.fillWidth: true
                                 Layout.fillHeight: true
                                 spacing: 7
-                                Text { Layout.fillWidth: true; text: model.title; color: "#111827"; font.pixelSize: 15; font.bold: true; elide: Text.ElideRight }
-                                Text { Layout.fillWidth: true; text: model.content; color: "#4B5563"; font.pixelSize: 12; wrapMode: Text.WordWrap; maximumLineCount: 2; elide: Text.ElideRight }
-                                Text { Layout.fillWidth: true; text: model.tagsText + " · " + model.updatedText; color: "#6B7280"; font.pixelSize: 11; elide: Text.ElideRight }
+                                Text {
+                                    Layout.fillWidth: true
+                                    text: model.title
+                                    color: "#111827"
+                                    font.pixelSize: 15
+                                    font.bold: true
+                                    elide: Text.ElideRight
+                                }
+                                Text {
+                                    Layout.fillWidth: true
+                                    text: model.content
+                                    color: "#4B5563"
+                                    font.pixelSize: 12
+                                    wrapMode: Text.WordWrap
+                                    maximumLineCount: 2
+                                    elide: Text.ElideRight
+                                }
+                                Text {
+                                    Layout.fillWidth: true
+                                    text: model.tagsText + " · " + model.updatedText
+                                    color: "#6B7280"
+                                    font.pixelSize: 11
+                                    elide: Text.ElideRight
+                                }
                             }
 
-                            AppButton { visible: !root.multiSelectMode; text: "还原"; variant: "secondary"; compact: true; onClicked: notesViewModel.requestRestoreDeletedAt(index) }
-                            AppButton { visible: !root.multiSelectMode; text: "彻底删除"; variant: "danger"; compact: true; onClicked: root.askHardDelete([model.noteId], "确认彻底删除“" + model.title + "”吗？") }
+                            AppButton {
+                                visible: !root.multiSelectMode
+                                text: root.mutationBusy ? "处理中…" : "还原"
+                                variant: "secondary"
+                                compact: true
+                                enabled: root.viewModelReady && !root.mutationBusy
+                                onClicked: root.notesViewModelRef.requestRestoreDeletedAt(index)
+                            }
+                            AppButton {
+                                visible: !root.multiSelectMode
+                                text: "彻底删除"
+                                variant: "danger"
+                                compact: true
+                                enabled: root.viewModelReady && !root.mutationBusy
+                                onClicked: root.askHardDelete(
+                                    [model.noteId],
+                                    "确认彻底删除“" + model.title + "”吗？"
+                                )
+                            }
                         }
 
                         MouseArea {
                             anchors.fill: parent
                             anchors.rightMargin: root.multiSelectMode ? 0 : 190
                             hoverEnabled: true
+                            enabled: root.viewModelReady && !root.mutationBusy
                             cursorShape: Qt.PointingHandCursor
                             onClicked: {
                                 if (root.multiSelectMode) root.toggleSelected(model.noteId)
-                                else notesViewModel.selectDeletedNote(index)
+                                else root.notesViewModelRef.selectDeletedNote(index)
                             }
                         }
                     }
@@ -162,7 +281,7 @@ Item {
                 Rectangle {
                     Layout.fillWidth: true
                     Layout.fillHeight: true
-                    visible: notesViewModel.deletedResultCount === 0
+                    visible: root.deletedResultCount === 0
                     radius: 18
                     color: "#F7F8FA"
                     ColumnLayout {
@@ -193,22 +312,44 @@ Item {
                 anchors.fill: parent
                 anchors.margins: 24
                 spacing: 16
-                Text { Layout.fillWidth: true; text: "彻底删除"; color: "#111827"; font.pixelSize: 24; font.bold: true; horizontalAlignment: Text.AlignHCenter }
-                Text { Layout.fillWidth: true; text: root.confirmText; color: "#4B5563"; font.pixelSize: 15; wrapMode: Text.WordWrap; horizontalAlignment: Text.AlignHCenter }
-                Text { Layout.fillWidth: true; text: "此操作无法恢复。"; color: "#DC2626"; font.pixelSize: 13; horizontalAlignment: Text.AlignHCenter }
+                Text {
+                    Layout.fillWidth: true
+                    text: "彻底删除"
+                    color: "#111827"
+                    font.pixelSize: 24
+                    font.bold: true
+                    horizontalAlignment: Text.AlignHCenter
+                }
+                Text {
+                    Layout.fillWidth: true
+                    text: root.confirmText
+                    color: "#4B5563"
+                    font.pixelSize: 15
+                    wrapMode: Text.WordWrap
+                    horizontalAlignment: Text.AlignHCenter
+                }
+                Text {
+                    Layout.fillWidth: true
+                    text: "此操作无法恢复。"
+                    color: "#DC2626"
+                    font.pixelSize: 13
+                    horizontalAlignment: Text.AlignHCenter
+                }
                 Item { Layout.fillHeight: true }
                 RowLayout {
                     Layout.alignment: Qt.AlignHCenter
                     spacing: 12
-                    AppButton { text: "取消"; variant: "secondary"; onClicked: root.confirmVisible = false }
                     AppButton {
-                        text: "确认彻底删除"
+                        text: "取消"
+                        variant: "secondary"
+                        enabled: !root.mutationBusy
+                        onClicked: root.confirmVisible = false
+                    }
+                    AppButton {
+                        text: root.mutationBusy ? "删除中…" : "确认彻底删除"
                         variant: "danger"
-                        onClicked: {
-                            notesViewModel.requestBulkHardDeleteDeleted(root.confirmIds)
-                            root.confirmVisible = false
-                            root.exitMultiSelect()
-                        }
+                        enabled: root.viewModelReady && root.confirmIds.length > 0 && !root.mutationBusy
+                        onClicked: root.notesViewModelRef.requestBulkHardDeleteDeleted(root.confirmIds)
                     }
                 }
             }

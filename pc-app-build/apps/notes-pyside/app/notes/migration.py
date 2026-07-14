@@ -190,13 +190,7 @@ def discover_legacy_tag_candidates(
         / "custom_tags.json"
     )
     current_transition_tags = (
-        root
-        / "pc-app-build"
-        / "apps"
-        / "notes-pyside"
-        / "app"
-        / "data"
-        / "custom_tags.json"
+        root / "pc-app-build" / "apps" / "notes-pyside" / "app" / "data" / "custom_tags.json"
     )
 
     has_distinct_sibling = not _paths_refer_to_same_file(root, sibling_root)

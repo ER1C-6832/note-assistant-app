@@ -12,6 +12,7 @@ Rectangle {
     property string source: ""
     property bool hasSelection: false
     property bool isPinned: false
+    property bool actionsEnabled: true
 
     signal editRequested()
     signal deleteRequested()
@@ -82,6 +83,7 @@ Rectangle {
                     text: root.isPinned ? "取消置顶" : "置顶"
                     variant: root.isPinned ? "ghost" : "secondary"
                     compact: true
+                    enabled: root.actionsEnabled
                     onClicked: root.pinRequested()
                 }
 
@@ -89,6 +91,7 @@ Rectangle {
                     text: "编辑"
                     variant: "secondary"
                     compact: true
+                    enabled: root.actionsEnabled
                     onClicked: root.editRequested()
                 }
 
@@ -96,6 +99,7 @@ Rectangle {
                     text: "删除"
                     variant: "softDanger"
                     compact: true
+                    enabled: root.actionsEnabled
                     onClicked: root.deleteRequested()
                 }
             }
