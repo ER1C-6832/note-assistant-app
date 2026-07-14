@@ -2,7 +2,16 @@
 
 from __future__ import annotations
 
-from PySide6.QtCore import QAbstractListModel, QByteArray, QModelIndex, QObject, Property, Qt, Signal, Slot
+from PySide6.QtCore import (
+    QAbstractListModel,
+    QByteArray,
+    QModelIndex,
+    QObject,
+    Property,
+    Qt,
+    Signal,
+    Slot,
+)
 
 
 class EmptyNoteListModel(QAbstractListModel):
