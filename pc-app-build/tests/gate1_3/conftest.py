@@ -40,12 +40,9 @@ def create_legacy_database(
     include_source: bool = True,
 ) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    source_column = (
-        ", source VARCHAR(50) NOT NULL DEFAULT 'manual'" if include_source else ""
-    )
+    source_column = ", source VARCHAR(50) NOT NULL DEFAULT 'manual'" if include_source else ""
     with sqlite3.connect(path) as connection:
-        connection.execute(
-            f"""
+        connection.execute(f"""
             CREATE TABLE notes (
                 id INTEGER PRIMARY KEY,
                 title VARCHAR(200) NOT NULL,
@@ -57,8 +54,7 @@ def create_legacy_database(
                 updated_at DATETIME NOT NULL
                 {source_column}
             )
-            """
-        )
+            """)
         for index, title in enumerate(note_titles, start=1):
             columns = "id, title, content, tags, is_pinned, is_deleted, created_at, updated_at"
             values = [

@@ -7,9 +7,7 @@ from app.notes.migration import MigrationReport
 
 
 def test_gate1_3_modules_do_not_import_qt() -> None:
-    notes_root = (
-        Path(__file__).resolve().parents[2] / "apps" / "notes-pyside" / "app" / "notes"
-    )
+    notes_root = Path(__file__).resolve().parents[2] / "apps" / "notes-pyside" / "app" / "notes"
     for filename in ("migration.py", "tag_catalog.py"):
         content = (notes_root / filename).read_text(encoding="utf-8")
         assert "PySide6" not in content

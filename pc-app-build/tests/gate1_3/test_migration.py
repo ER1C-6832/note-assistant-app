@@ -98,9 +98,7 @@ def test_multiple_distinct_database_candidates_are_not_guessed(
     fixed_now,
 ) -> None:
     configured = tmp_path / "configured.db"
-    current_legacy = (
-        worktree_root / "pc-app-build" / "services" / "notes-api" / "data" / "notes.db"
-    )
+    current_legacy = worktree_root / "pc-app-build" / "services" / "notes-api" / "data" / "notes.db"
     create_legacy_database(configured)
     create_legacy_database(current_legacy)
 
@@ -115,9 +113,7 @@ def test_multiple_distinct_database_candidates_are_not_guessed(
     assert captured.value.kind == "database"
     assert len(captured.value.candidates) == 2
     assert not app_paths.notes_db.exists()
-    report = json.loads(
-        (app_paths.logs_dir / "migration-gate1.json").read_text("utf-8")
-    )
+    report = json.loads((app_paths.logs_dir / "migration-gate1.json").read_text("utf-8"))
     assert report["status"] == "failed"
 
 
@@ -274,9 +270,7 @@ def test_same_database_candidate_is_deduplicated(
     worktree_root: Path,
     fixed_now,
 ) -> None:
-    source = (
-        worktree_root / "pc-app-build" / "services" / "notes-api" / "data" / "notes.db"
-    )
+    source = worktree_root / "pc-app-build" / "services" / "notes-api" / "data" / "notes.db"
     create_legacy_database(source)
 
     result = prepare_gate1_local_data(

@@ -131,9 +131,7 @@ class TagCatalog:
         if clean_tag in self._protected_tags:
             raise TagValidationError(f"protected tag cannot be deleted: {clean_tag}")
         if clean_tag in self._system_names:
-            raise TagValidationError(
-                f"system category is not a custom tag: {clean_tag}"
-            )
+            raise TagValidationError(f"system category is not a custom tag: {clean_tag}")
 
         used = frozenset(_normalize_tags(used_tags))
         if clean_tag in used:
@@ -171,20 +169,14 @@ class TagCatalog:
     def _validate_user_tag(self, tag: str) -> str:
         clean_tag = _normalize_single_tag(tag)
         if clean_tag in self._protected_tags:
-            raise TagValidationError(
-                f"protected tag cannot be added as custom: {clean_tag}"
-            )
+            raise TagValidationError(f"protected tag cannot be added as custom: {clean_tag}")
         if clean_tag in self._system_names:
-            raise TagValidationError(
-                f"system category name cannot be used as a tag: {clean_tag}"
-            )
+            raise TagValidationError(f"system category name cannot be used as a tag: {clean_tag}")
         return clean_tag
 
     def _filter_allowed(self, tags: Iterable[str]) -> tuple[str, ...]:
         return tuple(
-            tag
-            for tag in tags
-            if tag not in self._protected_tags and tag not in self._system_names
+            tag for tag in tags if tag not in self._protected_tags and tag not in self._system_names
         )
 
     def _ensure_loaded(self) -> None:

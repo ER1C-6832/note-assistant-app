@@ -7,6 +7,7 @@ import os
 import shutil
 import sqlite3
 from collections.abc import Callable, Mapping, Sequence
+from contextlib import closing
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -57,9 +58,7 @@ class DatabaseValidationError(DataPreparationError):
 class LegacySchemaError(DatabaseValidationError):
     def __init__(self, path: Path, missing_columns: Sequence[str]) -> None:
         self.missing_columns = tuple(missing_columns)
-        super().__init__(
-            path, f"notes table is missing columns: {self.missing_columns}"
-        )
+        super().__init__(path, f"notes table is missing columns: {self.missing_columns}")
 
 
 class TagFileValidationError(DataPreparationError):
@@ -147,13 +146,7 @@ def discover_legacy_database_candidates(
             ),
             (
                 "transition_app_data",
-                root
-                / "pc-app-build"
-                / "apps"
-                / "notes-pyside"
-                / "app"
-                / "data"
-                / "notes.db",
+                root / "pc-app-build" / "apps" / "notes-pyside" / "app" / "data" / "notes.db",
             ),
         ]
     )
@@ -208,23 +201,33 @@ def inspect_database(database_path: str | Path) -> DatabaseInspection:
     path = Path(database_path).expanduser().resolve()
     if not path.is_file():
         raise DatabaseValidationError(
-            path, "file does not exist or is not a regular file"
+            path,
+            "file does not exist or is not a regular file",
         )
 
     try:
-        with sqlite3.connect(_read_only_sqlite_uri(path), uri=True) as connection:
+        with closing(
+            sqlite3.connect(
+                _read_only_sqlite_uri(path),
+                uri=True,
+            )
+        ) as connection:
             quick_rows = connection.execute("PRAGMA quick_check").fetchall()
             quick_check = "; ".join(str(row[0]) for row in quick_rows)
             if quick_rows != [("ok",)]:
                 raise DatabaseValidationError(
-                    path, f"PRAGMA quick_check returned {quick_check}"
+                    path,
+                    f"PRAGMA quick_check returned {quick_check}",
                 )
 
             table_row = connection.execute(
-                "SELECT name FROM sqlite_master WHERE type='table' AND name='notes'"
+                "SELECT name " "FROM sqlite_master " "WHERE type='table' AND name='notes'"
             ).fetchone()
             if table_row is None:
-                raise DatabaseValidationError(path, "notes table is missing")
+                raise DatabaseValidationError(
+                    path,
+                    "notes table is missing",
+                )
 
             columns = frozenset(
                 str(row[1]) for row in connection.execute("PRAGMA table_info(notes)")
@@ -233,9 +236,7 @@ def inspect_database(database_path: str | Path) -> DatabaseInspection:
             if missing:
                 raise LegacySchemaError(path, missing)
 
-            notes_count = int(
-                connection.execute("SELECT COUNT(*) FROM notes").fetchone()[0]
-            )
+            notes_count = int(connection.execute("SELECT COUNT(*) FROM notes").fetchone()[0])
     except DataPreparationError:
         raise
     except (OSError, sqlite3.DatabaseError) as exc:
@@ -252,9 +253,7 @@ def inspect_database(database_path: str | Path) -> DatabaseInspection:
 def read_tag_file(tag_path: str | Path) -> tuple[str, ...]:
     path = Path(tag_path).expanduser().resolve()
     if not path.is_file():
-        raise TagFileValidationError(
-            path, "file does not exist or is not a regular file"
-        )
+        raise TagFileValidationError(path, "file does not exist or is not a regular file")
     try:
         value = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, UnicodeError, json.JSONDecodeError) as exc:
@@ -293,9 +292,7 @@ def prepare_gate1_local_data(
             try:
                 inspection = inspect_database(paths.notes_db)
             except DatabaseValidationError:
-                backup_db = _backup_corrupt_database(
-                    paths.notes_db, paths.backups_dir, clock()
-                )
+                backup_db = _backup_corrupt_database(paths.notes_db, paths.backups_dir, clock())
                 raise
             status = "existing"
         else:
@@ -391,9 +388,7 @@ def _prepare_tag_file(
         env=env,
     )
     if len(candidates) > 1:
-        raise MigrationConflictError(
-            "tag file", tuple(candidate.path for candidate in candidates)
-        )
+        raise MigrationConflictError("tag file", tuple(candidate.path for candidate in candidates))
     if not candidates:
         return None
 
@@ -438,9 +433,7 @@ def _create_verified_backup(
     return destination
 
 
-def _backup_corrupt_database(
-    source: Path, backup_directory: Path, now: datetime
-) -> Path:
+def _backup_corrupt_database(source: Path, backup_directory: Path, now: datetime) -> Path:
     backup_directory.mkdir(parents=True, exist_ok=True)
     destination = _unique_timestamp_path(backup_directory, "notes-corrupt", ".db", now)
     shutil.copy2(source, destination)
@@ -455,9 +448,7 @@ def _sqlite_backup(source: Path, destination: Path) -> None:
     destination.parent.mkdir(parents=True, exist_ok=True)
     destination.unlink(missing_ok=True)
     try:
-        with sqlite3.connect(
-            _read_only_sqlite_uri(source), uri=True
-        ) as source_connection:
+        with sqlite3.connect(_read_only_sqlite_uri(source), uri=True) as source_connection:
             with sqlite3.connect(destination) as destination_connection:
                 source_connection.backup(destination_connection)
     except (OSError, sqlite3.DatabaseError) as exc:
