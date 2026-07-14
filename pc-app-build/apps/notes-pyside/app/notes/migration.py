@@ -221,9 +221,7 @@ def inspect_database(database_path: str | Path) -> DatabaseInspection:
                 )
 
             table_row = connection.execute(
-                "SELECT name "
-                "FROM sqlite_master "
-                "WHERE type='table' AND name='notes'"
+                "SELECT name " "FROM sqlite_master " "WHERE type='table' AND name='notes'"
             ).fetchone()
             if table_row is None:
                 raise DatabaseValidationError(
@@ -232,16 +230,13 @@ def inspect_database(database_path: str | Path) -> DatabaseInspection:
                 )
 
             columns = frozenset(
-                str(row[1])
-                for row in connection.execute("PRAGMA table_info(notes)")
+                str(row[1]) for row in connection.execute("PRAGMA table_info(notes)")
             )
             missing = tuple(sorted(REQUIRED_NOTE_COLUMNS - columns))
             if missing:
                 raise LegacySchemaError(path, missing)
 
-            notes_count = int(
-                connection.execute("SELECT COUNT(*) FROM notes").fetchone()[0]
-            )
+            notes_count = int(connection.execute("SELECT COUNT(*) FROM notes").fetchone()[0])
     except DataPreparationError:
         raise
     except (OSError, sqlite3.DatabaseError) as exc:

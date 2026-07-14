@@ -4,18 +4,42 @@ from __future__ import annotations
 
 import asyncio
 import sys
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Sequence
 
 from PySide6.QtCore import QTimer, QUrl
 from PySide6.QtGui import QGuiApplication
 from PySide6.QtQml import QQmlApplicationEngine
 from qasync import QEventLoop
+from sqlalchemy import Engine
 
 from .app_paths import AppPaths
 from .lifecycle import ApplicationLifecycle
+from .notes import (
+    DatabaseExecutor,
+    MigrationResult,
+    NoteCommandService,
+    NoteQueryService,
+    SqlAlchemyNoteRepository,
+    TagCatalog,
+    create_session_factory,
+    create_sqlite_engine,
+    initialize_database,
+    prepare_gate1_local_data,
+)
+from .notes.sqlalchemy_repository import SessionFactory
 from .ui.empty_notes_view_model import EmptyNoteListModel, EmptyNotesViewModel
+
+
+@dataclass(slots=True)
+class NotesRuntime:
+    database_engine: Engine
+    session_factory: SessionFactory
+    database_executor: DatabaseExecutor
+    note_repository: SqlAlchemyNoteRepository
+    note_command_service: NoteCommandService
+    note_query_service: NoteQueryService
 
 
 @dataclass(slots=True)
@@ -24,22 +48,105 @@ class ApplicationContext:
     engine: QQmlApplicationEngine
     paths: AppPaths
     lifecycle: ApplicationLifecycle
+    migration_result: MigrationResult
+    tag_catalog: TagCatalog
+    notes_runtime: NotesRuntime
     notes_view_model: EmptyNotesViewModel
     notes_list_model: EmptyNoteListModel
     deleted_notes_list_model: EmptyNoteListModel
+
+    @property
+    def database_engine(self) -> Engine:
+        return self.notes_runtime.database_engine
+
+    @property
+    def session_factory(self) -> SessionFactory:
+        return self.notes_runtime.session_factory
+
+    @property
+    def database_executor(self) -> DatabaseExecutor:
+        return self.notes_runtime.database_executor
+
+    @property
+    def note_repository(self) -> SqlAlchemyNoteRepository:
+        return self.notes_runtime.note_repository
+
+    @property
+    def note_command_service(self) -> NoteCommandService:
+        return self.notes_runtime.note_command_service
+
+    @property
+    def note_query_service(self) -> NoteQueryService:
+        return self.notes_runtime.note_query_service
 
 
 def create_event_loop(app: QGuiApplication) -> QEventLoop:
     return QEventLoop(app)
 
 
+def resolve_worktree_root(explicit_root: str | Path | None = None) -> Path:
+    if explicit_root is not None:
+        return Path(explicit_root).expanduser().resolve()
+
+    source_path = Path(__file__).resolve()
+    for candidate in source_path.parents:
+        if (candidate / "pc-app-build" / "pyproject.toml").is_file():
+            return candidate
+    return Path.cwd().resolve()
+
+
+def create_notes_runtime(paths: AppPaths) -> NotesRuntime:
+    database_engine = create_sqlite_engine(paths.notes_db)
+    try:
+        initialize_database(database_engine)
+        session_factory = create_session_factory(database_engine)
+        note_repository = SqlAlchemyNoteRepository(session_factory)
+        database_executor = DatabaseExecutor()
+        note_command_service = NoteCommandService(
+            note_repository,
+            database_executor,
+        )
+        note_query_service = NoteQueryService(
+            note_repository,
+            database_executor,
+        )
+    except Exception:
+        database_engine.dispose()
+        raise
+
+    return NotesRuntime(
+        database_engine=database_engine,
+        session_factory=session_factory,
+        database_executor=database_executor,
+        note_repository=note_repository,
+        note_command_service=note_command_service,
+        note_query_service=note_query_service,
+    )
+
+
+async def dispose_database_engine(database_engine: Engine) -> None:
+    database_engine.dispose()
+
+
 def create_application_context(
     app: QGuiApplication,
     *,
     data_root: str | Path | None = None,
+    worktree_root: str | Path | None = None,
+    migration_env: Mapping[str, str] | None = None,
 ) -> ApplicationContext:
     paths = AppPaths.resolve(root_override=data_root)
     paths.ensure_directories()
+
+    resolved_worktree_root = resolve_worktree_root(worktree_root)
+    migration_result = prepare_gate1_local_data(
+        paths,
+        worktree_root=resolved_worktree_root,
+        env=migration_env,
+    )
+
+    tag_catalog = TagCatalog(paths.custom_tags)
+    tag_catalog.load()
 
     lifecycle = ApplicationLifecycle()
     notes_list_model = EmptyNoteListModel()
@@ -57,6 +164,16 @@ def create_application_context(
     if not engine.rootObjects():
         raise RuntimeError(f"QML failed to load: {qml_file}")
 
+    notes_runtime = create_notes_runtime(paths)
+    lifecycle.register_async_closer(
+        "sqlalchemy-engine",
+        lambda: dispose_database_engine(notes_runtime.database_engine),
+    )
+    lifecycle.register_async_closer(
+        "database-executor",
+        notes_runtime.database_executor.close,
+    )
+
     engine.quit.connect(app.quit)
     QTimer.singleShot(0, notes_view_model.loadAll)
 
@@ -65,6 +182,9 @@ def create_application_context(
         engine=engine,
         paths=paths,
         lifecycle=lifecycle,
+        migration_result=migration_result,
+        tag_catalog=tag_catalog,
+        notes_runtime=notes_runtime,
         notes_view_model=notes_view_model,
         notes_list_model=notes_list_model,
         deleted_notes_list_model=deleted_notes_list_model,
@@ -75,6 +195,8 @@ def run_application(
     argv: Sequence[str] | None = None,
     *,
     data_root: str | Path | None = None,
+    worktree_root: str | Path | None = None,
+    migration_env: Mapping[str, str] | None = None,
 ) -> int:
     arguments = list(sys.argv if argv is None else argv)
     existing = QGuiApplication.instance()
@@ -91,7 +213,12 @@ def run_application(
     asyncio.set_event_loop(loop)
 
     try:
-        context = create_application_context(app, data_root=data_root)
+        context = create_application_context(
+            app,
+            data_root=data_root,
+            worktree_root=worktree_root,
+            migration_env=migration_env,
+        )
     except Exception:
         loop.close()
         asyncio.set_event_loop(None)

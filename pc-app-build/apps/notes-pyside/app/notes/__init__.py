@@ -1,5 +1,6 @@
-"""Framework-neutral note domain, persistence, migration, and tag catalog."""
+"""Framework-neutral note domain, persistence, migration, and services."""
 
+from .command_service import NoteCommandService
 from .commands import (
     CreateNoteCommand,
     HardDeleteCommand,
@@ -26,11 +27,19 @@ from .migration import (
     prepare_gate1_local_data,
     read_tag_file,
 )
+from .query_service import NoteQueryService
 from .repository import (
     NoteNotFoundError,
     NoteRepository,
     NoteRepositoryError,
     NoteStateError,
+)
+from .service_errors import (
+    NoteServiceError,
+    NoteServiceNotFoundError,
+    NoteServiceRepositoryError,
+    NoteServiceStateError,
+    NoteServiceUnavailableError,
 )
 from .sqlalchemy_repository import (
     SqlAlchemyNoteRepository,
@@ -64,9 +73,16 @@ __all__ = [
     "MigrationConflictError",
     "MigrationResult",
     "Note",
+    "NoteCommandService",
     "NoteNotFoundError",
+    "NoteQueryService",
     "NoteRepository",
     "NoteRepositoryError",
+    "NoteServiceError",
+    "NoteServiceNotFoundError",
+    "NoteServiceRepositoryError",
+    "NoteServiceStateError",
+    "NoteServiceUnavailableError",
     "NoteSource",
     "NoteStateError",
     "NoteValidationError",
