@@ -15,7 +15,6 @@ FORBIDDEN_RUNTIME_TEXT = (
     "uvicorn",
     "http://127.0.0.1",
     "http://localhost",
-    "sidecar",
     "py-xiaozhi",
 )
 FORBIDDEN_PROCESS_APIS = (
@@ -23,6 +22,16 @@ FORBIDDEN_PROCESS_APIS = (
     "multiprocessing",
     "qprocess",
     "popen(",
+)
+
+# "sidecar" alone is valid SQLite terminology for the -wal/-shm companion files.
+# Match only names that indicate the removed helper-process architecture.
+FORBIDDEN_SIDECAR_PATTERNS = (
+    "sidecar_client",
+    "sidecar_process",
+    "sidecar_url",
+    "start_sidecar",
+    "stop_sidecar",
 )
 
 
@@ -58,7 +67,11 @@ def test_runtime_source_has_no_legacy_transport_or_second_process_path() -> None
     violations: list[str] = []
     for path in _source_files():
         text = _read(path).lower()
-        for token in (*FORBIDDEN_RUNTIME_TEXT, *FORBIDDEN_PROCESS_APIS):
+        for token in (
+            *FORBIDDEN_RUNTIME_TEXT,
+            *FORBIDDEN_PROCESS_APIS,
+            *FORBIDDEN_SIDECAR_PATTERNS,
+        ):
             if token in text:
                 violations.append(f"{path.relative_to(APP_PACKAGE)}: {token}")
 
@@ -79,6 +92,12 @@ def test_qml_uses_view_model_signals_and_only_search_debounce_timer() -> None:
     assert "function onNoteCreated" in main_source
     assert "function onNoteUpdated" in main_source
     assert "function onNotesSoftDeleted" in main_source
+    assert "readonly property var viewModel: notesViewModel" in main_source
+    assert "readonly property bool viewModelReady" in main_source
+    assert (
+        "selectedIndex: root.viewModelReady ? root.viewModel.selectedIndex : -1"
+        in main_source
+    )
 
 
 def test_database_access_stays_behind_application_services() -> None:
@@ -100,4 +119,8 @@ def test_gate1_7_deliverables_exist() -> None:
     assert (
         PC_BUILD_ROOT / "docs" / "report" / "GATE1_IMPLEMENTATION_REPORT.md"
     ).is_file()
-    assert (PC_BUILD_ROOT.parent / "VERIFY_GATE1_7.ps1").is_file()
+    verify_script = PC_BUILD_ROOT.parent / "VERIFY_GATE1_7.ps1"
+    assert verify_script.is_file()
+    verify_source = _read(verify_script)
+    assert "$LASTEXITCODE" in verify_source
+    assert "exit 1" in verify_source

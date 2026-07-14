@@ -141,9 +141,19 @@ async def test_real_qml_sqlite_crud_survives_restart_and_hard_delete(
         )
         await _wait_until(
             qapp,
-            lambda: updated_ids == [note_id]
-            and first.notes_view_model.selectedTitle == "Gate 1.7 已更新",
+            lambda: updated_ids == [note_id] and not first.notes_view_model.isBusy,
         )
+        updated = await first.note_query_service.get(note_id)
+        assert updated is not None
+        assert updated.title == "Gate 1.7 已更新"
+        assert updated.content == "持久化内容已更新"
+        assert updated.tags == ("待办", "回归", "已更新")
+
+        # The current search no longer matches after the edit, so keeping the current
+        # query correctly removes the note from the visible model and clears selection.
+        assert first.notes_view_model.activeCategory == "search"
+        assert first.notes_list_model.rowCount() == 0
+        assert first.notes_view_model.selectedIndex == -1
 
         first.notes_view_model.requestAddCustomTag("自定义回归")
         await _wait_until(

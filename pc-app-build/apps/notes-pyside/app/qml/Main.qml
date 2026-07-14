@@ -20,6 +20,9 @@ ApplicationWindow {
     property string currentCategory: "all"
     property int searchResetToken: 0
 
+    readonly property var viewModel: notesViewModel
+    readonly property bool viewModelReady: root.viewModel !== null
+
     function createInitialTags() {
         if (currentCategory === "todo") {
             return "待办"
@@ -39,24 +42,27 @@ ApplicationWindow {
     }
 
     function selectNote(index) {
-        notesViewModel.selectNote(index)
+        if (!root.viewModelReady) return
+        root.viewModel.selectNote(index)
         currentPage = "home"
     }
 
     function openCategory(categoryKey) {
+        if (!root.viewModelReady) return
         currentCategory = categoryKey
         currentPage = categoryKey === "deleted" ? "deletedList" : "home"
         if (categoryKey === "deleted") {
-            notesViewModel.loadDeleted()
+            root.viewModel.loadDeleted()
         } else {
-            notesViewModel.loadCategory(categoryKey)
+            root.viewModel.loadCategory(categoryKey)
         }
     }
 
     function openTag(tagName) {
+        if (!root.viewModelReady) return
         currentCategory = "tag:" + tagName
         currentPage = "home"
-        notesViewModel.loadTag(tagName)
+        root.viewModel.loadTag(tagName)
     }
 
     Timer {
@@ -65,21 +71,23 @@ ApplicationWindow {
         interval: 220
         repeat: false
         onTriggered: {
+            if (!root.viewModelReady) return
             var text = String(keyword).trim()
             if (text.length === 0) {
                 root.currentCategory = "all"
                 root.currentPage = "home"
-                notesViewModel.loadAll()
+                root.viewModel.loadAll()
             } else {
                 root.currentCategory = "search"
                 root.currentPage = "search"
-                notesViewModel.searchNotes(text)
+                root.viewModel.searchNotes(text)
             }
         }
     }
 
     Connections {
-        target: notesViewModel
+        target: root.viewModel
+        ignoreUnknownSignals: true
 
         function onNoteCreated(noteId) {
             root.openPage("home")
@@ -123,7 +131,7 @@ ApplicationWindow {
                 Layout.preferredWidth: 220
                 Layout.fillHeight: true
                 activeCategory: root.currentCategory
-                notesViewModelRef: notesViewModel
+                notesViewModelRef: root.viewModel
 
                 onCategoryRequested: function(categoryKey) {
                     root.openCategory(categoryKey)
@@ -159,8 +167,8 @@ ApplicationWindow {
 
         HomePage {
             notesModel: notesListModel
-            notesViewModelRef: notesViewModel
-            selectedIndex: notesViewModel.selectedIndex
+            notesViewModelRef: root.viewModel
+            selectedIndex: root.viewModelReady ? root.viewModel.selectedIndex : -1
             activeCategory: root.currentCategory
 
             onNoteSelected: function(index) {
@@ -180,19 +188,19 @@ ApplicationWindow {
             }
 
             onPinRequested: {
-                notesViewModel.requestToggleSelectedPin()
+                root.viewModel.requestToggleSelectedPin()
             }
 
             onBulkDeleteRequested: function(noteIds) {
-                notesViewModel.requestBulkDelete(noteIds)
+                root.viewModel.requestBulkDelete(noteIds)
             }
 
             onBulkPinRequested: function(noteIds) {
-                notesViewModel.requestBulkPin(noteIds)
+                root.viewModel.requestBulkPin(noteIds)
             }
 
             onBulkUnpinRequested: function(noteIds) {
-                notesViewModel.requestBulkUnpin(noteIds)
+                root.viewModel.requestBulkUnpin(noteIds)
             }
         }
     }
@@ -201,7 +209,7 @@ ApplicationWindow {
         id: createPage
 
         CreateNotePage {
-            notesViewModelRef: notesViewModel
+            notesViewModelRef: root.viewModel
             initialTags: root.createInitialTags()
             initialPinned: root.createInitialPinned()
 
@@ -210,7 +218,7 @@ ApplicationWindow {
             }
 
             onSaved: function(titleText, contentText, tagsText, isPinned) {
-                notesViewModel.requestCreateNote(titleText, contentText, tagsText, isPinned)
+                root.viewModel.requestCreateNote(titleText, contentText, tagsText, isPinned)
             }
         }
     }
@@ -219,17 +227,17 @@ ApplicationWindow {
         id: editPage
 
         EditNotePage {
-            notesViewModelRef: notesViewModel
-            noteTitle: notesViewModel.selectedTitle
-            noteContent: notesViewModel.selectedContent
-            noteTags: notesViewModel.selectedTagsText
+            notesViewModelRef: root.viewModel
+            noteTitle: root.viewModelReady ? root.viewModel.selectedTitle : ""
+            noteContent: root.viewModelReady ? root.viewModel.selectedContent : ""
+            noteTags: root.viewModelReady ? root.viewModel.selectedTagsText : ""
 
             onBackRequested: {
                 root.openPage("home")
             }
 
             onSaved: function(titleText, contentText, tagsText) {
-                notesViewModel.requestUpdateSelectedNote(titleText, contentText, tagsText)
+                root.viewModel.requestUpdateSelectedNote(titleText, contentText, tagsText)
             }
         }
     }
@@ -238,16 +246,16 @@ ApplicationWindow {
         id: deleteConfirmPage
 
         DeleteConfirmPage {
-            noteTitle: notesViewModel.selectedTitle
-            mutationBusy: notesViewModel.mutationBusy
-            errorMessage: notesViewModel.errorMessage
+            noteTitle: root.viewModelReady ? root.viewModel.selectedTitle : ""
+            mutationBusy: root.viewModelReady && root.viewModel.mutationBusy
+            errorMessage: root.viewModelReady ? root.viewModel.errorMessage : ""
 
             onBackRequested: {
                 root.openPage("home")
             }
 
             onDeleted: {
-                notesViewModel.requestDeleteSelectedNote()
+                root.viewModel.requestDeleteSelectedNote()
             }
         }
     }
@@ -257,11 +265,11 @@ ApplicationWindow {
 
         DeletedNotesPage {
             deletedNotesModel: deletedNotesListModel
-            notesViewModelRef: notesViewModel
+            notesViewModelRef: root.viewModel
 
             onBackRequested: {
                 root.currentCategory = "all"
-                notesViewModel.loadAll()
+                root.viewModel.loadAll()
                 root.openPage("home")
             }
         }
@@ -271,10 +279,10 @@ ApplicationWindow {
         id: searchPage
 
         SearchPage {
-            notesViewModelRef: notesViewModel
-            keyword: notesViewModel.searchKeyword
+            notesViewModelRef: root.viewModel
+            keyword: root.viewModelReady ? root.viewModel.searchKeyword : ""
             notesModel: notesListModel
-            selectedIndex: notesViewModel.selectedIndex
+            selectedIndex: root.viewModelReady ? root.viewModel.selectedIndex : -1
 
             onNoteSelected: function(index) {
                 root.selectNote(index)
@@ -282,13 +290,13 @@ ApplicationWindow {
 
             onBackRequested: {
                 root.currentCategory = "all"
-                notesViewModel.loadAll()
+                root.viewModel.loadAll()
                 root.openPage("home")
             }
 
             onResetRequested: {
                 root.currentCategory = "all"
-                notesViewModel.loadAll()
+                root.viewModel.loadAll()
                 root.searchResetToken += 1
                 root.openPage("home")
             }
@@ -302,19 +310,19 @@ ApplicationWindow {
             }
 
             onPinRequested: {
-                notesViewModel.requestToggleSelectedPin()
+                root.viewModel.requestToggleSelectedPin()
             }
 
             onBulkDeleteRequested: function(noteIds) {
-                notesViewModel.requestBulkDelete(noteIds)
+                root.viewModel.requestBulkDelete(noteIds)
             }
 
             onBulkPinRequested: function(noteIds) {
-                notesViewModel.requestBulkPin(noteIds)
+                root.viewModel.requestBulkPin(noteIds)
             }
 
             onBulkUnpinRequested: function(noteIds) {
-                notesViewModel.requestBulkUnpin(noteIds)
+                root.viewModel.requestBulkUnpin(noteIds)
             }
         }
     }
