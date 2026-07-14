@@ -37,22 +37,21 @@ async def _close_context(context, qapp) -> None:
 
 def _write_legacy_database(path: Path) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    with closing(sqlite3.connect(path)) as connection:
-        connection.execute(
-            """
-            CREATE TABLE notes (
-                id INTEGER PRIMARY KEY,
-                title VARCHAR(200) NOT NULL,
-                content TEXT NOT NULL DEFAULT '',
-                tags TEXT NOT NULL DEFAULT '[]',
-                is_pinned BOOLEAN NOT NULL DEFAULT 0,
-                is_deleted BOOLEAN NOT NULL DEFAULT 0,
-                created_at DATETIME NOT NULL,
-                updated_at DATETIME NOT NULL,
-                source VARCHAR(50) NOT NULL DEFAULT 'manual'
-            )
-            """
+    create_table_sql = """
+        CREATE TABLE notes (
+            id INTEGER PRIMARY KEY,
+            title VARCHAR(200) NOT NULL,
+            content TEXT NOT NULL DEFAULT '',
+            tags TEXT NOT NULL DEFAULT '[]',
+            is_pinned BOOLEAN NOT NULL DEFAULT 0,
+            is_deleted BOOLEAN NOT NULL DEFAULT 0,
+            created_at DATETIME NOT NULL,
+            updated_at DATETIME NOT NULL,
+            source VARCHAR(50) NOT NULL DEFAULT 'manual'
         )
+    """
+    with closing(sqlite3.connect(path)) as connection:
+        connection.execute(create_table_sql)
         connection.execute(
             """
             INSERT INTO notes (
@@ -172,12 +171,8 @@ async def test_real_qml_sqlite_crud_survives_restart_and_hard_delete(
     )
     soft_deleted: list[list[int]] = []
     hard_deleted: list[list[int]] = []
-    second.notes_view_model.notesSoftDeleted.connect(
-        lambda ids: soft_deleted.append(list(ids))
-    )
-    second.notes_view_model.notesHardDeleted.connect(
-        lambda ids: hard_deleted.append(list(ids))
-    )
+    second.notes_view_model.notesSoftDeleted.connect(lambda ids: soft_deleted.append(list(ids)))
+    second.notes_view_model.notesHardDeleted.connect(lambda ids: hard_deleted.append(list(ids)))
 
     try:
         assert second.migration_result.status == "existing"
@@ -191,8 +186,7 @@ async def test_real_qml_sqlite_crud_survives_restart_and_hard_delete(
         second.notes_view_model.requestDeleteSelectedNote()
         await _wait_until(
             qapp,
-            lambda: soft_deleted == [[note_id]]
-            and second.notes_list_model.rowCount() == 0,
+            lambda: soft_deleted == [[note_id]] and second.notes_list_model.rowCount() == 0,
         )
 
         second.notes_view_model.loadDeleted()
@@ -204,8 +198,7 @@ async def test_real_qml_sqlite_crud_survives_restart_and_hard_delete(
         second.notes_view_model.requestBulkHardDeleteDeleted([note_id])
         await _wait_until(
             qapp,
-            lambda: hard_deleted == [[note_id]]
-            and second.deleted_notes_list_model.rowCount() == 0,
+            lambda: hard_deleted == [[note_id]] and second.deleted_notes_list_model.rowCount() == 0,
         )
     finally:
         await _close_context(second, qapp)
@@ -233,9 +226,7 @@ async def test_legacy_database_migrates_through_bootstrap_and_renders(
     tmp_path: Path,
 ) -> None:
     worktree_root = tmp_path / "worktree"
-    legacy_db = (
-        worktree_root / "pc-app-build" / "services" / "notes-api" / "data" / "notes.db"
-    )
+    legacy_db = worktree_root / "pc-app-build" / "services" / "notes-api" / "data" / "notes.db"
     _write_legacy_database(legacy_db)
     source_bytes = legacy_db.read_bytes()
 

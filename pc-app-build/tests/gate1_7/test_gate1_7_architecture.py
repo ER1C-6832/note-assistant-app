@@ -94,16 +94,11 @@ def test_qml_uses_view_model_signals_and_only_search_debounce_timer() -> None:
     assert "function onNotesSoftDeleted" in main_source
     assert "readonly property var viewModel: notesViewModel" in main_source
     assert "readonly property bool viewModelReady" in main_source
-    assert (
-        "selectedIndex: root.viewModelReady ? root.viewModel.selectedIndex : -1"
-        in main_source
-    )
+    assert "selectedIndex: root.viewModelReady ? root.viewModel.selectedIndex : -1" in main_source
 
 
 def test_database_access_stays_behind_application_services() -> None:
-    ui_sources = "\n".join(
-        _read(path) for path in (APP_PACKAGE / "ui").rglob("*.py")
-    ).lower()
+    ui_sources = "\n".join(_read(path) for path in (APP_PACKAGE / "ui").rglob("*.py")).lower()
     qml_sources = "\n".join(_read(path) for path in QML_ROOT.rglob("*.qml")).lower()
 
     for token in ("sqlalchemy", "sessionfactory", "sqlite3", "create_engine"):
@@ -116,9 +111,7 @@ def test_database_access_stays_behind_application_services() -> None:
 
 
 def test_gate1_7_deliverables_exist() -> None:
-    assert (
-        PC_BUILD_ROOT / "docs" / "report" / "GATE1_IMPLEMENTATION_REPORT.md"
-    ).is_file()
+    assert (PC_BUILD_ROOT / "docs" / "report" / "GATE1_IMPLEMENTATION_REPORT.md").is_file()
     verify_script = PC_BUILD_ROOT.parent / "VERIFY_GATE1_7.ps1"
     assert verify_script.is_file()
     verify_source = _read(verify_script)
