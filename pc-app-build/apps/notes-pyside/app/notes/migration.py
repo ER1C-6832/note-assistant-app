@@ -221,7 +221,9 @@ def inspect_database(database_path: str | Path) -> DatabaseInspection:
                 )
 
             table_row = connection.execute(
-                "SELECT name " "FROM sqlite_master " "WHERE type='table' AND name='notes'"
+                "SELECT name "
+                "FROM sqlite_master "
+                "WHERE type='table' AND name='notes'"
             ).fetchone()
             if table_row is None:
                 raise DatabaseValidationError(
@@ -230,13 +232,16 @@ def inspect_database(database_path: str | Path) -> DatabaseInspection:
                 )
 
             columns = frozenset(
-                str(row[1]) for row in connection.execute("PRAGMA table_info(notes)")
+                str(row[1])
+                for row in connection.execute("PRAGMA table_info(notes)")
             )
             missing = tuple(sorted(REQUIRED_NOTE_COLUMNS - columns))
             if missing:
                 raise LegacySchemaError(path, missing)
 
-            notes_count = int(connection.execute("SELECT COUNT(*) FROM notes").fetchone()[0])
+            notes_count = int(
+                connection.execute("SELECT COUNT(*) FROM notes").fetchone()[0]
+            )
     except DataPreparationError:
         raise
     except (OSError, sqlite3.DatabaseError) as exc:
@@ -411,12 +416,18 @@ def _migrate_database(source: Path, target: Path) -> None:
     target.parent.mkdir(parents=True, exist_ok=True)
     temporary = target.with_name(f".{target.name}.gate1.tmp")
     temporary.unlink(missing_ok=True)
+
     try:
         _sqlite_backup(source, temporary)
         inspect_database(temporary)
         os.replace(temporary, target)
-    finally:
-        temporary.unlink(missing_ok=True)
+    except Exception:
+        # 清理失败不能掩盖最初的迁移异常。
+        try:
+            temporary.unlink(missing_ok=True)
+        except OSError:
+            pass
+        raise
 
 
 def _create_verified_backup(
@@ -447,13 +458,25 @@ def _backup_corrupt_database(source: Path, backup_directory: Path, now: datetime
 def _sqlite_backup(source: Path, destination: Path) -> None:
     destination.parent.mkdir(parents=True, exist_ok=True)
     destination.unlink(missing_ok=True)
+
     try:
-        with sqlite3.connect(_read_only_sqlite_uri(source), uri=True) as source_connection:
-            with sqlite3.connect(destination) as destination_connection:
-                source_connection.backup(destination_connection)
+        with (
+            closing(
+                sqlite3.connect(
+                    _read_only_sqlite_uri(source),
+                    uri=True,
+                )
+            ) as source_connection,
+            closing(sqlite3.connect(destination)) as destination_connection,
+        ):
+            source_connection.backup(destination_connection)
+            destination_connection.commit()
     except (OSError, sqlite3.DatabaseError) as exc:
         destination.unlink(missing_ok=True)
-        raise DatabaseValidationError(source, f"SQLite backup failed: {exc}") from exc
+        raise DatabaseValidationError(
+            source,
+            f"SQLite backup failed: {exc}",
+        ) from exc
 
 
 def _build_report(
