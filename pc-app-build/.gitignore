@@ -25,19 +25,11 @@ cache/
 logs/
 *.log
 
-# Notes API local database
-services/notes-api/data/
+# Local note database
 *.db
 *.db-shm
 *.db-wal
 *.db-journal
-
-# External upstream runtimes / repos.
-# Anchored to pc-app-build root; does NOT ignore pc-app-build/integrations/py-xiaozhi.
-/py-xiaozhi/
-/py-xiaozhi-tao/
-/third_party/py-xiaozhi/
-/external/py-xiaozhi/
 
 # Large local model/runtime files
 /models/

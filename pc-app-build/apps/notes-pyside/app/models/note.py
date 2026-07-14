@@ -6,8 +6,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
-from typing import Any
-
 from PySide6.QtCore import QAbstractListModel, QByteArray, QModelIndex, Qt
 
 
@@ -82,23 +80,6 @@ def _format_datetime_gmt8(value: str) -> str:
 
     local_dt = dt.astimezone(UTC_PLUS_8)
     return local_dt.strftime("%Y-%m-%d %H:%M")
-
-
-def note_from_api(data: dict[str, Any]) -> Note:
-    raw_tags = data.get("tags") or []
-    tags = [str(item) for item in raw_tags if str(item).strip()]
-
-    return Note(
-        id=int(data.get("id", 0)),
-        title=str(data.get("title") or ""),
-        content=str(data.get("content") or ""),
-        tags=tags,
-        is_pinned=bool(data.get("is_pinned", False)),
-        is_deleted=bool(data.get("is_deleted", False)),
-        created_at=str(data.get("created_at") or ""),
-        updated_at=str(data.get("updated_at") or ""),
-        source=str(data.get("source") or "manual"),
-    )
 
 
 class NoteListModel(QAbstractListModel):

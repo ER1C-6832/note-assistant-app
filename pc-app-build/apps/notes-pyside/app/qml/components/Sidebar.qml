@@ -5,14 +5,12 @@ import QtQuick.Layouts
 Rectangle {
     id: root
 
-    property string currentPage: "home"
     property string activeCategory: "all"
     property var notesControllerRef: null
 
     signal categoryRequested(string categoryKey)
     signal tagRequested(string tagName)
     signal deletedRequested()
-    signal pageRequested(string pageName)
 
     color: "#FFFFFF"
     radius: 20

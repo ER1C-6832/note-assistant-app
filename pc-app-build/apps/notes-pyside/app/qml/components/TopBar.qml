@@ -4,10 +4,7 @@ import QtQuick.Layouts
 Rectangle {
     id: root
 
-    property var notesControllerRef: null
     property int searchResetToken: 0
-
-    readonly property bool apiBusy: notesControllerRef !== null && notesControllerRef.isBusy
 
     signal searchRequested(string keyword)
     signal searchTextChanged(string keyword)

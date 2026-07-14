@@ -130,7 +130,6 @@ ApplicationWindow {
 
         TopBar {
             Layout.fillWidth: true
-            notesControllerRef: notesController
             searchResetToken: root.searchResetToken
 
             onSearchRequested: function(keyword) {
@@ -152,7 +151,6 @@ ApplicationWindow {
             Sidebar {
                 Layout.preferredWidth: 220
                 Layout.fillHeight: true
-                currentPage: root.currentPage
                 activeCategory: root.currentCategory
                 notesControllerRef: notesController
 
@@ -166,11 +164,6 @@ ApplicationWindow {
 
                 onDeletedRequested: {
                     root.openCategory("deleted")
-                }
-
-                onPageRequested: function(pageName) {
-                    root.currentCategory = pageName
-                    root.openPage(pageName)
                 }
             }
 
