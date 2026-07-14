@@ -1,9 +1,13 @@
-"""Clean application bootstrap placeholder."""
+"""Desktop application package."""
 
 from __future__ import annotations
 
+from .bootstrap import run_application
+
 
 def run_app() -> int:
-    """Entry point kept for main.py while the new runtime is rebuilt."""
+    """Start the desktop application."""
+    return run_application()
 
-    raise RuntimeError("The desktop bootstrap has been cleared pending the new local runtime.")
+
+__all__ = ["run_app"]

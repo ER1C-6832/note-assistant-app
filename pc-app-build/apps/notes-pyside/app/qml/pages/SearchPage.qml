@@ -31,26 +31,15 @@ Item {
             NoteList {
                 anchors.fill: parent
                 notesModel: root.notesModel
-                notesControllerRef: notesController
+                notesViewModelRef: notesViewModel
                 selectedIndex: root.selectedIndex
                 activeCategory: "search"
                 showCreateButton: false
 
-                onNoteSelected: function(index) {
-                    root.noteSelected(index)
-                }
-
-                onBulkDeleteRequested: function(noteIds) {
-                    root.bulkDeleteRequested(noteIds)
-                }
-
-                onBulkPinRequested: function(noteIds) {
-                    root.bulkPinRequested(noteIds)
-                }
-
-                onBulkUnpinRequested: function(noteIds) {
-                    root.bulkUnpinRequested(noteIds)
-                }
+                onNoteSelected: function(index) { root.noteSelected(index) }
+                onBulkDeleteRequested: function(noteIds) { root.bulkDeleteRequested(noteIds) }
+                onBulkPinRequested: function(noteIds) { root.bulkPinRequested(noteIds) }
+                onBulkUnpinRequested: function(noteIds) { root.bulkUnpinRequested(noteIds) }
             }
 
             AppButton {
@@ -69,13 +58,13 @@ Item {
         DetailPanel {
             Layout.fillWidth: true
             Layout.fillHeight: true
-            hasSelection: notesController.hasSelection
-            isPinned: notesController.selectedIsPinned
-            title: notesController.selectedTitle
-            content: notesController.selectedContent
-            tags: notesController.selectedTagsText
-            updated: notesController.selectedUpdatedText
-            source: notesController.selectedSourceText
+            hasSelection: notesViewModel.hasSelection
+            isPinned: notesViewModel.selectedIsPinned
+            title: notesViewModel.selectedTitle
+            content: notesViewModel.selectedContent
+            tags: notesViewModel.selectedTagsText
+            updated: notesViewModel.selectedUpdatedText
+            source: notesViewModel.selectedSourceText
 
             onEditRequested: root.editRequested()
             onDeleteRequested: root.deleteSelectedRequested()

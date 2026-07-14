@@ -1,6 +1,4 @@
-"""
-PySide6 desktop application entry point.
-"""
+"""PySide6 desktop application entry point."""
 
 from __future__ import annotations
 

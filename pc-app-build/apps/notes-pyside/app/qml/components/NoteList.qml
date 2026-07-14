@@ -6,16 +6,16 @@ Rectangle {
     id: root
 
     property var notesModel
-    property var notesControllerRef: null
+    property var notesViewModelRef: null
     property int selectedIndex: -1
     property string activeCategory: "all"
     property bool showCreateButton: true
     property bool multiSelectMode: false
     property var selectedIds: []
 
-    readonly property bool controllerReady: root.notesControllerRef !== null
-    readonly property int safeResultCount: root.controllerReady ? root.notesControllerRef.resultCount : 0
-    readonly property string safeErrorMessage: root.controllerReady ? root.notesControllerRef.errorMessage : ""
+    readonly property bool viewModelReady: root.notesViewModelRef !== null
+    readonly property int safeResultCount: root.viewModelReady ? root.notesViewModelRef.resultCount : 0
+    readonly property string safeErrorMessage: root.viewModelReady ? root.notesViewModelRef.errorMessage : ""
 
     signal noteSelected(int index)
     signal createRequested()
@@ -24,18 +24,10 @@ Rectangle {
     signal bulkUnpinRequested(var noteIds)
 
     function categoryTitle() {
-        if (activeCategory === "pinned") {
-            return "置顶便签"
-        }
-        if (activeCategory === "todo") {
-            return "待办便签"
-        }
-        if (activeCategory === "search") {
-            return "搜索结果"
-        }
-        if (activeCategory.indexOf("tag:") === 0) {
-            return activeCategory.substring(4)
-        }
+        if (activeCategory === "pinned") return "置顶便签"
+        if (activeCategory === "todo") return "待办便签"
+        if (activeCategory === "search") return "搜索结果"
+        if (activeCategory.indexOf("tag:") === 0) return activeCategory.substring(4)
         return "全部便签"
     }
 
@@ -46,13 +38,8 @@ Rectangle {
     function toggleSelected(noteId) {
         var arr = selectedIds.slice()
         var pos = arr.indexOf(noteId)
-
-        if (pos >= 0) {
-            arr.splice(pos, 1)
-        } else {
-            arr.push(noteId)
-        }
-
+        if (pos >= 0) arr.splice(pos, 1)
+        else arr.push(noteId)
         selectedIds = arr
     }
 
@@ -61,13 +48,9 @@ Rectangle {
     }
 
     function toggleSelectAll() {
-        if (allVisibleSelected()) {
-            selectedIds = []
-        } else if (root.controllerReady) {
-            selectedIds = root.notesControllerRef.currentNoteIds()
-        } else {
-            selectedIds = []
-        }
+        if (allVisibleSelected()) selectedIds = []
+        else if (root.viewModelReady) selectedIds = root.notesViewModelRef.currentNoteIds()
+        else selectedIds = []
     }
 
     function exitMultiSelect() {
@@ -91,13 +74,7 @@ Rectangle {
                 Layout.fillWidth: true
                 spacing: 4
 
-                Text {
-                    text: root.categoryTitle()
-                    color: "#111827"
-                    font.pixelSize: 18
-                    font.bold: true
-                }
-
+                Text { text: root.categoryTitle(); color: "#111827"; font.pixelSize: 18; font.bold: true }
                 Text {
                     text: root.multiSelectMode ? "已选择 " + root.selectedIds.length + " 条便签" : root.safeResultCount + " 条便签"
                     color: "#9CA3AF"
@@ -110,11 +87,8 @@ Rectangle {
                 text: "多选"
                 variant: "secondary"
                 compact: true
-                enabled: root.controllerReady
-                onClicked: {
-                    root.multiSelectMode = true
-                    root.selectedIds = []
-                }
+                enabled: root.viewModelReady
+                onClicked: { root.multiSelectMode = true; root.selectedIds = [] }
             }
 
             AppButton {
@@ -140,10 +114,7 @@ Rectangle {
                 variant: "secondary"
                 compact: true
                 enabled: root.selectedIds.length > 0
-                onClicked: {
-                    root.bulkPinRequested(root.selectedIds)
-                    root.exitMultiSelect()
-                }
+                onClicked: { root.bulkPinRequested(root.selectedIds); root.exitMultiSelect() }
             }
 
             AppButton {
@@ -152,10 +123,7 @@ Rectangle {
                 variant: "secondary"
                 compact: true
                 enabled: root.selectedIds.length > 0
-                onClicked: {
-                    root.bulkUnpinRequested(root.selectedIds)
-                    root.exitMultiSelect()
-                }
+                onClicked: { root.bulkUnpinRequested(root.selectedIds); root.exitMultiSelect() }
             }
 
             AppButton {
@@ -164,10 +132,7 @@ Rectangle {
                 variant: "softDanger"
                 compact: true
                 enabled: root.selectedIds.length > 0
-                onClicked: {
-                    root.bulkDeleteRequested(root.selectedIds)
-                    root.exitMultiSelect()
-                }
+                onClicked: { root.bulkDeleteRequested(root.selectedIds); root.exitMultiSelect() }
             }
 
             AppButton {
@@ -206,9 +171,7 @@ Rectangle {
             boundsBehavior: Flickable.DragOverBounds
             rightMargin: 10
 
-            ScrollBar.vertical: SlimScrollBar {
-                anchors.right: parent.right
-            }
+            ScrollBar.vertical: SlimScrollBar { anchors.right: parent.right }
 
             delegate: NoteCard {
                 width: ListView.view.width - 14
@@ -224,11 +187,8 @@ Rectangle {
                 selectedForBulk: root.hasSelected(model.noteId)
 
                 onClicked: {
-                    if (root.multiSelectMode) {
-                        root.toggleSelected(model.noteId)
-                    } else {
-                        root.noteSelected(index)
-                    }
+                    if (root.multiSelectMode) root.toggleSelected(model.noteId)
+                    else root.noteSelected(index)
                 }
             }
         }
@@ -243,21 +203,8 @@ Rectangle {
             ColumnLayout {
                 anchors.centerIn: parent
                 spacing: 10
-
-                Text {
-                    text: "暂无便签"
-                    color: "#111827"
-                    font.pixelSize: 18
-                    font.bold: true
-                    horizontalAlignment: Text.AlignHCenter
-                }
-
-                Text {
-                    text: "点击“新建”创建第一条便签。"
-                    color: "#6B7280"
-                    font.pixelSize: 13
-                    horizontalAlignment: Text.AlignHCenter
-                }
+                Text { text: "暂无便签"; color: "#111827"; font.pixelSize: 18; font.bold: true; horizontalAlignment: Text.AlignHCenter }
+                Text { text: "点击“新建”创建第一条便签。"; color: "#6B7280"; font.pixelSize: 13; horizontalAlignment: Text.AlignHCenter }
             }
         }
     }

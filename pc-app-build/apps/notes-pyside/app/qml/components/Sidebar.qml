@@ -6,7 +6,7 @@ Rectangle {
     id: root
 
     property string activeCategory: "all"
-    property var notesControllerRef: null
+    property var notesViewModelRef: null
 
     signal categoryRequested(string categoryKey)
     signal tagRequested(string tagName)
@@ -14,6 +14,17 @@ Rectangle {
 
     color: "#FFFFFF"
     radius: 20
+
+    Connections {
+        target: root.notesViewModelRef
+        ignoreUnknownSignals: true
+
+        function onTagAdded(tag) {
+            if (String(tagInput.text).trim() === String(tag).trim()) {
+                tagInput.text = ""
+            }
+        }
+    }
 
     ColumnLayout {
         anchors.fill: parent
@@ -43,8 +54,8 @@ Rectangle {
                 background: Rectangle { color: "#F7F8FA"; radius: 12; border.color: "#E5E7EB" }
 
                 onAccepted: {
-                    if (root.notesControllerRef !== null && root.notesControllerRef.addCustomTag(tagInput.text)) {
-                        tagInput.text = ""
+                    if (root.notesViewModelRef !== null) {
+                        root.notesViewModelRef.requestAddCustomTag(tagInput.text)
                     }
                 }
             }
@@ -54,8 +65,8 @@ Rectangle {
                 compact: true
                 variant: "secondary"
                 onClicked: {
-                    if (root.notesControllerRef !== null && root.notesControllerRef.addCustomTag(tagInput.text)) {
-                        tagInput.text = ""
+                    if (root.notesViewModelRef !== null) {
+                        root.notesViewModelRef.requestAddCustomTag(tagInput.text)
                     }
                 }
             }
@@ -71,7 +82,7 @@ Rectangle {
                 spacing: 6
 
                 Repeater {
-                    model: root.notesControllerRef !== null ? root.notesControllerRef.tagItems : []
+                    model: root.notesViewModelRef !== null ? root.notesViewModelRef.tagItems : []
 
                     SidebarTagItem {
                         Layout.fillWidth: true
@@ -80,8 +91,8 @@ Rectangle {
                         deletable: modelData.deletable
                         onClicked: root.tagRequested(modelData.name)
                         onDeleteRequested: {
-                            if (root.notesControllerRef !== null) {
-                                root.notesControllerRef.deleteTag(modelData.name)
+                            if (root.notesViewModelRef !== null) {
+                                root.notesViewModelRef.requestDeleteTag(modelData.name)
                             }
                         }
                     }

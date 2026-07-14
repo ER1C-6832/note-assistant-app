@@ -7,7 +7,7 @@ Item {
     id: root
 
     property var notesModel
-    property var notesControllerRef: null
+    property var notesViewModelRef: null
     property int selectedIndex: -1
     property string activeCategory: "all"
 
@@ -28,39 +28,27 @@ Item {
             Layout.preferredWidth: 500
             Layout.fillHeight: true
             notesModel: root.notesModel
-            notesControllerRef: root.notesControllerRef
+            notesViewModelRef: root.notesViewModelRef
             selectedIndex: root.selectedIndex
             activeCategory: root.activeCategory
 
-            onNoteSelected: function(index) {
-                root.noteSelected(index)
-            }
-
+            onNoteSelected: function(index) { root.noteSelected(index) }
             onCreateRequested: root.createRequested()
-
-            onBulkDeleteRequested: function(noteIds) {
-                root.bulkDeleteRequested(noteIds)
-            }
-
-            onBulkPinRequested: function(noteIds) {
-                root.bulkPinRequested(noteIds)
-            }
-
-            onBulkUnpinRequested: function(noteIds) {
-                root.bulkUnpinRequested(noteIds)
-            }
+            onBulkDeleteRequested: function(noteIds) { root.bulkDeleteRequested(noteIds) }
+            onBulkPinRequested: function(noteIds) { root.bulkPinRequested(noteIds) }
+            onBulkUnpinRequested: function(noteIds) { root.bulkUnpinRequested(noteIds) }
         }
 
         DetailPanel {
             Layout.fillWidth: true
             Layout.fillHeight: true
-            hasSelection: root.notesControllerRef !== null && root.notesControllerRef.hasSelection
-            isPinned: root.notesControllerRef !== null && root.notesControllerRef.selectedIsPinned
-            title: root.notesControllerRef !== null ? root.notesControllerRef.selectedTitle : ""
-            content: root.notesControllerRef !== null ? root.notesControllerRef.selectedContent : ""
-            tags: root.notesControllerRef !== null ? root.notesControllerRef.selectedTagsText : ""
-            updated: root.notesControllerRef !== null ? root.notesControllerRef.selectedUpdatedText : ""
-            source: root.notesControllerRef !== null ? root.notesControllerRef.selectedSourceText : ""
+            hasSelection: root.notesViewModelRef !== null && root.notesViewModelRef.hasSelection
+            isPinned: root.notesViewModelRef !== null && root.notesViewModelRef.selectedIsPinned
+            title: root.notesViewModelRef !== null ? root.notesViewModelRef.selectedTitle : ""
+            content: root.notesViewModelRef !== null ? root.notesViewModelRef.selectedContent : ""
+            tags: root.notesViewModelRef !== null ? root.notesViewModelRef.selectedTagsText : ""
+            updated: root.notesViewModelRef !== null ? root.notesViewModelRef.selectedUpdatedText : ""
+            source: root.notesViewModelRef !== null ? root.notesViewModelRef.selectedSourceText : ""
 
             onEditRequested: root.editRequested()
             onDeleteRequested: root.deleteRequested()

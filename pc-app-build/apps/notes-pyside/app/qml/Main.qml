@@ -18,7 +18,6 @@ ApplicationWindow {
 
     property string currentPage: "home"
     property string currentCategory: "all"
-    property string pendingCategory: "all"
     property int searchResetToken: 0
 
     function createInitialTags() {
@@ -37,17 +36,17 @@ ApplicationWindow {
 
     function reloadCurrentContext() {
         if (currentCategory === "pinned") {
-            notesController.loadCategory("pinned")
+            notesViewModel.loadCategory("pinned")
         } else if (currentCategory === "todo") {
-            notesController.loadCategory("todo")
+            notesViewModel.loadCategory("todo")
         } else if (currentCategory.indexOf("tag:") === 0) {
-            notesController.loadTag(currentCategory.substring(4))
+            notesViewModel.loadTag(currentCategory.substring(4))
         } else if (currentCategory === "deleted") {
-            notesController.loadDeleted()
-        } else if (currentCategory === "search" && notesController.searchKeyword.length > 0) {
-            notesController.searchNotes(notesController.searchKeyword)
+            notesViewModel.loadDeleted()
+        } else if (currentCategory === "search" && notesViewModel.searchKeyword.length > 0) {
+            notesViewModel.searchNotes(notesViewModel.searchKeyword)
         } else {
-            notesController.loadAll()
+            notesViewModel.loadAll()
         }
     }
 
@@ -56,50 +55,24 @@ ApplicationWindow {
     }
 
     function selectNote(index) {
-        notesController.selectNote(index)
+        notesViewModel.selectNote(index)
         currentPage = "home"
     }
 
     function openCategory(categoryKey) {
         currentCategory = categoryKey
-        pendingCategory = categoryKey
         currentPage = categoryKey === "deleted" ? "deletedList" : "home"
-        categoryLoadTimer.restart()
+        if (categoryKey === "deleted") {
+            notesViewModel.loadDeleted()
+        } else {
+            notesViewModel.loadCategory(categoryKey)
+        }
     }
 
     function openTag(tagName) {
         currentCategory = "tag:" + tagName
         currentPage = "home"
-        tagLoadTimer.tagName = tagName
-        tagLoadTimer.restart()
-    }
-
-    Timer {
-        id: startupTimer
-        interval: 260
-        repeat: false
-        onTriggered: notesController.loadAll()
-    }
-
-    Timer {
-        id: categoryLoadTimer
-        interval: 30
-        repeat: false
-        onTriggered: {
-            if (root.pendingCategory === "deleted") {
-                notesController.loadDeleted()
-            } else {
-                notesController.loadCategory(root.pendingCategory)
-            }
-        }
-    }
-
-    Timer {
-        id: tagLoadTimer
-        property string tagName: ""
-        interval: 30
-        repeat: false
-        onTriggered: notesController.loadTag(tagName)
+        notesViewModel.loadTag(tagName)
     }
 
     Timer {
@@ -112,16 +85,45 @@ ApplicationWindow {
             if (text.length === 0) {
                 root.currentCategory = "all"
                 root.currentPage = "home"
-                notesController.loadAll()
+                notesViewModel.loadAll()
             } else {
                 root.currentCategory = "search"
                 root.currentPage = "search"
-                notesController.searchNotes(text)
+                notesViewModel.searchNotes(text)
             }
         }
     }
 
-    Component.onCompleted: startupTimer.start()
+    Connections {
+        target: notesViewModel
+
+        function onNoteCreated(noteId) {
+            root.openPage("home")
+            root.reloadCurrentContext()
+        }
+
+        function onNoteUpdated(noteId) {
+            root.openPage("home")
+            root.reloadCurrentContext()
+        }
+
+        function onNotesSoftDeleted(noteIds) {
+            root.openPage("home")
+            root.reloadCurrentContext()
+        }
+
+        function onNotesRestored(noteIds) {
+            if (root.currentPage === "deletedList") {
+                notesViewModel.loadDeleted()
+            }
+        }
+
+        function onNotesHardDeleted(noteIds) {
+            if (root.currentPage === "deletedList") {
+                notesViewModel.loadDeleted()
+            }
+        }
+    }
 
     ColumnLayout {
         anchors.fill: parent
@@ -152,7 +154,7 @@ ApplicationWindow {
                 Layout.preferredWidth: 220
                 Layout.fillHeight: true
                 activeCategory: root.currentCategory
-                notesControllerRef: notesController
+                notesViewModelRef: notesViewModel
 
                 onCategoryRequested: function(categoryKey) {
                     root.openCategory(categoryKey)
@@ -188,8 +190,8 @@ ApplicationWindow {
 
         HomePage {
             notesModel: notesListModel
-            notesControllerRef: notesController
-            selectedIndex: notesController !== null ? notesController.selectedIndex : -1
+            notesViewModelRef: notesViewModel
+            selectedIndex: notesViewModel !== null ? notesViewModel.selectedIndex : -1
             activeCategory: root.currentCategory
 
             onNoteSelected: function(index) {
@@ -209,21 +211,20 @@ ApplicationWindow {
             }
 
             onPinRequested: {
-                notesController.toggleSelectedPin()
+                notesViewModel.requestToggleSelectedPin()
             }
 
             onBulkDeleteRequested: function(noteIds) {
-                notesController.bulkDeleteNotesByIds(noteIds)
+                notesViewModel.requestBulkDelete(noteIds)
             }
 
             onBulkPinRequested: function(noteIds) {
-                notesController.bulkPinNotesByIds(noteIds)
+                notesViewModel.requestBulkPin(noteIds)
             }
 
             onBulkUnpinRequested: function(noteIds) {
-                notesController.bulkUnpinNotesByIds(noteIds)
+                notesViewModel.requestBulkUnpin(noteIds)
             }
-
         }
     }
 
@@ -239,10 +240,7 @@ ApplicationWindow {
             }
 
             onSaved: function(titleText, contentText, tagsText, isPinned) {
-                if (notesController.createNote(titleText, contentText, tagsText, isPinned)) {
-                    root.openPage("home")
-                    root.reloadCurrentContext()
-                }
+                notesViewModel.requestCreateNote(titleText, contentText, tagsText, isPinned)
             }
         }
     }
@@ -251,19 +249,16 @@ ApplicationWindow {
         id: editPage
 
         EditNotePage {
-            noteTitle: notesController.selectedTitle
-            noteContent: notesController.selectedContent
-            noteTags: notesController.selectedTagsText
+            noteTitle: notesViewModel.selectedTitle
+            noteContent: notesViewModel.selectedContent
+            noteTags: notesViewModel.selectedTagsText
 
             onBackRequested: {
                 root.openPage("home")
             }
 
             onSaved: function(titleText, contentText, tagsText) {
-                if (notesController.updateSelectedNote(titleText, contentText, tagsText)) {
-                    root.currentCategory = "all"
-                    root.openPage("home")
-                }
+                notesViewModel.requestUpdateSelectedNote(titleText, contentText, tagsText)
             }
         }
     }
@@ -272,17 +267,14 @@ ApplicationWindow {
         id: deleteConfirmPage
 
         DeleteConfirmPage {
-            noteTitle: notesController.selectedTitle
+            noteTitle: notesViewModel.selectedTitle
 
             onBackRequested: {
                 root.openPage("home")
             }
 
             onDeleted: {
-                if (notesController.deleteSelectedNote()) {
-                    root.currentCategory = "all"
-                    root.openPage("home")
-                }
+                notesViewModel.requestDeleteSelectedNote()
             }
         }
     }
@@ -295,7 +287,7 @@ ApplicationWindow {
 
             onBackRequested: {
                 root.currentCategory = "all"
-                notesController.loadAll()
+                notesViewModel.loadAll()
                 root.openPage("home")
             }
         }
@@ -305,9 +297,9 @@ ApplicationWindow {
         id: searchPage
 
         SearchPage {
-            keyword: notesController.searchKeyword
+            keyword: notesViewModel.searchKeyword
             notesModel: notesListModel
-            selectedIndex: notesController !== null ? notesController.selectedIndex : -1
+            selectedIndex: notesViewModel !== null ? notesViewModel.selectedIndex : -1
 
             onNoteSelected: function(index) {
                 root.selectNote(index)
@@ -315,13 +307,13 @@ ApplicationWindow {
 
             onBackRequested: {
                 root.currentCategory = "all"
-                notesController.loadAll()
+                notesViewModel.loadAll()
                 root.openPage("home")
             }
 
             onResetRequested: {
                 root.currentCategory = "all"
-                notesController.loadAll()
+                notesViewModel.loadAll()
                 root.searchResetToken += 1
                 root.openPage("home")
             }
@@ -335,19 +327,19 @@ ApplicationWindow {
             }
 
             onPinRequested: {
-                notesController.toggleSelectedPin()
+                notesViewModel.requestToggleSelectedPin()
             }
 
             onBulkDeleteRequested: function(noteIds) {
-                notesController.bulkDeleteNotesByIds(noteIds)
+                notesViewModel.requestBulkDelete(noteIds)
             }
 
             onBulkPinRequested: function(noteIds) {
-                notesController.bulkPinNotesByIds(noteIds)
+                notesViewModel.requestBulkPin(noteIds)
             }
 
             onBulkUnpinRequested: function(noteIds) {
-                notesController.bulkUnpinNotesByIds(noteIds)
+                notesViewModel.requestBulkUnpin(noteIds)
             }
         }
     }

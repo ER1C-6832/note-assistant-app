@@ -50,3 +50,6 @@ build/
 Thumbs.db
 .vscode/
 .idea/
+
+.gate*/
+.gate1_1_backup_20260714-111319/
