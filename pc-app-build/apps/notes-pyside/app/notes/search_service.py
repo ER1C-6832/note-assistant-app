@@ -3,7 +3,7 @@ LIKE-based fuzzy search for notes.
 
 Phase 2 intentionally uses simple SQLite LIKE matching. Future phases can replace
 or extend this module with FTS5, Chinese segmentation, embeddings, or hybrid
-search without changing API consumers.
+search.
 """
 
 from __future__ import annotations
@@ -13,9 +13,9 @@ from datetime import datetime
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
-from app.models import Note
-from app.schemas import SearchResponse
-from app.services.note_service import note_to_read
+from .models import Note
+from .schemas import SearchResponse
+from .note_service import note_to_read
 
 
 def _split_csv(value: str | None) -> list[str]:

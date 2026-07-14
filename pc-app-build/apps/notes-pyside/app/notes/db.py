@@ -1,9 +1,4 @@
-"""
-Database configuration for the Notes API.
-
-The database is a local SQLite file stored under services/notes-api/data/notes.db
-by default. Override with NOTES_DB_PATH when needed.
-"""
+"""Database configuration for local note storage."""
 
 from __future__ import annotations
 
@@ -27,7 +22,7 @@ def get_database_url() -> str:
     """Return the SQLAlchemy database URL.
 
     NOTES_DB_PATH may be either an absolute path or a path relative to the
-    notes-api service root.
+    app package root.
     """
 
     raw_path = os.getenv("NOTES_DB_PATH", str(_DEFAULT_DB_PATH))
@@ -59,13 +54,13 @@ def init_db() -> None:
     """Create database tables if they do not already exist."""
 
     # Import models here so metadata is populated before create_all.
-    from app import models  # noqa: F401
+    from . import models  # noqa: F401
 
     Base.metadata.create_all(bind=engine)
 
 
 def get_db() -> Generator[Session, None, None]:
-    """FastAPI dependency that provides a database session."""
+    """Yield a database session."""
 
     db = SessionLocal()
     try:

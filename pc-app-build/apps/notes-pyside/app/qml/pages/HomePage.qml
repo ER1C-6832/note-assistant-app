@@ -19,7 +19,6 @@ Item {
     signal bulkDeleteRequested(var noteIds)
     signal bulkPinRequested(var noteIds)
     signal bulkUnpinRequested(var noteIds)
-    signal assistantRequested()
 
     RowLayout {
         anchors.fill: parent

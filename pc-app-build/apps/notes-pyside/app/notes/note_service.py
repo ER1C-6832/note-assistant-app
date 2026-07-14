@@ -10,8 +10,8 @@ from datetime import datetime
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.models import Note
-from app.schemas import NoteCreate, NoteRead, NoteUpdate
+from .models import Note
+from .schemas import NoteCreate, NoteRead, NoteUpdate
 
 
 def _serialize_tags(tags: list[str] | None) -> str:

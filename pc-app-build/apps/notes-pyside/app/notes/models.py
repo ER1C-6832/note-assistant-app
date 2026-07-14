@@ -1,6 +1,4 @@
-"""
-SQLAlchemy ORM models for the Notes API.
-"""
+"""SQLAlchemy ORM models for local note storage."""
 
 from __future__ import annotations
 
@@ -9,7 +7,7 @@ from datetime import datetime
 from sqlalchemy import Boolean, DateTime, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
-from app.db import Base
+from .db import Base
 
 
 class Note(Base):

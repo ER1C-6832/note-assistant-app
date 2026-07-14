@@ -8,9 +8,6 @@ Rectangle {
     property string currentPage: "home"
     property string activeCategory: "all"
     property var notesControllerRef: null
-    property var sidecarClientRef: null
-
-    readonly property bool sidecarConnected: sidecarClientRef !== null && sidecarClientRef.connected
 
     signal categoryRequested(string categoryKey)
     signal tagRequested(string tagName)
@@ -95,47 +92,5 @@ Rectangle {
         }
 
         Rectangle { Layout.fillWidth: true; height: 1; color: "#EEF2F7" }
-
-        SidebarItem { Layout.fillWidth: true; text: "设置"; iconText: "⚙"; active: root.activeCategory === "settings" || root.currentPage === "settings"; onClicked: root.pageRequested("settings") }
-
-        Rectangle {
-            Layout.fillWidth: true
-            radius: 16
-            color: "#F7F8FA"
-            implicitHeight: 108
-
-            ColumnLayout {
-                anchors.fill: parent
-                anchors.margins: 14
-                spacing: 8
-
-                Text { text: "最近语音状态"; color: "#9CA3AF"; font.pixelSize: 13 }
-
-                RowLayout {
-                    spacing: 8
-                    Rectangle {
-                        width: 8
-                        height: 8
-                        radius: 4
-                        color: root.sidecarClientRef !== null && root.sidecarClientRef.voiceRuntimeReady ? "#16A34A" : root.sidecarConnected ? "#F59E0B" : "#9CA3AF"
-                    }
-                    Text {
-                        Layout.fillWidth: true
-                        text: root.sidecarClientRef !== null ? root.sidecarClientRef.assistantStatusText : "语音助手未连接"
-                        color: "#4B5563"
-                        font.pixelSize: 12
-                        elide: Text.ElideRight
-                    }
-                }
-
-                Text {
-                    Layout.fillWidth: true
-                    text: root.sidecarClientRef !== null && root.sidecarClientRef.userVoiceEventText.length > 0 ? root.sidecarClientRef.userVoiceEventText : "暂无语音事件"
-                    color: "#9CA3AF"
-                    font.pixelSize: 11
-                    elide: Text.ElideRight
-                }
-            }
-        }
     }
 }
