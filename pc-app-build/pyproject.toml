@@ -24,6 +24,11 @@ dev = [
     "ruff>=0.3",
 ]
 
+# 当前仓库是桌面应用源码布局，不需要把 pc-app-build 根目录
+# 自动发现成可导入 Python 包。main.py 会显式加入应用目录。
+[tool.setuptools]
+packages = []
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 
@@ -37,4 +42,4 @@ line-length = 100
 
 [build-system]
 requires = ["setuptools>=68"]
-build-backend = "setuptools.backends._legacy:_Backend"
+build-backend = "setuptools.build_meta"
