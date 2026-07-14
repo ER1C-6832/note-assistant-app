@@ -22,7 +22,7 @@ from app.notes.sqlalchemy_repository import (
     initialize_database,
 )
 
-from conftest import create_legacy_database
+from migration_test_support import create_legacy_database
 
 
 def _clock(value):

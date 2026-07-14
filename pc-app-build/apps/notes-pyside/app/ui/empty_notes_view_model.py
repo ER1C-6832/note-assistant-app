@@ -188,11 +188,22 @@ class EmptyNotesViewModel(QObject):
         return []
 
     @Slot(str, str, str, bool)
-    def requestCreateNote(self, title: str, content: str, tags_text: str, is_pinned: bool) -> None:
+    def requestCreateNote(
+        self,
+        title: str,
+        content: str,
+        tags_text: str,
+        is_pinned: bool,
+    ) -> None:
         self._reject_mutation("create", "Gate 1.1 尚未接入数据库，暂时不能创建便签")
 
     @Slot(str, str, str)
-    def requestUpdateSelectedNote(self, title: str, content: str, tags_text: str) -> None:
+    def requestUpdateSelectedNote(
+        self,
+        title: str,
+        content: str,
+        tags_text: str,
+    ) -> None:
         self._reject_mutation("update", "Gate 1.1 尚未接入数据库，暂时不能修改便签")
 
     @Slot()

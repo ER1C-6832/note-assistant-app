@@ -72,11 +72,16 @@ Item {
 
             Rectangle {
                 Layout.fillWidth: true
-                visible: notesViewModel.errorMessage.length > 0
+                visible: notesViewModel !== null && notesViewModel.errorMessage.length > 0
                 radius: 14
                 color: "#FEF2F2"
                 implicitHeight: 48
-                Text { anchors.centerIn: parent; text: notesViewModel.errorMessage; color: "#991B1B"; font.pixelSize: 13 }
+                Text {
+                    anchors.centerIn: parent
+                    text: notesViewModel !== null ? notesViewModel.errorMessage : ""
+                    color: "#991B1B"
+                    font.pixelSize: 13
+                }
             }
 
             Item { Layout.fillHeight: true }
