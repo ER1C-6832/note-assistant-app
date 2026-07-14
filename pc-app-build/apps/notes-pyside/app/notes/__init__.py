@@ -1,4 +1,4 @@
-"""Framework-neutral note domain and persistence layer."""
+"""Framework-neutral note domain, persistence, migration, and tag catalog."""
 
 from .commands import (
     CreateNoteCommand,
@@ -11,6 +11,21 @@ from .commands import (
 )
 from .database_executor import DatabaseExecutor, DatabaseExecutorClosedError
 from .domain import Note, NoteSource
+from .migration import (
+    DataPreparationError,
+    DatabaseInspection,
+    DatabaseValidationError,
+    LegacyCandidate,
+    LegacySchemaError,
+    MigrationConflictError,
+    MigrationResult,
+    TagFileValidationError,
+    discover_legacy_database_candidates,
+    discover_legacy_tag_candidates,
+    inspect_database,
+    prepare_gate1_local_data,
+    read_tag_file,
+)
 from .repository import (
     NoteNotFoundError,
     NoteRepository,
@@ -23,12 +38,31 @@ from .sqlalchemy_repository import (
     create_sqlite_engine,
     initialize_database,
 )
+from .tag_catalog import (
+    DEFAULT_TAGS,
+    PROTECTED_TAGS,
+    SYSTEM_CATEGORY_NAMES,
+    TagCatalog,
+    TagCatalogError,
+    TagCatalogFormatError,
+    TagCatalogItem,
+    TagInUseError,
+    TagValidationError,
+)
 
 __all__ = [
     "CreateNoteCommand",
+    "DEFAULT_TAGS",
+    "DataPreparationError",
     "DatabaseExecutor",
     "DatabaseExecutorClosedError",
+    "DatabaseInspection",
+    "DatabaseValidationError",
     "HardDeleteCommand",
+    "LegacyCandidate",
+    "LegacySchemaError",
+    "MigrationConflictError",
+    "MigrationResult",
     "Note",
     "NoteNotFoundError",
     "NoteRepository",
@@ -36,12 +70,26 @@ __all__ = [
     "NoteSource",
     "NoteStateError",
     "NoteValidationError",
+    "PROTECTED_TAGS",
     "RestoreCommand",
+    "SYSTEM_CATEGORY_NAMES",
     "SetPinnedCommand",
     "SoftDeleteCommand",
     "SqlAlchemyNoteRepository",
+    "TagCatalog",
+    "TagCatalogError",
+    "TagCatalogFormatError",
+    "TagCatalogItem",
+    "TagFileValidationError",
+    "TagInUseError",
+    "TagValidationError",
     "UpdateNoteCommand",
     "create_session_factory",
     "create_sqlite_engine",
+    "discover_legacy_database_candidates",
+    "discover_legacy_tag_candidates",
     "initialize_database",
+    "inspect_database",
+    "prepare_gate1_local_data",
+    "read_tag_file",
 ]
