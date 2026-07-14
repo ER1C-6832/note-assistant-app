@@ -159,6 +159,16 @@ def discover_legacy_tag_candidates(
     worktree_root: str | Path,
     env: Mapping[str, str] | None = None,
 ) -> tuple[LegacyCandidate, ...]:
+    """Discover tag sources without treating the transition copy as peer legacy data.
+
+    The sibling ``note-assistant-app`` checkout is the actual legacy-worktree source.
+    ``app/data/custom_tags.json`` inside the current rewrite checkout is a transition
+    artifact and is considered only when that distinct sibling source does not exist.
+
+    Explicit environment input remains conflict-checked against the selected automatic
+    source, so the existing fail-closed behavior is preserved.
+    """
+
     root = Path(worktree_root).expanduser().resolve()
     values = os.environ if env is None else env
     raw_candidates: list[tuple[str, Path]] = []
@@ -169,31 +179,32 @@ def discover_legacy_tag_candidates(
             ("environment", _resolve_external_path(configured, base_directory=root))
         )
 
-    raw_candidates.extend(
-        [
-            (
-                "current_worktree_app_data",
-                root
-                / "pc-app-build"
-                / "apps"
-                / "notes-pyside"
-                / "app"
-                / "data"
-                / "custom_tags.json",
-            ),
-            (
-                "sibling_legacy_worktree",
-                root.parent
-                / "note-assistant-app"
-                / "pc-app-build"
-                / "apps"
-                / "notes-pyside"
-                / "app"
-                / "data"
-                / "custom_tags.json",
-            ),
-        ]
+    sibling_root = (root.parent / "note-assistant-app").resolve()
+    sibling_tags = (
+        sibling_root
+        / "pc-app-build"
+        / "apps"
+        / "notes-pyside"
+        / "app"
+        / "data"
+        / "custom_tags.json"
     )
+    current_transition_tags = (
+        root
+        / "pc-app-build"
+        / "apps"
+        / "notes-pyside"
+        / "app"
+        / "data"
+        / "custom_tags.json"
+    )
+
+    has_distinct_sibling = not _paths_refer_to_same_file(root, sibling_root)
+    if has_distinct_sibling and sibling_tags.is_file():
+        raw_candidates.append(("sibling_legacy_worktree", sibling_tags))
+    else:
+        raw_candidates.append(("current_worktree_app_data", current_transition_tags))
+
     return _deduplicate_candidates(raw_candidates, target=paths.custom_tags)
 
 

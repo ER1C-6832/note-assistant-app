@@ -285,6 +285,76 @@ def test_same_database_candidate_is_deduplicated(
     assert result.notes_count == 1
 
 
+def test_sibling_legacy_tag_file_precedes_current_transition_copy(
+    app_paths: AppPaths,
+    worktree_root: Path,
+    fixed_now,
+) -> None:
+    current_tags = (
+        worktree_root
+        / "pc-app-build"
+        / "apps"
+        / "notes-pyside"
+        / "app"
+        / "data"
+        / "custom_tags.json"
+    )
+    sibling_tags = (
+        worktree_root.parent
+        / "note-assistant-app"
+        / "pc-app-build"
+        / "apps"
+        / "notes-pyside"
+        / "app"
+        / "data"
+        / "custom_tags.json"
+    )
+    current_tags.parent.mkdir(parents=True, exist_ok=True)
+    sibling_tags.parent.mkdir(parents=True, exist_ok=True)
+    current_tags.write_text('["当前过渡副本"]', encoding="utf-8")
+    sibling_tags.write_text('["旧仓库标签"]', encoding="utf-8")
+
+    result = prepare_gate1_local_data(
+        app_paths,
+        worktree_root=worktree_root,
+        env={},
+        now_provider=_clock(fixed_now),
+    )
+
+    assert result.tags_source == sibling_tags.resolve()
+    assert json.loads(app_paths.custom_tags.read_text(encoding="utf-8")) == ["旧仓库标签"]
+    assert current_tags.read_text(encoding="utf-8") == '["当前过渡副本"]'
+    assert sibling_tags.read_text(encoding="utf-8") == '["旧仓库标签"]'
+
+
+def test_current_transition_tag_file_is_fallback_when_sibling_is_missing(
+    app_paths: AppPaths,
+    worktree_root: Path,
+    fixed_now,
+) -> None:
+    current_tags = (
+        worktree_root
+        / "pc-app-build"
+        / "apps"
+        / "notes-pyside"
+        / "app"
+        / "data"
+        / "custom_tags.json"
+    )
+    current_tags.parent.mkdir(parents=True, exist_ok=True)
+    current_tags.write_text('["过渡标签"]', encoding="utf-8")
+
+    result = prepare_gate1_local_data(
+        app_paths,
+        worktree_root=worktree_root,
+        env={},
+        now_provider=_clock(fixed_now),
+    )
+
+    assert result.tags_source == current_tags.resolve()
+    assert json.loads(app_paths.custom_tags.read_text(encoding="utf-8")) == ["过渡标签"]
+
+
 def test_multiple_tag_candidates_are_not_guessed(
     app_paths: AppPaths,
     worktree_root: Path,
