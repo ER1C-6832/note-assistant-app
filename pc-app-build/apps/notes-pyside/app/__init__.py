@@ -9,11 +9,12 @@ import os
 # 跨平台且可定制的 Basic Style。
 os.environ.setdefault("QT_QUICK_CONTROLS_STYLE", "Basic")
 
-from .bootstrap import run_application
-
 
 def run_app() -> int:
-    """Start the desktop application."""
+    """Start the desktop application without importing Qt during core-only imports."""
+
+    from .bootstrap import run_application
+
     return run_application()
 
 
