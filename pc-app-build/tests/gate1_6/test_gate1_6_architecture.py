@@ -61,7 +61,8 @@ def test_child_pages_receive_view_model_explicitly() -> None:
         assert "property var notesViewModelRef: null" in source
         assert re.search(r"\bnotesViewModel\.", source) is None
 
-    assert main_source.count("notesViewModelRef: notesViewModel") >= len(page_names)
+    assert "readonly property var viewModel: notesViewModel" in main_source
+    assert main_source.count("notesViewModelRef: root.viewModel") >= len(page_names)
 
 
 def test_mutation_navigation_and_bulk_state_are_signal_driven() -> None:
