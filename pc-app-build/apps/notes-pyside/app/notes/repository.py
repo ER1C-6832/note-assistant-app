@@ -29,9 +29,7 @@ class NoteStateError(NoteRepositoryError):
     def __init__(self, invalid_ids: tuple[int, ...], expected_state: str) -> None:
         self.invalid_ids = invalid_ids
         self.expected_state = expected_state
-        super().__init__(
-            f"notes {invalid_ids} are not in expected state: {expected_state}"
-        )
+        super().__init__(f"notes {invalid_ids} are not in expected state: {expected_state}")
 
 
 class NoteRepository(Protocol):

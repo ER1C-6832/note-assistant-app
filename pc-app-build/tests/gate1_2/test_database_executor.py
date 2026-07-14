@@ -29,9 +29,7 @@ async def test_executor_uses_one_worker_and_serializes_operations() -> None:
         return value
 
     try:
-        results = await asyncio.gather(
-            *(executor.run(work, value) for value in range(5))
-        )
+        results = await asyncio.gather(*(executor.run(work, value) for value in range(5)))
     finally:
         await executor.close()
 

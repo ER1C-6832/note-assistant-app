@@ -263,11 +263,7 @@ class SqlAlchemyNoteRepository:
         *,
         expected_deleted: bool,
     ) -> list[NoteRow]:
-        rows = (
-            session.execute(select(NoteRow).where(NoteRow.id.in_(note_ids)))
-            .scalars()
-            .all()
-        )
+        rows = session.execute(select(NoteRow).where(NoteRow.id.in_(note_ids))).scalars().all()
         by_id = {row.id: row for row in rows}
         missing = tuple(note_id for note_id in note_ids if note_id not in by_id)
         if missing:

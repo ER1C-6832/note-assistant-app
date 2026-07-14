@@ -5,9 +5,7 @@ from pathlib import Path
 
 
 def test_notes_package_does_not_import_pyside6() -> None:
-    app_root = (
-        Path(__file__).resolve().parents[2] / "apps" / "notes-pyside" / "app" / "notes"
-    )
+    app_root = Path(__file__).resolve().parents[2] / "apps" / "notes-pyside" / "app" / "notes"
     violations: list[str] = []
     for path in app_root.glob("*.py"):
         tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))

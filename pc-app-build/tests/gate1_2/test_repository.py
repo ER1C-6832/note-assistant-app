@@ -106,9 +106,7 @@ def test_bulk_pin_is_atomic_when_id_is_missing(repository) -> None:
     second = create(repository, "second")
 
     with pytest.raises(NoteNotFoundError):
-        repository.set_pinned_many(
-            SetPinnedCommand((first.id, 999999, second.id), True)
-        )
+        repository.set_pinned_many(SetPinnedCommand((first.id, 999999, second.id), True))
 
     assert repository.get(first.id).is_pinned is False
     assert repository.get(second.id).is_pinned is False
@@ -137,8 +135,7 @@ def test_sorting_uses_pin_updated_and_id(repository) -> None:
 def test_legacy_naive_utc_is_exposed_as_aware_utc(tmp_path) -> None:
     database = tmp_path / "legacy.db"
     connection = sqlite3.connect(database)
-    connection.execute(
-        """
+    connection.execute("""
         CREATE TABLE notes (
             id INTEGER PRIMARY KEY,
             title VARCHAR(200) NOT NULL,
@@ -150,15 +147,12 @@ def test_legacy_naive_utc_is_exposed_as_aware_utc(tmp_path) -> None:
             updated_at DATETIME NOT NULL,
             source VARCHAR(50) NOT NULL DEFAULT 'manual'
         )
-        """
-    )
-    connection.execute(
-        """
+        """)
+    connection.execute("""
         INSERT INTO notes
         (id, title, content, tags, is_pinned, is_deleted, created_at, updated_at, source)
         VALUES (1, 'legacy', '', '[]', 0, 0, '2024-01-01 12:00:00', '2024-01-02 12:00:00', 'manual')
-        """
-    )
+        """)
     connection.commit()
     connection.close()
 
@@ -178,14 +172,9 @@ def test_sqlite_pragmas_are_configured(tmp_path) -> None:
     engine = create_sqlite_engine(tmp_path / "pragma.db")
     try:
         with engine.connect() as connection:
-            assert (
-                connection.exec_driver_sql("PRAGMA journal_mode").scalar_one().lower()
-                == "wal"
-            )
+            assert connection.exec_driver_sql("PRAGMA journal_mode").scalar_one().lower() == "wal"
             assert connection.exec_driver_sql("PRAGMA synchronous").scalar_one() == 1
             assert connection.exec_driver_sql("PRAGMA foreign_keys").scalar_one() == 1
-            assert (
-                connection.exec_driver_sql("PRAGMA busy_timeout").scalar_one() == 3000
-            )
+            assert connection.exec_driver_sql("PRAGMA busy_timeout").scalar_one() == 3000
     finally:
         engine.dispose()

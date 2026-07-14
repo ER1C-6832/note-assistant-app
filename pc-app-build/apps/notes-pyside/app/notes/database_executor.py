@@ -17,9 +17,7 @@ class DatabaseExecutorClosedError(RuntimeError):
 
 class DatabaseExecutor:
     def __init__(self, *, thread_name_prefix: str = "note-db") -> None:
-        self._executor = ThreadPoolExecutor(
-            max_workers=1, thread_name_prefix=thread_name_prefix
-        )
+        self._executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix=thread_name_prefix)
         self._state_lock = threading.Lock()
         self._closed_event = threading.Event()
         self._closing = False
@@ -39,9 +37,7 @@ class DatabaseExecutor:
         loop = asyncio.get_running_loop()
         with self._state_lock:
             if self._closing or self._closed:
-                raise DatabaseExecutorClosedError(
-                    "database executor is closing or closed"
-                )
+                raise DatabaseExecutorClosedError("database executor is closing or closed")
             future = loop.run_in_executor(
                 self._executor,
                 partial(operation, *args, **kwargs),
