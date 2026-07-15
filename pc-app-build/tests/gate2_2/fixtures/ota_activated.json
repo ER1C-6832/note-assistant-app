@@ -1,0 +1,6 @@
+{
+  "websocket": {
+    "url": "wss://assistant.example/ws",
+    "token": "real-secret-token"
+  }
+}

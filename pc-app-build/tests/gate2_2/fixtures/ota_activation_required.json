@@ -1,0 +1,11 @@
+{
+  "websocket": {
+    "url": "wss://assistant.example/ws",
+    "token": "pending-secret-token"
+  },
+  "activation": {
+    "code": "482913",
+    "challenge": "server-challenge-secret",
+    "message": "请完成设备激活"
+  }
+}

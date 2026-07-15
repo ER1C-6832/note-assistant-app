@@ -101,6 +101,8 @@ class AssistantErrorCategory(StringEnum):
     CAPABILITY = "capability"
     TRANSPORT = "transport"
     PROTOCOL = "protocol"
+    IDENTITY = "identity"
+    ACTIVATION = "activation"
     AUDIO = "audio"
     MCP = "mcp"
     RUNTIME = "runtime"
@@ -323,8 +325,8 @@ def default_capabilities() -> tuple[CapabilityState, ...]:
         CapabilityState(AssistantCapability.RUNTIME_CORE, active, "2.1", "完整状态与单事件泵"),
         CapabilityState(AssistantCapability.FAKE_TRANSPORT, active, "2.1", "脚本化 Fake 链路"),
         CapabilityState(AssistantCapability.REAL_TRANSPORT, not_ready, "2.3", "真实 WebSocket"),
-        CapabilityState(AssistantCapability.IDENTITY, not_ready, "2.2", "设备身份"),
-        CapabilityState(AssistantCapability.ACTIVATION, not_ready, "2.2", "OTA 与激活"),
+        CapabilityState(AssistantCapability.IDENTITY, active, "2.2", "稳定设备身份"),
+        CapabilityState(AssistantCapability.ACTIVATION, active, "2.2", "Fake/Real OTA 与激活适配"),
         CapabilityState(AssistantCapability.TEXT_CONVERSATION, active, "2.1/2.4", "Fake 文本骨架"),
         CapabilityState(AssistantCapability.MANUAL_RECOVERY, active, "2.1", "手工重连骨架"),
         CapabilityState(AssistantCapability.AUTOMATIC_RECOVERY, not_ready, "2.5", "有界自动重连"),

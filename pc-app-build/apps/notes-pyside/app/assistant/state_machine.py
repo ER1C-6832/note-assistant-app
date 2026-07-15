@@ -8,7 +8,10 @@ from .effects import (
     AssistantEffect,
     CancelRuntimeEffects,
     CloseTransport,
+    EnsureIdentity,
     OpenTransport,
+    ResetIdentity,
+    RunActivation,
     SendText,
 )
 from .events import (
@@ -83,9 +86,11 @@ from .state import (
     AssistantPhase,
     AssistantRuntimeMode,
     AssistantState,
+    ActivationState,
     AudioState,
     ConnectionState,
     ConversationState,
+    IdentityPublicState,
     MicrophoneOwner,
     StreamingConversationState,
     VoiceActivityState,
@@ -151,13 +156,18 @@ class ConversationStateMachine:
             return self._audio_failure(current, event)
         if isinstance(event, EffectExecutionFailed):
             return self._effect_failed(current, event)
-        if isinstance(event, (IdentityReady, IdentityReset)):
-            return self._not_ready(current, event, AssistantCapability.IDENTITY)
-        if isinstance(
-            event,
-            (ActivationStarted, ActivationRequired, ActivationSucceeded, ActivationFailed),
-        ):
-            return self._not_ready(current, event, AssistantCapability.ACTIVATION)
+        if isinstance(event, IdentityReady):
+            return self._identity_ready(current, event)
+        if isinstance(event, IdentityReset):
+            return self._identity_reset(current, event)
+        if isinstance(event, ActivationStarted):
+            return self._activation_started(current, event)
+        if isinstance(event, ActivationRequired):
+            return self._activation_required(current, event)
+        if isinstance(event, ActivationSucceeded):
+            return self._activation_succeeded(current, event)
+        if isinstance(event, ActivationFailed):
+            return self._activation_failed(current, event)
         if isinstance(event, ReconnectTimerFired):
             return self._not_ready(current, event, AssistantCapability.AUTOMATIC_RECOVERY)
         if isinstance(
@@ -209,10 +219,14 @@ class ConversationStateMachine:
             return self._not_ready(current, event, AssistantCapability.ABORT_CURRENT_TURN)
         if isinstance(event, (SystemAudioInterrupted, SystemAudioRecovered)):
             return self._not_ready(current, event, AssistantCapability.SYSTEM_AUDIO_RECOVERY)
-        if isinstance(event, (EnsureIdentityRequested, ResetIdentityRequested)):
-            return self._not_ready(current, event, AssistantCapability.IDENTITY)
-        if isinstance(event, (FakeActivationRequested, RealActivationRequested)):
-            return self._not_ready(current, event, AssistantCapability.ACTIVATION)
+        if isinstance(event, EnsureIdentityRequested):
+            return self._ensure_identity(current, event)
+        if isinstance(event, ResetIdentityRequested):
+            return self._reset_identity(current, event)
+        if isinstance(event, FakeActivationRequested):
+            return self._request_activation(current, event, fake=True)
+        if isinstance(event, RealActivationRequested):
+            return self._request_activation(current, event, fake=False)
         return self._error(
             current,
             event,
@@ -263,7 +277,7 @@ class ConversationStateMachine:
                 websocket_url_public=current.connection.websocket_url_public,
                 connection_generation=next_generation,
                 close_code=1000,
-                close_reason="shutdown" if isinstance(event, ShutdownRequested) else "disabled",
+                close_reason=("shutdown" if isinstance(event, ShutdownRequested) else "disabled"),
             ),
             audio=self._idle_audio(
                 current.audio,
@@ -290,11 +304,11 @@ class ConversationStateMachine:
         )
         effects = (
             CancelRuntimeEffects(
-                reason="shutdown" if isinstance(event, ShutdownRequested) else "disabled"
+                reason=("shutdown" if isinstance(event, ShutdownRequested) else "disabled")
             ),
             CloseTransport(
                 generation=old_generation,
-                reason="shutdown" if isinstance(event, ShutdownRequested) else "disabled",
+                reason=("shutdown" if isinstance(event, ShutdownRequested) else "disabled"),
             ),
         )
         return self._transition(state, event, effects)
@@ -343,10 +357,12 @@ class ConversationStateMachine:
             ),
             error=None,
         )
-        effects: tuple[AssistantEffect, ...] = ()
+        effects: tuple[AssistantEffect, ...] = (
+            CancelRuntimeEffects(reason="runtime_mode_changed"),
+        )
         if current.connection.status is not AssistantConnectionStatus.DISCONNECTED:
             effects = (
-                CancelRuntimeEffects(reason="runtime_mode_changed"),
+                *effects,
                 CloseTransport(generation=old_generation, reason="runtime_mode_changed"),
             )
         return self._transition(state, event, effects)
@@ -439,7 +455,7 @@ class ConversationStateMachine:
         if current.connection.status is AssistantConnectionStatus.DISCONNECTED:
             state = replace(
                 current,
-                phase=AssistantPhase.IDLE if current.enabled else AssistantPhase.DISABLED,
+                phase=(AssistantPhase.IDLE if current.enabled else AssistantPhase.DISABLED),
                 recovery=replace(current.recovery, manual_disconnect_requested=True),
                 status_text="助手连接已关闭",
                 error=None,
@@ -645,7 +661,7 @@ class ConversationStateMachine:
         if expected:
             state = replace(
                 current,
-                phase=AssistantPhase.IDLE if current.enabled else AssistantPhase.DISABLED,
+                phase=(AssistantPhase.IDLE if current.enabled else AssistantPhase.DISABLED),
                 connection=connection,
                 audio=self._idle_audio(current.audio),
                 conversation=self._idle_conversation(current.conversation),
@@ -695,6 +711,241 @@ class ConversationStateMachine:
                 CloseTransport(generation=event.generation, reason="transport_failure"),
             ),
         )
+
+    def _ensure_identity(
+        self,
+        current: AssistantState,
+        event: EnsureIdentityRequested,
+    ) -> Transition:
+        state = replace(
+            current,
+            status_text="正在准备设备身份",
+            error=None,
+        )
+        return self._transition(state, event, (EnsureIdentity(),))
+
+    def _reset_identity(
+        self,
+        current: AssistantState,
+        event: ResetIdentityRequested,
+    ) -> Transition:
+        old_generation = current.connection.connection_generation
+        next_connection = ConnectionState(
+            websocket_url_public=None,
+            connection_generation=old_generation + 1,
+            close_code=1000,
+            close_reason="identity_reset",
+        )
+        state = replace(
+            current,
+            phase=AssistantPhase.IDLE if current.enabled else AssistantPhase.DISABLED,
+            connection=next_connection,
+            identity=IdentityPublicState(
+                identity_generation=current.identity.identity_generation + 1
+            ),
+            activation=ActivationState(),
+            status_text="正在重置设备身份并清除身份绑定凭据",
+            error=None,
+        )
+        effects: list[AssistantEffect] = [CancelRuntimeEffects(reason="identity_reset")]
+        if current.connection.status is not AssistantConnectionStatus.DISCONNECTED:
+            effects.append(CloseTransport(generation=old_generation, reason="identity_reset"))
+        effects.append(ResetIdentity())
+        return self._transition(state, event, tuple(effects))
+
+    def _identity_ready(
+        self,
+        current: AssistantState,
+        event: IdentityReady,
+    ) -> Transition:
+        state = replace(
+            current,
+            identity=IdentityPublicState(
+                device_id_masked=event.device_id_masked,
+                client_id_masked=event.client_id_masked,
+                identity_ready=True,
+                identity_generation=event.identity_generation,
+            ),
+            status_text="设备身份已就绪",
+            error=None,
+        )
+        return self._transition(state, event)
+
+    def _identity_reset(
+        self,
+        current: AssistantState,
+        event: IdentityReset,
+    ) -> Transition:
+        state = replace(
+            current,
+            identity=IdentityPublicState(identity_generation=event.identity_generation),
+            activation=ActivationState(),
+            status_text="旧设备身份及身份绑定凭据已清除",
+            error=None,
+        )
+        return self._transition(state, event)
+
+    def _request_activation(
+        self,
+        current: AssistantState,
+        event: FakeActivationRequested | RealActivationRequested,
+        *,
+        fake: bool,
+    ) -> Transition:
+        expected_mode = AssistantRuntimeMode.FAKE if fake else AssistantRuntimeMode.REAL
+        if current.activation.status is AssistantActivationStatus.ACTIVATING:
+            return self._transition(
+                replace(current, status_text="Assistant Activation 已在进行中"),
+                event,
+            )
+        if current.runtime_mode is not expected_mode:
+            return self._error(
+                current,
+                event,
+                code="activation_runtime_mode_mismatch",
+                message=(
+                    "执行 Fake Activation 前必须切换到 Fake Runtime"
+                    if fake
+                    else "执行真实 Activation 前必须切换到 Real Runtime"
+                ),
+                category=AssistantErrorCategory.VALIDATION,
+                recoverable=True,
+            )
+        state = replace(
+            current,
+            phase=(AssistantPhase.ACTIVATING if current.enabled else AssistantPhase.DISABLED),
+            activation=replace(
+                current.activation,
+                status=AssistantActivationStatus.ACTIVATING,
+                message=("Fake Activation 进行中" if fake else "真实 OTA/Activation 进行中"),
+                last_attempt_at_ns=event.at_ns,
+            ),
+            status_text=("正在执行 Fake Activation" if fake else "正在执行真实 OTA/Activation"),
+            error=None,
+        )
+        return self._transition(state, event, (RunActivation(fake=fake),))
+
+    def _activation_started(
+        self,
+        current: AssistantState,
+        event: ActivationStarted,
+    ) -> Transition:
+        state = replace(
+            current,
+            phase=(AssistantPhase.ACTIVATING if current.enabled else AssistantPhase.DISABLED),
+            activation=replace(
+                current.activation,
+                status=AssistantActivationStatus.ACTIVATING,
+                last_attempt_at_ns=event.at_ns,
+            ),
+            status_text="Assistant Activation 已开始",
+            error=None,
+        )
+        return self._transition(state, event)
+
+    def _activation_required(
+        self,
+        current: AssistantState,
+        event: ActivationRequired,
+    ) -> Transition:
+        connection = replace(
+            current.connection,
+            websocket_url_public=(
+                event.websocket_url_public or current.connection.websocket_url_public
+            ),
+        )
+        protocol = replace(
+            current.protocol,
+            last_server_json_redacted=(
+                event.diagnostics_json_redacted or current.protocol.last_server_json_redacted
+            ),
+            last_protocol_event="ActivationRequired",
+        )
+        state = replace(
+            current,
+            phase=AssistantPhase.IDLE if current.enabled else AssistantPhase.DISABLED,
+            connection=connection,
+            activation=replace(
+                current.activation,
+                status=AssistantActivationStatus.REQUIRED,
+                activation_code=event.activation_code,
+                authorization_url=event.authorization_url,
+                message=event.message,
+                last_attempt_at_ns=event.at_ns,
+            ),
+            protocol=protocol,
+            status_text=event.message,
+            error=None,
+        )
+        return self._transition(state, event)
+
+    def _activation_succeeded(
+        self,
+        current: AssistantState,
+        event: ActivationSucceeded,
+    ) -> Transition:
+        connection = replace(
+            current.connection,
+            websocket_url_public=event.websocket_url_public,
+        )
+        protocol = replace(
+            current.protocol,
+            last_server_json_redacted=(
+                event.diagnostics_json_redacted or current.protocol.last_server_json_redacted
+            ),
+            last_protocol_event="ActivationSucceeded",
+        )
+        state = replace(
+            current,
+            phase=AssistantPhase.IDLE if current.enabled else AssistantPhase.DISABLED,
+            connection=connection,
+            activation=ActivationState(
+                status=AssistantActivationStatus.ACTIVATED,
+                message=event.message,
+                last_attempt_at_ns=event.at_ns,
+            ),
+            protocol=protocol,
+            status_text=event.message,
+            error=None,
+        )
+        return self._transition(state, event)
+
+    def _activation_failed(
+        self,
+        current: AssistantState,
+        event: ActivationFailed,
+    ) -> Transition:
+        error = AssistantError(
+            code="activation_failed",
+            message=event.message,
+            category=AssistantErrorCategory.ACTIVATION,
+            recoverable=True,
+            source_event=type(event).__name__,
+            occurred_at_ns=event.at_ns,
+            details_redacted=event.diagnostics_json_redacted,
+        )
+        state = replace(
+            current,
+            phase=AssistantPhase.ERROR if current.enabled else AssistantPhase.DISABLED,
+            activation=replace(
+                current.activation,
+                status=AssistantActivationStatus.FAILED,
+                message=event.message,
+                last_attempt_at_ns=event.at_ns,
+            ),
+            protocol=replace(
+                current.protocol,
+                last_protocol_event="ActivationFailed",
+                last_protocol_error=event.message,
+            ),
+            recovery=replace(
+                current.recovery,
+                runtime_error_count=current.recovery.runtime_error_count + 1,
+            ),
+            status_text="Assistant Activation 失败",
+            error=error,
+        )
+        return self._transition(state, event)
 
     def _blocked_tool_call(
         self,
@@ -812,7 +1063,7 @@ class ConversationStateMachine:
             phase=(
                 current.phase
                 if preserve_phase
-                else AssistantPhase.ERROR if current.enabled else AssistantPhase.DISABLED
+                else (AssistantPhase.ERROR if current.enabled else AssistantPhase.DISABLED)
             ),
             recovery=replace(
                 current.recovery,

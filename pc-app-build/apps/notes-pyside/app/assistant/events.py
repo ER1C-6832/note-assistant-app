@@ -223,17 +223,21 @@ class ActivationRequired(AssistantEvent):
     activation_code: str
     authorization_url: str
     message: str
+    websocket_url_public: str | None = None
+    diagnostics_json_redacted: str | None = None
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class ActivationSucceeded(AssistantEvent):
     websocket_url_public: str
     message: str
+    diagnostics_json_redacted: str | None = None
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class ActivationFailed(AssistantEvent):
     message: str
+    diagnostics_json_redacted: str | None = None
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)

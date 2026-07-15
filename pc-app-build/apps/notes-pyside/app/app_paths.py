@@ -47,6 +47,10 @@ class AppPaths:
             backups_dir=root / "backups",
         )
 
+    @property
+    def assistant_runtime_config(self) -> Path:
+        return self.data_dir / "assistant_runtime.json"
+
     def ensure_directories(self) -> None:
         for path in (self.root, self.data_dir, self.logs_dir, self.backups_dir):
             path.mkdir(parents=True, exist_ok=True)

@@ -7,8 +7,8 @@ from app.assistant.events import (
     ConnectRequested,
     DisableRequested,
     EnableRequested,
-    EnsureIdentityRequested,
     IncomingToolCallSimulationRequested,
+    PushToTalkStartRequested,
     ServerHelloReceived,
     TextSubmitted,
     TransportOpened,
@@ -131,13 +131,16 @@ def test_future_capability_is_present_but_fails_explicitly() -> None:
     machine = ConversationStateMachine()
     state = machine.reduce(AssistantState.disabled(), EnableRequested(at_ns=40)).state
 
-    result = machine.reduce(state, EnsureIdentityRequested(at_ns=41))
+    result = machine.reduce(
+        state,
+        PushToTalkStartRequested(at_ns=41, permission_granted=True),
+    )
 
     assert result.state.phase is AssistantPhase.ERROR
     assert result.state.error is not None
     assert result.state.error.code == "capability_not_ready"
     assert result.state.error.category is AssistantErrorCategory.CAPABILITY
-    assert "Gate 2.2" in result.state.error.message
+    assert "Gate 3" in result.state.error.message
 
 
 def test_mcp_simulation_is_fail_closed_without_notes_effect() -> None:
@@ -163,7 +166,10 @@ def test_not_ready_command_while_disabled_keeps_disabled_invariants() -> None:
     machine = ConversationStateMachine()
     initial = AssistantState.disabled(now_ns=60)
 
-    result = machine.reduce(initial, EnsureIdentityRequested(at_ns=61))
+    result = machine.reduce(
+        initial,
+        PushToTalkStartRequested(at_ns=61, permission_granted=True),
+    )
 
     result.state.validate()
     assert result.state.phase is AssistantPhase.DISABLED

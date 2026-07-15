@@ -1,8 +1,9 @@
-"""Single-writer AssistantController skeleton and effect runner."""
+"""Single-writer AssistantController and Gate 2.2 identity/activation effect runner."""
 
 from __future__ import annotations
 
 import asyncio
+import re
 import time
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
@@ -12,11 +13,18 @@ from .effects import (
     AssistantEffect,
     CancelRuntimeEffects,
     CloseTransport,
+    EnsureIdentity,
     OpenTransport,
+    ResetIdentity,
+    RunActivation,
     SendText,
 )
 from .events import (
     AbortRequested,
+    ActivationFailed,
+    ActivationRequired,
+    ActivationStarted,
+    ActivationSucceeded,
     AssistantEvent,
     AudioFailureSimulationRequested,
     ConnectRequested,
@@ -28,6 +36,8 @@ from .events import (
     EnableRequested,
     EnsureIdentityRequested,
     FakeActivationRequested,
+    IdentityReady,
+    IdentityReset,
     IncomingToolCallSimulationRequested,
     PushToTalkStartRequested,
     PushToTalkStopRequested,
@@ -46,6 +56,8 @@ from .events import (
     UseRealRuntimeRequested,
     VoiceInteractionModeRequested,
 )
+from .activation.models import ActivationClient, ActivationOutcomeStatus
+from .identity.models import DeviceIdentity
 from .state import AssistantEntrySource, AssistantState, VoiceInteractionMode
 from .state_machine import ConversationStateMachine
 
@@ -55,6 +67,12 @@ StateListener = Callable[[AssistantState], None]
 
 class RuntimeClock(Protocol):
     def now_ns(self) -> int: ...
+
+
+class IdentityManager(Protocol):
+    async def ensure_identity(self) -> DeviceIdentity: ...
+
+    async def reset_identity(self) -> DeviceIdentity: ...
 
 
 class AssistantTransport(Protocol):
@@ -93,9 +111,22 @@ class _QueuedEvent:
 class EffectRunner:
     """Execute effect descriptions against adapters and emit typed result events."""
 
-    def __init__(self, transport: AssistantTransport, event_sink: EventSink) -> None:
+    def __init__(
+        self,
+        *,
+        transport: AssistantTransport,
+        event_sink: EventSink,
+        clock: RuntimeClock,
+        identity_manager: IdentityManager | None = None,
+        fake_activation_client: ActivationClient | None = None,
+        real_activation_client: ActivationClient | None = None,
+    ) -> None:
         self._transport = transport
         self._event_sink = event_sink
+        self._clock = clock
+        self._identity_manager = identity_manager
+        self._fake_activation_client = fake_activation_client
+        self._real_activation_client = real_activation_client
 
     async def execute(self, effect: AssistantEffect) -> None:
         if isinstance(effect, OpenTransport):
@@ -111,9 +142,119 @@ class EffectRunner:
                 self._event_sink,
             )
             return
+        if isinstance(effect, EnsureIdentity):
+            await self._ensure_identity()
+            return
+        if isinstance(effect, ResetIdentity):
+            await self._reset_identity()
+            return
+        if isinstance(effect, RunActivation):
+            await self._run_activation(fake=effect.fake)
+            return
         if isinstance(effect, CancelRuntimeEffects):
             return
-        raise NotImplementedError(f"effect is not active in Gate 2.1: {type(effect).__name__}")
+        raise NotImplementedError(f"effect is not active in Gate 2.2: {type(effect).__name__}")
+
+    async def _ensure_identity(self) -> None:
+        manager = self._identity_manager
+        if manager is None:
+            raise RuntimeError("DeviceIdentityManager is not configured")
+        identity = await manager.ensure_identity()
+        await self._event_sink(
+            IdentityReady(
+                at_ns=self._clock.now_ns(),
+                device_id_masked=identity.device_id_masked,
+                client_id_masked=identity.client_id_masked,
+                identity_generation=identity.generation,
+            )
+        )
+
+    async def _reset_identity(self) -> None:
+        manager = self._identity_manager
+        if manager is None:
+            raise RuntimeError("DeviceIdentityManager is not configured")
+        identity = await manager.reset_identity()
+        await self._event_sink(
+            IdentityReset(
+                at_ns=self._clock.now_ns(),
+                identity_generation=identity.generation,
+            )
+        )
+        await self._event_sink(
+            IdentityReady(
+                at_ns=self._clock.now_ns(),
+                device_id_masked=identity.device_id_masked,
+                client_id_masked=identity.client_id_masked,
+                identity_generation=identity.generation,
+            )
+        )
+
+    async def _run_activation(self, *, fake: bool) -> None:
+        client = self._fake_activation_client if fake else self._real_activation_client
+        await self._event_sink(ActivationStarted(at_ns=self._clock.now_ns()))
+        if client is None:
+            await self._event_sink(
+                ActivationFailed(
+                    at_ns=self._clock.now_ns(),
+                    message=(
+                        "FakeActivationClient is not configured"
+                        if fake
+                        else "RealOtaActivationClient is not configured"
+                    ),
+                )
+            )
+            return
+        try:
+            outcome = await client.run()
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            await self._event_sink(
+                ActivationFailed(
+                    at_ns=self._clock.now_ns(),
+                    message=_redact_error_text(str(exc) or type(exc).__name__),
+                )
+            )
+            return
+
+        if outcome.status is ActivationOutcomeStatus.ACTIVATED:
+            if not outcome.websocket_url_public:
+                await self._event_sink(
+                    ActivationFailed(
+                        at_ns=self._clock.now_ns(),
+                        message="Activation 成功结果缺少 WebSocket URL",
+                        diagnostics_json_redacted=outcome.diagnostics_json_redacted,
+                    )
+                )
+                return
+            await self._event_sink(
+                ActivationSucceeded(
+                    at_ns=self._clock.now_ns(),
+                    websocket_url_public=outcome.websocket_url_public,
+                    message=outcome.message,
+                    diagnostics_json_redacted=outcome.diagnostics_json_redacted,
+                )
+            )
+            return
+        if outcome.status is ActivationOutcomeStatus.REQUIRED:
+            await self._event_sink(
+                ActivationRequired(
+                    at_ns=self._clock.now_ns(),
+                    activation_code=outcome.activation_code or "",
+                    authorization_url=outcome.authorization_url or "",
+                    message=outcome.message,
+                    websocket_url_public=outcome.websocket_url_public,
+                    diagnostics_json_redacted=outcome.diagnostics_json_redacted,
+                )
+            )
+            return
+        await self._event_sink(
+            ActivationFailed(
+                at_ns=self._clock.now_ns(),
+                message=outcome.message,
+                diagnostics_json_redacted=outcome.diagnostics_json_redacted,
+            )
+        )
 
 
 class AssistantController:
@@ -128,6 +269,9 @@ class AssistantController:
         state_machine: ConversationStateMachine | None = None,
         clock: RuntimeClock | None = None,
         initial_state: AssistantState | None = None,
+        identity_manager: IdentityManager | None = None,
+        fake_activation_client: ActivationClient | None = None,
+        real_activation_client: ActivationClient | None = None,
     ) -> None:
         self._clock = clock or SystemRuntimeClock()
         self._state_machine = state_machine or ConversationStateMachine()
@@ -135,7 +279,14 @@ class AssistantController:
         self._state.validate()
 
         self._queue: asyncio.Queue[_QueuedEvent] = asyncio.Queue(maxsize=self.EVENT_QUEUE_CAPACITY)
-        self._effect_runner = EffectRunner(transport, self._emit_adapter_event)
+        self._effect_runner = EffectRunner(
+            transport=transport,
+            event_sink=self._emit_adapter_event,
+            clock=self._clock,
+            identity_manager=identity_manager,
+            fake_activation_client=fake_activation_client,
+            real_activation_client=real_activation_client,
+        )
         self._effect_tasks: set[asyncio.Task[None]] = set()
         self._listeners: set[StateListener] = set()
         self._state_condition = asyncio.Condition()
@@ -406,7 +557,7 @@ class AssistantController:
                         EffectExecutionFailed(
                             at_ns=self._clock.now_ns(),
                             effect_name="event_pump",
-                            message=str(exc),
+                            message=_redact_error_text(str(exc) or type(exc).__name__),
                         )
                     )
             finally:
@@ -441,7 +592,7 @@ class AssistantController:
                 EffectExecutionFailed(
                     at_ns=self._clock.now_ns(),
                     effect_name=type(effect).__name__,
-                    message=str(exc),
+                    message=_redact_error_text(str(exc) or type(exc).__name__),
                     generation=generation,
                 )
             )
@@ -474,3 +625,12 @@ class AssistantController:
                     ControllerClosedError("event was discarded during shutdown")
                 )
             self._queue.task_done()
+
+
+_SENSITIVE_ERROR_PATTERN = re.compile(
+    r"(?i)(token|hmac|challenge|authorization|secret|key)\s*[:=]\s*[^\s,;]+"
+)
+
+
+def _redact_error_text(message: str) -> str:
+    return _SENSITIVE_ERROR_PATTERN.sub(lambda match: f"{match.group(1)}=***", message)[:300]
