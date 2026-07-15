@@ -113,10 +113,14 @@ def test_current_verifier_covers_gate2_6_and_keeps_historical_gates() -> None:
         assert "$LASTEXITCODE -ne 0" in source
         assert "exit 1" in source
 
-    runner = REPO_ROOT / "RUN_GATE2_6_UI_SMOKE.ps1"
-    assert runner.is_file()
-    assert "verify_gate2_6_ui_smoke.py" in _read(runner)
-    assert (PC_BUILD_ROOT / "docs" / "report" / "GATE2_6_IMPLEMENTATION_REPORT.md").is_file()
+    smoke_tool = PC_BUILD_ROOT / "tools" / "verify_gate2_6_ui_smoke.py"
+    assert smoke_tool.is_file()
+    smoke_source = _read(smoke_tool)
+    assert "create_application_context" in smoke_source
+    assert "context.lifecycle.shutdown" in smoke_source
+    assert (
+        PC_BUILD_ROOT / "docs" / "report" / "GATE2_6_IMPLEMENTATION_REPORT.md"
+    ).is_file()
 
 
 def _call_name(node: ast.Call) -> str | None:

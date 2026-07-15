@@ -2,6 +2,8 @@
 
 基线提交：`2faaf859f3efd29508babb22c50623cf5939aef4`
 
+验收修复基线：`1f0ea9ff38e0204f62bc2e418b1b9cd04236de12`
+
 ## 1. 范围
 
 Gate 2.7 不新增第二套 Runtime，也不修改 Notes 写入路径。它把 Gate 2.1～2.6 已冻结的实现收束为两个独立、可审计的验收结果：
@@ -35,6 +37,14 @@ powershell -ExecutionPolicy Bypass -File .\VERIFY_GATE2_7.ps1
 - Assistant Runtime 全流程不改 `notes.db`；
 - 离屏 QML 加载与有界生命周期关闭。
 
+Gate 2.6 的历史 UI smoke 契约固定在：
+
+```text
+pc-app-build/tools/verify_gate2_6_ui_smoke.py
+```
+
+不要求根目录永久保留旧 Gate runner 文件名。
+
 脚本返回 `0` 时，唯一允许的结论是：
 
 ```text
@@ -60,6 +70,8 @@ powershell -ExecutionPolicy Bypass -File .\RUN_GATE2_7_REAL_ACCEPTANCE.ps1
 - 新 generation 的真实 hello/session 恢复；
 - recovery 期间 activation 只执行一次；
 - 输出仅包含脱敏 identity/session 和公开 URL。
+
+服务端会截断超过十个字符的文本输入。Real acceptance 默认发送 `回复验收通过`，并在发送前把 `NOTE_ASSISTANT_GATE2_7_TEXT` 自定义文本限制为最多十个字符，避免验收因服务端截断而长时间等待。
 
 返回码：
 

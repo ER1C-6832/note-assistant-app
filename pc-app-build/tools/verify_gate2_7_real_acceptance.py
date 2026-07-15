@@ -37,7 +37,8 @@ from app.assistant.runtime_config import (  # noqa: E402
     DEFAULT_ASSISTANT_OTA_URL,
 )
 
-DEFAULT_TEXT_PROMPT = "请用一句中文回复：Gate 2.7 真实总验收正常。"
+DEFAULT_TEXT_PROMPT = "回复验收通过"
+MAX_TEXT_PROMPT_CHARS = 10
 CONNECT_TIMEOUT_SECONDS = 15.0
 ACTIVATION_TIMEOUT_SECONDS = 20.0
 TEXT_TIMEOUT_SECONDS = 45.0
@@ -65,6 +66,13 @@ class CountingActivationClient:
 def _optional_env(name: str) -> str | None:
     value = os.environ.get(name, "").strip()
     return value or None
+
+
+def _resolve_text_prompt(value: str | None) -> str:
+    """Keep the acceptance text within the service's ten-character wire limit."""
+
+    prompt = (value or DEFAULT_TEXT_PROMPT).strip() or DEFAULT_TEXT_PROMPT
+    return prompt[:MAX_TEXT_PROMPT_CHARS]
 
 
 def _mask(value: str | None) -> str | None:
@@ -132,10 +140,12 @@ def _public_result(
     headers_verified: bool,
     first_generation: int,
     first_session: str | None,
+    failure_stage: str | None = None,
 ) -> dict[str, object]:
     reply = state.conversation.last_assistant_text
     return {
         "status": status,
+        "failure_stage": failure_stage,
         "phase": state.phase.value,
         "activation_status": state.activation.status.value,
         "activation_calls": activation_calls,
@@ -161,6 +171,7 @@ def _public_result(
         "forced_close_code": ABNORMAL_CLOSE_CODE,
         "forced_close_reason": ABNORMAL_CLOSE_REASON,
         "prompt_chars": len(prompt),
+        "prompt_limit_chars": MAX_TEXT_PROMPT_CHARS,
         "assistant_text": reply[:MAX_PUBLIC_REPLY_CHARS] if reply else None,
         "assistant_source_type": state.conversation.last_assistant_source_type,
         "real_handshake_verified": state.diagnostics.gate_real_handshake_verified,
@@ -171,14 +182,21 @@ def _public_result(
         "last_protocol_event": state.protocol.last_protocol_event,
         "last_protocol_error": state.protocol.last_protocol_error,
         "error_code": state.error.code if state.error else None,
-        "error_message": redact_error_text(state.error.message) if state.error else None,
+        "error_message": (redact_error_text(state.error.message) if state.error else None),
         "config_path": str(paths.assistant_runtime_config),
     }
 
 
+def _print_result(payload: dict[str, object], *, stderr: bool = False) -> None:
+    print(
+        json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True),
+        file=sys.stderr if stderr else sys.stdout,
+    )
+
+
 async def _run() -> int:
     data_root = _optional_env("NOTE_ASSISTANT_DATA_ROOT")
-    prompt = _optional_env("NOTE_ASSISTANT_GATE2_7_TEXT") or DEFAULT_TEXT_PROMPT
+    prompt = _resolve_text_prompt(_optional_env("NOTE_ASSISTANT_GATE2_7_TEXT"))
     paths = AppPaths.resolve(root_override=data_root)
     paths.ensure_directories()
 
@@ -237,41 +255,25 @@ async def _run() -> int:
             timeout_seconds=ACTIVATION_TIMEOUT_SECONDS,
         )
         if activated.activation.status is AssistantActivationStatus.REQUIRED:
-            print(
-                json.dumps(
-                    _blocked_result(
-                        activated,
-                        identity,
-                        paths,
-                        activation_client.calls,
-                    ),
-                    ensure_ascii=False,
-                    indent=2,
-                    sort_keys=True,
-                )
-            )
+            _print_result(_blocked_result(activated, identity, paths, activation_client.calls))
             return 2
         if activated.activation.status is not AssistantActivationStatus.ACTIVATED:
             activation_message = activated.activation.message or (
                 activated.error.message if activated.error else "activation failed"
             )
             blocked = _environment_blocked(activation_message)
-            print(
-                json.dumps(
-                    _public_result(
-                        activated,
-                        identity,
-                        paths,
-                        status="real_gate_blocked" if blocked else "failed",
-                        prompt=prompt,
-                        activation_calls=activation_client.calls,
-                        headers_verified=False,
-                        first_generation=0,
-                        first_session=None,
-                    ),
-                    ensure_ascii=False,
-                    indent=2,
-                    sort_keys=True,
+            _print_result(
+                _public_result(
+                    activated,
+                    identity,
+                    paths,
+                    status="real_gate_blocked" if blocked else "failed",
+                    prompt=prompt,
+                    activation_calls=activation_client.calls,
+                    headers_verified=False,
+                    first_generation=0,
+                    first_session=None,
+                    failure_stage="activation",
                 )
             )
             return 2 if blocked else 1
@@ -295,22 +297,18 @@ async def _run() -> int:
         if not connected.is_connected:
             connection_message = connected.error.message if connected.error else "connect failed"
             blocked = _environment_blocked(connection_message)
-            print(
-                json.dumps(
-                    _public_result(
-                        connected,
-                        identity,
-                        paths,
-                        status="real_gate_blocked" if blocked else "failed",
-                        prompt=prompt,
-                        activation_calls=activation_client.calls,
-                        headers_verified=headers_verified,
-                        first_generation=0,
-                        first_session=None,
-                    ),
-                    ensure_ascii=False,
-                    indent=2,
-                    sort_keys=True,
+            _print_result(
+                _public_result(
+                    connected,
+                    identity,
+                    paths,
+                    status="real_gate_blocked" if blocked else "failed",
+                    prompt=prompt,
+                    activation_calls=activation_client.calls,
+                    headers_verified=headers_verified,
+                    first_generation=0,
+                    first_session=None,
+                    failure_stage="connect",
                 )
             )
             return 2 if blocked else 1
@@ -319,13 +317,47 @@ async def _run() -> int:
         submitted = controller.state
         turn_token = submitted.conversation.active_text_turn_token
         if turn_token is None:
+            _print_result(
+                _public_result(
+                    submitted,
+                    identity,
+                    paths,
+                    status="failed",
+                    prompt=prompt,
+                    activation_calls=activation_client.calls,
+                    headers_verified=headers_verified,
+                    first_generation=submitted.connection.connection_generation,
+                    first_session=submitted.connection.session_id,
+                    failure_stage="text_turn_not_started",
+                )
+            )
             return 1
-        text_state = await controller.wait_for_state(
-            lambda state: state.error is not None
-            or state.diagnostics.gate_real_text_verified
-            or state.conversation.last_completed_text_turn_token >= turn_token,
-            timeout_seconds=TEXT_TIMEOUT_SECONDS,
-        )
+
+        try:
+            text_state = await controller.wait_for_state(
+                lambda state: state.error is not None
+                or state.diagnostics.gate_real_text_verified
+                or state.conversation.last_completed_text_turn_token >= turn_token,
+                timeout_seconds=TEXT_TIMEOUT_SECONDS,
+            )
+        except TimeoutError:
+            text_state = controller.state
+            _print_result(
+                _public_result(
+                    text_state,
+                    identity,
+                    paths,
+                    status="failed",
+                    prompt=prompt,
+                    activation_calls=activation_client.calls,
+                    headers_verified=headers_verified,
+                    first_generation=text_state.connection.connection_generation,
+                    first_session=text_state.connection.session_id,
+                    failure_stage="text_turn_timeout",
+                )
+            )
+            return 1
+
         readable_reply = has_readable_transcript_text(
             text_state.conversation.last_assistant_text or ""
         )
@@ -335,22 +367,18 @@ async def _run() -> int:
             and text_state.diagnostics.gate_real_text_verified
             and readable_reply
         ):
-            print(
-                json.dumps(
-                    _public_result(
-                        text_state,
-                        identity,
-                        paths,
-                        status="failed",
-                        prompt=prompt,
-                        activation_calls=activation_client.calls,
-                        headers_verified=headers_verified,
-                        first_generation=text_state.connection.connection_generation,
-                        first_session=text_state.connection.session_id,
-                    ),
-                    ensure_ascii=False,
-                    indent=2,
-                    sort_keys=True,
+            _print_result(
+                _public_result(
+                    text_state,
+                    identity,
+                    paths,
+                    status="failed",
+                    prompt=prompt,
+                    activation_calls=activation_client.calls,
+                    headers_verified=headers_verified,
+                    first_generation=text_state.connection.connection_generation,
+                    first_session=text_state.connection.session_id,
+                    failure_stage="text_turn_verification",
                 )
             )
             return 1
@@ -382,22 +410,18 @@ async def _run() -> int:
             and recovered.diagnostics.gate_real_text_verified
             and has_readable_transcript_text(recovered.conversation.last_assistant_text or "")
         )
-        print(
-            json.dumps(
-                _public_result(
-                    recovered,
-                    identity,
-                    paths,
-                    status="real_gate_complete" if verified else "failed",
-                    prompt=prompt,
-                    activation_calls=activation_client.calls,
-                    headers_verified=headers_verified,
-                    first_generation=first_generation,
-                    first_session=first_session,
-                ),
-                ensure_ascii=False,
-                indent=2,
-                sort_keys=True,
+        _print_result(
+            _public_result(
+                recovered,
+                identity,
+                paths,
+                status="real_gate_complete" if verified else "failed",
+                prompt=prompt,
+                activation_calls=activation_client.calls,
+                headers_verified=headers_verified,
+                first_generation=first_generation,
+                first_session=first_session,
+                failure_stage=None if verified else "recovery_verification",
             )
         )
         if verified:
@@ -412,35 +436,25 @@ def main() -> int:
     try:
         return asyncio.run(_run())
     except TimeoutError:
-        print(
-            json.dumps(
-                {
-                    "status": "failed",
-                    "error_type": "TimeoutError",
-                    "message": "Gate 2.7 真实总验收等待超时",
-                },
-                ensure_ascii=False,
-                indent=2,
-                sort_keys=True,
-            ),
-            file=sys.stderr,
+        _print_result(
+            {
+                "status": "failed",
+                "error_type": "TimeoutError",
+                "message": "Gate 2.7 真实总验收等待超时",
+            },
+            stderr=True,
         )
         return 1
     except Exception as exc:
         message = redact_error_text(str(exc) or type(exc).__name__)
         blocked = _environment_blocked(message)
-        print(
-            json.dumps(
-                {
-                    "status": "real_gate_blocked" if blocked else "failed",
-                    "error_type": type(exc).__name__,
-                    "message": message,
-                },
-                ensure_ascii=False,
-                indent=2,
-                sort_keys=True,
-            ),
-            file=sys.stderr,
+        _print_result(
+            {
+                "status": "real_gate_blocked" if blocked else "failed",
+                "error_type": type(exc).__name__,
+                "message": message,
+            },
+            stderr=True,
         )
         return 2 if blocked else 1
 
