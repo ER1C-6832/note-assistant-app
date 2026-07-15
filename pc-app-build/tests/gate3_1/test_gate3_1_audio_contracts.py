@@ -37,7 +37,9 @@ def test_encoded_queue_fails_current_turn_on_overflow() -> None:
 
 
 def test_scripted_capture_encoder_vad_share_generation() -> None:
-    capture = ScriptedFakeAudioCapture(FakeCaptureScript.from_frames((b"a", b"b")))
+    frame_a = b"\x01\x00" * 320
+    frame_b = b"\x02\x00" * 320
+    capture = ScriptedFakeAudioCapture(FakeCaptureScript.from_frames((frame_a, frame_b)))
     encoder = FakeOpusEncoder()
     vad = ScriptedVoiceActivityDetector(
         (VoiceActivityState.SPEECH_DETECTED, VoiceActivityState.END_OF_SPEECH)

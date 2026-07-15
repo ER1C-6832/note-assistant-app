@@ -1,5 +1,12 @@
-"""Shared Gate 3 audio contracts and deterministic fake adapters."""
+"""Shared Gate 3 audio contracts and adapters."""
 
+from .engine import (
+    AssistantAudioEngine,
+    AudioEngineBusyError,
+    AudioEngineFailure,
+    AudioEngineGenerationError,
+    MicrophoneLeaseCoordinator,
+)
 from .fake_audio import (
     AudioCaptureBusyError,
     AudioCaptureGenerationError,
@@ -15,12 +22,16 @@ from .models import (
     DEFAULT_OPUS_BITRATE_BPS,
     DEFAULT_SAMPLE_RATE_HZ,
     DEFAULT_SAMPLES_PER_FRAME,
+    ENCODED_PACKET_CAPACITY,
+    PCM_INGRESS_CAPACITY,
     AudioCaptureSummary,
     EncodedAudioPacket,
     PcmFrame,
     VoiceActivitySnapshot,
 )
+from .opus_codec import OpusUnavailableError, PyAvOpusEncoder
 from .ports import AudioCapturePort, AudioClock, OpusEncoderPort, VoiceActivityDetectorPort
+from .pyaudio_adapter import PyAudioCaptureAdapter, PyAudioUnavailableError
 from .queues import (
     AudioQueueClosed,
     AudioQueueOverflow,
@@ -30,11 +41,15 @@ from .queues import (
 )
 
 __all__ = [
+    "AssistantAudioEngine",
     "AudioCaptureBusyError",
     "AudioCaptureGenerationError",
     "AudioCapturePort",
     "AudioCaptureSummary",
     "AudioClock",
+    "AudioEngineBusyError",
+    "AudioEngineFailure",
+    "AudioEngineGenerationError",
     "AudioQueueClosed",
     "AudioQueueOverflow",
     "AudioQueueStats",
@@ -45,12 +60,19 @@ __all__ = [
     "DEFAULT_SAMPLE_RATE_HZ",
     "DEFAULT_SAMPLES_PER_FRAME",
     "DropOldestAudioQueue",
+    "ENCODED_PACKET_CAPACITY",
     "EncodedAudioPacket",
     "FailOnOverflowAudioQueue",
     "FakeCaptureScript",
     "FakeOpusEncoder",
+    "MicrophoneLeaseCoordinator",
     "OpusEncoderPort",
+    "OpusUnavailableError",
+    "PCM_INGRESS_CAPACITY",
     "PcmFrame",
+    "PyAudioCaptureAdapter",
+    "PyAudioUnavailableError",
+    "PyAvOpusEncoder",
     "ScriptedFakeAudioCapture",
     "ScriptedVoiceActivityDetector",
     "VoiceActivityDetectorPort",

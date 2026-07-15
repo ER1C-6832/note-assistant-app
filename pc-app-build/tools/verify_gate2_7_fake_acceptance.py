@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 import asyncio
+import gc
 import json
+import shutil
 import sqlite3
 import sys
 import tempfile
+import time
 from pathlib import Path
 
 APP_ROOT = Path(__file__).resolve().parents[1] / "apps" / "notes-pyside"
@@ -44,16 +47,39 @@ from app.assistant.testing import (  # noqa: E402
 
 
 def _prepare_notes_db(path: Path) -> bytes:
-    with sqlite3.connect(path) as connection:
-        connection.execute(
+    connection = sqlite3.connect(path)
+    cursor = connection.cursor()
+    try:
+        cursor.execute(
             "CREATE TABLE gate2_7_sentinel (id INTEGER PRIMARY KEY, value TEXT NOT NULL)"
         )
-        connection.execute(
+        cursor.execute(
             "INSERT INTO gate2_7_sentinel (id, value) VALUES (?, ?)",
             (1, "notes-db-must-remain-unchanged"),
         )
         connection.commit()
+    finally:
+        cursor.close()
+        connection.close()
     return path.read_bytes()
+
+
+def _remove_temp_tree(path: Path) -> None:
+    """Retry Windows cleanup after sqlite/Python releases the final file handle."""
+
+    last_error: OSError | None = None
+    for attempt in range(12):
+        gc.collect()
+        try:
+            shutil.rmtree(path)
+            return
+        except FileNotFoundError:
+            return
+        except PermissionError as exc:
+            last_error = exc
+            time.sleep(0.05 * (attempt + 1))
+    if last_error is not None:
+        raise last_error
 
 
 async def run_fake_acceptance(data_root: Path) -> dict[str, object]:
@@ -76,7 +102,6 @@ async def run_fake_acceptance(data_root: Path) -> dict[str, object]:
     future_capabilities_frozen = all(
         initial.capability_status(capability) is CapabilityStatus.NOT_READY
         for capability in (
-            AssistantCapability.PUSH_TO_TALK,
             AssistantCapability.TTS_PLAYBACK,
             AssistantCapability.MCP_NOTES,
             AssistantCapability.STREAMING_CONVERSATION,
@@ -255,9 +280,9 @@ async def run_fake_acceptance(data_root: Path) -> dict[str, object]:
 
 
 def main() -> int:
+    temp_root = Path(tempfile.mkdtemp(prefix="note-assistant-gate2-7-fake-"))
     try:
-        with tempfile.TemporaryDirectory(prefix="note-assistant-gate2-7-fake-") as temp_dir:
-            result = asyncio.run(run_fake_acceptance(Path(temp_dir)))
+        result = asyncio.run(run_fake_acceptance(temp_root))
         print(json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True))
         return 0 if result["status"] == "fake_gate_complete" else 1
     except Exception as exc:
@@ -275,6 +300,8 @@ def main() -> int:
             file=sys.stderr,
         )
         return 1
+    finally:
+        _remove_temp_tree(temp_root)
 
 
 if __name__ == "__main__":

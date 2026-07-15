@@ -90,7 +90,9 @@ def test_assistant_panel_exposes_gate2_6_product_and_developer_surface_only() ->
     floating = _read(APP_ROOT / "qml" / "components" / "AssistantFloatingPanel.qml")
     assert "AssistantPanel" in floating
     assert "viewModelRef: root.assistantModel" in main
-    assert "pushToTalk" not in panel
+    assert "assistantPushToTalkButton" in panel
+    assert "requestPushToTalkStart" in panel
+    assert "requestPushToTalkStop" in panel
     assert "startPushToTalk" not in panel
     assert "wakeWord" not in panel
     assert "KWS" not in panel

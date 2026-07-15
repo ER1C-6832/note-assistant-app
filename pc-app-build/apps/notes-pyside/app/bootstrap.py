@@ -30,6 +30,12 @@ from .assistant import (
     RuntimeConfigStore,
     RuntimeTransportRouter,
 )
+from .assistant.audio import (
+    AssistantAudioEngine,
+    MicrophoneLeaseCoordinator,
+    PyAudioCaptureAdapter,
+    PyAvOpusEncoder,
+)
 from .assistant.controller import SystemRuntimeClock
 from .assistant.identity import LegacyPyXiaozhiIdentitySource
 from .assistant.network import ScriptedFakeTransport
@@ -66,6 +72,7 @@ class AssistantRuntime:
     config_store: RuntimeConfigStore
     preferences_store: AssistantPreferencesStore
     identity_manager: DeviceIdentityManager
+    audio_engine: AssistantAudioEngine
     controller: AssistantController
     view_model: AssistantViewModel
 
@@ -192,6 +199,11 @@ def create_assistant_runtime(paths: AppPaths) -> AssistantRuntime:
             streaming_barge_in_enabled=preferences.streaming_barge_in_enabled,
         ),
     )
+    audio_engine = AssistantAudioEngine(
+        capture=PyAudioCaptureAdapter(),
+        encoder_factory=PyAvOpusEncoder,
+    )
+    microphone_coordinator = MicrophoneLeaseCoordinator()
     controller = AssistantController(
         transport=transport,
         state_machine=ConversationStateMachine(ReconnectPolicy()),
@@ -207,11 +219,14 @@ def create_assistant_runtime(paths: AppPaths) -> AssistantRuntime:
             identity_manager=identity_manager,
         ),
         preferences_store=preferences_store,
+        audio_engine=audio_engine,
+        microphone_coordinator=microphone_coordinator,
     )
     return AssistantRuntime(
         config_store=config_store,
         preferences_store=preferences_store,
         identity_manager=identity_manager,
+        audio_engine=audio_engine,
         controller=controller,
         view_model=AssistantViewModel(
             controller,

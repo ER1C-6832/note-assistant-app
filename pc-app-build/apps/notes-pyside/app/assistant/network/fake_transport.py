@@ -6,6 +6,8 @@ from ..testing.scripted_transport import (
     ScriptedFakeTransport,
     TextFailed,
     TextReply,
+    VoiceFailed,
+    VoiceReply,
 )
 
 __all__ = [
@@ -14,4 +16,6 @@ __all__ = [
     "ScriptedFakeTransport",
     "TextFailed",
     "TextReply",
+    "VoiceFailed",
+    "VoiceReply",
 ]

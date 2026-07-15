@@ -10,10 +10,11 @@ from PySide6.QtCore import QObject, Property, Signal, Slot
 
 from ..assistant import (
     AssistantActivationStatus,
-    AssistantAudioStatus,
     AssistantCapability,
+    AssistantAudioStatus,
     AssistantConnectionStatus,
     AssistantController,
+    AssistantEntrySource,
     AssistantPhase,
     AssistantRuntimeMode,
     AssistantState,
@@ -36,7 +37,7 @@ _PHASE_LABELS = {
     AssistantPhase.ACTIVATING: "激活中",
     AssistantPhase.CONNECTING: "连接中",
     AssistantPhase.CONNECTED: "已连接",
-    AssistantPhase.LISTENING: "正在提交",
+    AssistantPhase.LISTENING: "聆听中",
     AssistantPhase.UPLOADING_AUDIO: "上传中",
     AssistantPhase.THINKING: "思考中",
     AssistantPhase.SPEAKING: "回复中",
@@ -252,6 +253,54 @@ class AssistantViewModel(QObject):
         return self._state.is_connected and self._state.phase is AssistantPhase.CONNECTED
 
     @Property(bool, notify=stateChanged)
+    def canPushToTalk(self) -> bool:
+        return bool(
+            self._state.is_connected
+            and self._state.conversation.preferred_voice_mode.value == "hold_to_talk"
+            and self._state.phase is AssistantPhase.CONNECTED
+            and self._state.conversation.active_text_turn_token is None
+            and self._state.conversation.active_voice_turn_token is None
+        )
+
+    @Property(bool, notify=stateChanged)
+    def pushToTalkActive(self) -> bool:
+        return bool(
+            self._state.conversation.active_entry_source is AssistantEntrySource.PUSH_TO_TALK
+            and self._state.conversation.active_voice_turn_token is not None
+        )
+
+    @Property(bool, notify=stateChanged)
+    def pushToTalkRecording(self) -> bool:
+        return self._state.audio.status is AssistantAudioStatus.RECORDING
+
+    @Property(bool, notify=stateChanged)
+    def pushToTalkStopping(self) -> bool:
+        return bool(
+            self.pushToTalkActive
+            and self._state.phase in {AssistantPhase.UPLOADING_AUDIO, AssistantPhase.THINKING}
+        )
+
+    @Property(str, notify=stateChanged)
+    def inputDevicePublicName(self) -> str:
+        return self._state.audio.input_device_public_name or ""
+
+    @Property(int, notify=stateChanged)
+    def capturedAudioFrames(self) -> int:
+        return self._state.audio.captured_frames
+
+    @Property(int, notify=stateChanged)
+    def uploadedAudioFrames(self) -> int:
+        return self._state.audio.uploaded_frames
+
+    @Property(int, notify=stateChanged)
+    def droppedPcmFrames(self) -> int:
+        return self._state.audio.dropped_pcm_frames
+
+    @Property(int, notify=stateChanged)
+    def activeVoiceTurnToken(self) -> int:
+        return self._state.conversation.active_voice_turn_token or 0
+
+    @Property(bool, notify=stateChanged)
     def canRetry(self) -> bool:
         return self._state.enabled and (
             self._state.error is not None
@@ -429,6 +478,17 @@ class AssistantViewModel(QObject):
         self._launcher_position_dirty = True
         self.preferencesChanged.emit()
         self._schedule_launcher_position_save()
+
+    @Slot()
+    def requestPushToTalkStart(self) -> None:
+        self._schedule(
+            "push_to_talk_start",
+            lambda: self._controller.start_push_to_talk(permission_granted=True),
+        )
+
+    @Slot()
+    def requestPushToTalkStop(self) -> None:
+        self._schedule("push_to_talk_stop", self._controller.stop_push_to_talk)
 
     @Slot(str)
     def requestSendText(self, text: str) -> None:

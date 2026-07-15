@@ -42,6 +42,10 @@ class ScriptedFakeAudioCapture:
         self.stale_frame_count = 0
 
     @property
+    def input_device_public_name(self) -> str | None:
+        return "Scripted Fake Microphone"
+
+    @property
     def active_generation(self) -> int | None:
         return self._active_generation
 

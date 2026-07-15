@@ -7,6 +7,62 @@ Rectangle {
 
     property var viewModelRef: null
     readonly property bool ready: viewModelRef !== null
+    readonly property var model: ready ? viewModelRef : fallbackModel
+    property bool pttPressOwned: false
+
+    QtObject {
+        id: fallbackModel
+        readonly property string statusText: "Runtime 未就绪"
+        readonly property bool commandBusy: false
+        readonly property bool enabled: false
+        readonly property bool connected: false
+        readonly property bool reconnecting: false
+        readonly property bool hasRuntimeError: false
+        readonly property bool canConnect: false
+        readonly property bool canDisconnect: false
+        readonly property bool canRetry: false
+        readonly property bool canSendText: false
+        readonly property bool canPushToTalk: false
+        readonly property bool pushToTalkActive: false
+        readonly property bool pushToTalkRecording: false
+        readonly property bool pushToTalkStopping: false
+        readonly property string phaseText: "未初始化"
+        readonly property string connectionStatusText: "未连接"
+        readonly property string runtimeMode: "real"
+        readonly property string runtimeModeText: "真实"
+        readonly property string voiceInteractionMode: "hold_to_talk"
+        readonly property string operationError: ""
+        readonly property string errorCode: ""
+        readonly property string errorMessage: ""
+        readonly property string lastUserText: ""
+        readonly property string lastAssistantText: ""
+        readonly property string deviceIdMasked: ""
+        readonly property string clientIdMasked: ""
+        readonly property string sessionIdMasked: ""
+        readonly property int reconnectAttempt: 0
+        readonly property string reconnectDecision: ""
+        readonly property string activationStatus: "unknown"
+        readonly property string activationCode: ""
+        readonly property string activationMessage: ""
+        readonly property string lastProtocolEvent: ""
+        readonly property string lastClientJsonRedacted: ""
+        readonly property string lastServerJsonRedacted: ""
+        readonly property string lastProtocolError: ""
+        readonly property var capabilityItems: []
+        property bool developerExpanded: false
+        function requestSetEnabled(value) {}
+        function requestConnect() {}
+        function requestDisconnect() {}
+        function requestRetry() {}
+        function requestSendText(value) {}
+        function requestRuntimeMode(value) {}
+        function requestRunActivation() {}
+        function requestResetIdentity() {}
+        function requestSimulateAbnormalClose() {}
+        function requestSimulateFailure() {}
+        function requestPushToTalkStart() {}
+        function requestPushToTalkStop() {}
+    }
     signal textSubmitted(string text)
 
     radius: 18
@@ -15,11 +71,23 @@ Rectangle {
     border.width: 1
     clip: true
 
+    function releaseOwnedPtt() {
+        if (!pttPressOwned) return
+        pttPressOwned = false
+        model.requestPushToTalkStop()
+    }
+
+    onVisibleChanged: {
+        if (!visible) releaseOwnedPtt()
+    }
+
+    Component.onDestruction: releaseOwnedPtt()
+
     function submitText() {
         if (!ready) return
         var clean = String(messageInput.text).trim()
         if (clean.length === 0) return
-        viewModelRef.requestSendText(clean)
+        root.model.requestSendText(clean)
         root.textSubmitted(clean)
         messageInput.clear()
     }
@@ -60,7 +128,7 @@ Rectangle {
                 }
 
                 Label {
-                    text: root.ready ? root.viewModelRef.statusText : "Runtime 未就绪"
+                    text: root.ready ? root.model.statusText : "Runtime 未就绪"
                     color: "#64748B"
                     font.pixelSize: 12
                     elide: Text.ElideRight
@@ -70,13 +138,13 @@ Rectangle {
 
             Switch {
                 id: enabledSwitch
-                enabled: root.ready && !root.viewModelRef.commandBusy
-                checked: root.ready && root.viewModelRef.enabled
+                enabled: root.ready && !root.model.commandBusy
+                checked: root.ready && root.model.enabled
                 Accessible.name: "启用小智助手"
                 onToggled: {
                     if (!root.ready) return
-                    if (checked !== root.viewModelRef.enabled) {
-                        root.viewModelRef.requestSetEnabled(checked)
+                    if (checked !== root.model.enabled) {
+                        root.model.requestSetEnabled(checked)
                     }
                 }
             }
@@ -102,16 +170,16 @@ Rectangle {
                         height: 9
                         radius: 5
                         color: !root.ready ? "#94A3B8"
-                                               : root.viewModelRef.connected ? "#22C55E"
-                                               : root.viewModelRef.reconnecting ? "#F59E0B"
-                                               : root.viewModelRef.hasRuntimeError ? "#EF4444"
+                                               : root.model.connected ? "#22C55E"
+                                               : root.model.reconnecting ? "#F59E0B"
+                                               : root.model.hasRuntimeError ? "#EF4444"
                                                : "#94A3B8"
                     }
 
                     Label {
                         Layout.fillWidth: true
                         text: root.ready
-                              ? root.viewModelRef.phaseText + " · " + root.viewModelRef.connectionStatusText
+                              ? root.model.phaseText + " · " + root.model.connectionStatusText
                               : "未初始化"
                         color: "#334155"
                         font.pixelSize: 13
@@ -119,7 +187,7 @@ Rectangle {
                     }
 
                     Label {
-                        text: root.ready ? root.viewModelRef.runtimeModeText : ""
+                        text: root.ready ? root.model.runtimeModeText : ""
                         color: "#2563EB"
                         font.pixelSize: 11
                     }
@@ -131,26 +199,26 @@ Rectangle {
 
                     Button {
                         Layout.fillWidth: true
-                        text: root.ready && root.viewModelRef.connected ? "断开" : "连接"
+                        text: root.ready && root.model.connected ? "断开" : "连接"
                         enabled: root.ready
-                                 && !root.viewModelRef.commandBusy
-                                 && (root.viewModelRef.connected
-                                     ? root.viewModelRef.canDisconnect
-                                     : root.viewModelRef.canConnect)
+                                 && !root.model.commandBusy
+                                 && (root.model.connected
+                                     ? root.model.canDisconnect
+                                     : root.model.canConnect)
                         onClicked: {
-                            if (root.viewModelRef.connected) {
-                                root.viewModelRef.requestDisconnect()
+                            if (root.model.connected) {
+                                root.model.requestDisconnect()
                             } else {
-                                root.viewModelRef.requestConnect()
+                                root.model.requestConnect()
                             }
                         }
                     }
 
                     Button {
                         text: "重试"
-                        visible: root.ready && root.viewModelRef.canRetry
-                        enabled: visible && !root.viewModelRef.commandBusy
-                        onClicked: root.viewModelRef.requestRetry()
+                        visible: root.ready && root.model.canRetry
+                        enabled: visible && !root.model.commandBusy
+                        onClicked: root.model.requestRetry()
                     }
                 }
             }
@@ -159,8 +227,8 @@ Rectangle {
         Rectangle {
             Layout.fillWidth: true
             visible: root.ready
-                     && (root.viewModelRef.hasRuntimeError
-                         || root.viewModelRef.operationError.length > 0)
+                     && (root.model.hasRuntimeError
+                         || root.model.operationError.length > 0)
             implicitHeight: errorColumn.implicitHeight + 20
             radius: 12
             color: "#FFF1F2"
@@ -176,21 +244,46 @@ Rectangle {
 
                 Label {
                     Layout.fillWidth: true
-                    text: root.viewModelRef.operationError.length > 0
-                          ? root.viewModelRef.operationError
-                          : root.viewModelRef.errorMessage
+                    text: root.model.operationError.length > 0
+                          ? root.model.operationError
+                          : root.model.errorMessage
                     wrapMode: Text.Wrap
                     color: "#BE123C"
                     font.pixelSize: 12
                 }
 
                 Label {
-                    visible: root.viewModelRef.errorCode.length > 0
-                    text: root.viewModelRef.errorCode
+                    visible: root.model.errorCode.length > 0
+                    text: root.model.errorCode
                     color: "#9F1239"
                     font.pixelSize: 10
                 }
             }
+        }
+
+        Button {
+            id: pushToTalkButton
+            objectName: "assistantPushToTalkButton"
+            Layout.fillWidth: true
+            Layout.preferredHeight: 52
+            visible: root.model.voiceInteractionMode === "hold_to_talk"
+            enabled: root.ready
+                     && !root.model.pushToTalkStopping
+                     && (root.model.canPushToTalk || root.model.pushToTalkActive)
+            text: root.model.pushToTalkRecording
+                  ? "正在聆听 · 松开提交"
+                  : root.model.pushToTalkStopping
+                    ? "正在提交语音…"
+                    : "按住说话"
+            Accessible.name: "按住说话"
+
+            onPressed: {
+                if (!root.model.canPushToTalk || root.pttPressOwned) return
+                root.pttPressOwned = true
+                root.model.requestPushToTalkStart()
+            }
+            onReleased: root.releaseOwnedPtt()
+            onCanceled: root.releaseOwnedPtt()
         }
 
         Label {
@@ -212,7 +305,7 @@ Rectangle {
 
                 Rectangle {
                     width: parent.width
-                    visible: root.ready && root.viewModelRef.lastUserText.length > 0
+                    visible: root.ready && root.model.lastUserText.length > 0
                     implicitHeight: userText.implicitHeight + 20
                     radius: 12
                     color: "#E8F1FF"
@@ -223,7 +316,7 @@ Rectangle {
                         anchors.right: parent.right
                         anchors.top: parent.top
                         anchors.margins: 10
-                        text: root.ready ? root.viewModelRef.lastUserText : ""
+                        text: root.ready ? root.model.lastUserText : ""
                         wrapMode: Text.Wrap
                         color: "#1E3A8A"
                         font.pixelSize: 13
@@ -232,7 +325,7 @@ Rectangle {
 
                 Rectangle {
                     width: parent.width
-                    visible: root.ready && root.viewModelRef.lastAssistantText.length > 0
+                    visible: root.ready && root.model.lastAssistantText.length > 0
                     implicitHeight: assistantText.implicitHeight + 20
                     radius: 12
                     color: "#F1F5F9"
@@ -243,7 +336,7 @@ Rectangle {
                         anchors.right: parent.right
                         anchors.top: parent.top
                         anchors.margins: 10
-                        text: root.ready ? root.viewModelRef.lastAssistantText : ""
+                        text: root.ready ? root.model.lastAssistantText : ""
                         wrapMode: Text.Wrap
                         color: "#334155"
                         font.pixelSize: 13
@@ -253,8 +346,8 @@ Rectangle {
                 Label {
                     width: parent.width
                     visible: root.ready
-                             && root.viewModelRef.lastUserText.length === 0
-                             && root.viewModelRef.lastAssistantText.length === 0
+                             && root.model.lastUserText.length === 0
+                             && root.model.lastAssistantText.length === 0
                     text: "连接后可直接输入文本与小智对话。"
                     wrapMode: Text.Wrap
                     color: "#94A3B8"
@@ -272,10 +365,10 @@ Rectangle {
                 id: messageInput
                 Layout.fillWidth: true
                 Layout.preferredHeight: 68
-                placeholderText: root.ready && root.viewModelRef.connected
+                placeholderText: root.ready && root.model.connected
                                  ? "输入消息，Ctrl+Enter 发送"
                                  : "请先启用并连接助手"
-                enabled: root.ready && root.viewModelRef.canSendText
+                enabled: root.ready && root.model.canSendText
                 wrapMode: TextEdit.Wrap
                 selectByMouse: true
 
@@ -290,8 +383,8 @@ Rectangle {
             Button {
                 text: "发送"
                 enabled: root.ready
-                         && root.viewModelRef.canSendText
-                         && !root.viewModelRef.commandBusy
+                         && root.model.canSendText
+                         && !root.model.commandBusy
                          && String(messageInput.text).trim().length > 0
                 onClicked: root.submitText()
             }
@@ -299,17 +392,17 @@ Rectangle {
 
         ToolButton {
             Layout.fillWidth: true
-            text: root.ready && root.viewModelRef.developerExpanded
+            text: root.ready && root.model.developerExpanded
                   ? "收起 Developer 诊断"
                   : "展开 Developer 诊断"
             enabled: root.ready
-            onClicked: root.viewModelRef.developerExpanded = !root.viewModelRef.developerExpanded
+            onClicked: root.model.developerExpanded = !root.model.developerExpanded
         }
 
         ScrollView {
             Layout.fillWidth: true
-            Layout.preferredHeight: root.ready && root.viewModelRef.developerExpanded ? 310 : 0
-            visible: root.ready && root.viewModelRef.developerExpanded
+            Layout.preferredHeight: root.ready && root.model.developerExpanded ? 310 : 0
+            visible: root.ready && root.model.developerExpanded
             clip: true
 
             ColumnLayout {
@@ -328,17 +421,17 @@ Rectangle {
                     Button {
                         Layout.fillWidth: true
                         text: "真实"
-                        enabled: !root.viewModelRef.commandBusy
-                                 && root.viewModelRef.runtimeMode !== "real"
-                        onClicked: root.viewModelRef.requestRuntimeMode("real")
+                        enabled: !root.model.commandBusy
+                                 && root.model.runtimeMode !== "real"
+                        onClicked: root.model.requestRuntimeMode("real")
                     }
 
                     Button {
                         Layout.fillWidth: true
                         text: "Fake"
-                        enabled: !root.viewModelRef.commandBusy
-                                 && root.viewModelRef.runtimeMode !== "fake"
-                        onClicked: root.viewModelRef.requestRuntimeMode("fake")
+                        enabled: !root.model.commandBusy
+                                 && root.model.runtimeMode !== "fake"
+                        onClicked: root.model.requestRuntimeMode("fake")
                     }
                 }
 
@@ -351,29 +444,29 @@ Rectangle {
                     Label { text: "Device"; color: "#64748B" }
                     Label {
                         Layout.fillWidth: true
-                        text: root.viewModelRef.deviceIdMasked || "未就绪"
+                        text: root.model.deviceIdMasked || "未就绪"
                         color: "#334155"
                         elide: Text.ElideMiddle
                     }
                     Label { text: "Client"; color: "#64748B" }
                     Label {
                         Layout.fillWidth: true
-                        text: root.viewModelRef.clientIdMasked || "未就绪"
+                        text: root.model.clientIdMasked || "未就绪"
                         color: "#334155"
                         elide: Text.ElideMiddle
                     }
                     Label { text: "Session"; color: "#64748B" }
                     Label {
                         Layout.fillWidth: true
-                        text: root.viewModelRef.sessionIdMasked || "无"
+                        text: root.model.sessionIdMasked || "无"
                         color: "#334155"
                         elide: Text.ElideMiddle
                     }
                     Label { text: "重连"; color: "#64748B" }
                     Label {
                         Layout.fillWidth: true
-                        text: String(root.viewModelRef.reconnectAttempt)
-                              + " · " + (root.viewModelRef.reconnectDecision || "无")
+                        text: String(root.model.reconnectAttempt)
+                              + " · " + (root.model.reconnectDecision || "无")
                         color: "#334155"
                         elide: Text.ElideRight
                     }
@@ -385,21 +478,21 @@ Rectangle {
                     Button {
                         Layout.fillWidth: true
                         text: "运行激活"
-                        enabled: !root.viewModelRef.commandBusy
-                        onClicked: root.viewModelRef.requestRunActivation()
+                        enabled: !root.model.commandBusy
+                        onClicked: root.model.requestRunActivation()
                     }
 
                     Button {
                         Layout.fillWidth: true
                         text: "重置身份"
-                        enabled: !root.viewModelRef.commandBusy
-                        onClicked: root.viewModelRef.requestResetIdentity()
+                        enabled: !root.model.commandBusy
+                        onClicked: root.model.requestResetIdentity()
                     }
                 }
 
                 Rectangle {
                     Layout.fillWidth: true
-                    visible: root.viewModelRef.activationStatus !== "unknown"
+                    visible: root.model.activationStatus !== "unknown"
                     implicitHeight: activationColumn.implicitHeight + 16
                     radius: 10
                     color: "#F8FAFC"
@@ -412,20 +505,20 @@ Rectangle {
 
                         Label {
                             Layout.fillWidth: true
-                            text: "Activation: " + root.viewModelRef.activationStatus
+                            text: "Activation: " + root.model.activationStatus
                             color: "#334155"
                             font.bold: true
                         }
                         Label {
                             Layout.fillWidth: true
-                            visible: root.viewModelRef.activationCode.length > 0
-                            text: "验证码：" + root.viewModelRef.activationCode
+                            visible: root.model.activationCode.length > 0
+                            text: "验证码：" + root.model.activationCode
                             color: "#2563EB"
                             font.bold: true
                         }
                         Label {
                             Layout.fillWidth: true
-                            text: root.viewModelRef.activationMessage
+                            text: root.model.activationMessage
                             wrapMode: Text.Wrap
                             color: "#64748B"
                             font.pixelSize: 11
@@ -439,15 +532,15 @@ Rectangle {
                     Button {
                         Layout.fillWidth: true
                         text: "模拟异常断线"
-                        enabled: root.viewModelRef.connected && !root.viewModelRef.commandBusy
-                        onClicked: root.viewModelRef.requestSimulateAbnormalClose()
+                        enabled: root.model.connected && !root.model.commandBusy
+                        onClicked: root.model.requestSimulateAbnormalClose()
                     }
 
                     Button {
                         Layout.fillWidth: true
                         text: "模拟失败"
-                        enabled: root.viewModelRef.enabled && !root.viewModelRef.commandBusy
-                        onClicked: root.viewModelRef.requestSimulateFailure()
+                        enabled: root.model.enabled && !root.model.commandBusy
+                        onClicked: root.model.requestSimulateFailure()
                     }
                 }
 
@@ -462,10 +555,10 @@ Rectangle {
                     Layout.preferredHeight: 92
                     readOnly: true
                     wrapMode: TextEdit.WrapAnywhere
-                    text: "event: " + (root.viewModelRef.lastProtocolEvent || "-")
-                          + "\nclient: " + (root.viewModelRef.lastClientJsonRedacted || "-")
-                          + "\nserver: " + (root.viewModelRef.lastServerJsonRedacted || "-")
-                          + "\nerror: " + (root.viewModelRef.lastProtocolError || "-")
+                    text: "event: " + (root.model.lastProtocolEvent || "-")
+                          + "\nclient: " + (root.model.lastClientJsonRedacted || "-")
+                          + "\nserver: " + (root.model.lastServerJsonRedacted || "-")
+                          + "\nerror: " + (root.model.lastProtocolError || "-")
                     font.pixelSize: 10
                 }
 
@@ -476,7 +569,7 @@ Rectangle {
                 }
 
                 Repeater {
-                    model: root.viewModelRef.capabilityItems
+                    model: root.model.capabilityItems
 
                     delegate: RowLayout {
                         required property var modelData

@@ -150,7 +150,7 @@ def test_disable_invalidates_old_connection_generation() -> None:
     assert late_hello.effects == ()
 
 
-def test_future_capability_is_present_but_fails_explicitly() -> None:
+def test_push_to_talk_is_active_but_requires_a_connected_session() -> None:
     machine = ConversationStateMachine()
     state = machine.reduce(AssistantState.disabled(), EnableRequested(at_ns=40)).state
 
@@ -159,11 +159,11 @@ def test_future_capability_is_present_but_fails_explicitly() -> None:
         PushToTalkStartRequested(at_ns=41, permission_granted=True),
     )
 
-    assert result.state.phase is AssistantPhase.ERROR
+    assert result.state.phase is AssistantPhase.IDLE
     assert result.state.error is not None
-    assert result.state.error.code == "capability_not_ready"
-    assert result.state.error.category is AssistantErrorCategory.CAPABILITY
-    assert "Gate 3" in result.state.error.message
+    assert result.state.error.code == "assistant_not_connected"
+    assert result.state.error.category is AssistantErrorCategory.TRANSPORT
+    assert result.effects == ()
 
 
 def test_mcp_simulation_is_fail_closed_without_notes_effect() -> None:
@@ -185,7 +185,7 @@ def test_mcp_simulation_is_fail_closed_without_notes_effect() -> None:
     assert "fail-closed" in result.state.status_text
 
 
-def test_not_ready_command_while_disabled_keeps_disabled_invariants() -> None:
+def test_push_to_talk_while_disabled_keeps_disabled_invariants() -> None:
     machine = ConversationStateMachine()
     initial = AssistantState.disabled(now_ns=60)
 
@@ -198,4 +198,4 @@ def test_not_ready_command_while_disabled_keeps_disabled_invariants() -> None:
     assert result.state.phase is AssistantPhase.DISABLED
     assert result.state.enabled is False
     assert result.state.error is not None
-    assert result.state.error.code == "capability_not_ready"
+    assert result.state.error.code == "assistant_not_connected"

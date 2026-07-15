@@ -187,8 +187,16 @@ class AudioState:
     uploaded_frames: int = 0
     decoded_frames: int = 0
     played_frames: int = 0
+    dropped_pcm_frames: int = 0
+    uplink_overflow_count: int = 0
     last_audio_summary: str | None = None
     push_to_talk_stop_latency_ms: int | None = None
+    first_pcm_latency_ms: int | None = None
+    first_opus_latency_ms: int | None = None
+    first_opus_upload_latency_ms: int | None = None
+    stop_listen_latency_ms: int | None = None
+    input_device_public_name: str | None = None
+    active_capture_mode: str | None = None
     microphone_owner: MicrophoneOwner = MicrophoneOwner.NONE
 
 
@@ -207,6 +215,12 @@ class ConversationState:
     last_completed_text_turn_token: int = 0
     last_text_turn_completed_at_ns: int | None = None
     late_text_event_count: int = 0
+    voice_turn_counter: int = 0
+    active_voice_turn_token: int | None = None
+    active_voice_turn_started_at_ns: int | None = None
+    pending_voice_turn_completion_token: int | None = None
+    last_completed_voice_turn_token: int = 0
+    last_voice_turn_completed_at_ns: int | None = None
     streaming_state: StreamingConversationState = StreamingConversationState.INACTIVE
     streaming_session_active: bool = False
     streaming_generation: int = 0
@@ -255,6 +269,7 @@ class RuntimeDiagnostics:
     gate_real_text_verified: bool = False
     gate_real_audio_upload_verified: bool = False
     gate_real_audio_playback_verified: bool = False
+    gate_real_audio_response_verified: bool = False
     last_event_name: str | None = None
     last_event_at_ns: int | None = None
     metrics_sample_count: int = 0
@@ -358,7 +373,12 @@ def default_capabilities() -> tuple[CapabilityState, ...]:
             "2.3/2.4",
             "当前回合中止协议",
         ),
-        CapabilityState(AssistantCapability.PUSH_TO_TALK, not_ready, "3", "PTT 音频上行"),
+        CapabilityState(
+            AssistantCapability.PUSH_TO_TALK,
+            active,
+            "3.2",
+            "共享 PyAudio/Opus 管线上的真实 PTT 音频上行",
+        ),
         CapabilityState(AssistantCapability.TTS_PLAYBACK, not_ready, "4", "TTS 下行播放"),
         CapabilityState(
             AssistantCapability.MCP_PROTOCOL,
@@ -370,22 +390,22 @@ def default_capabilities() -> tuple[CapabilityState, ...]:
         CapabilityState(
             AssistantCapability.STREAMING_CONVERSATION,
             not_ready,
-            "6",
-            "连续对话",
+            "3.3/4.2",
+            "连续对话主线",
         ),
-        CapabilityState(AssistantCapability.VAD, not_ready, "6", "语音活动检测"),
-        CapabilityState(AssistantCapability.BARGE_IN, not_ready, "6", "简单打断"),
+        CapabilityState(AssistantCapability.VAD, not_ready, "3.3", "语音活动检测"),
+        CapabilityState(AssistantCapability.BARGE_IN, not_ready, "4.2", "简单打断"),
         CapabilityState(
             AssistantCapability.MICROPHONE_OWNERSHIP,
-            not_ready,
-            "3/6.5",
-            "麦克风租约",
+            active,
+            "3.2",
+            "单一麦克风租约与 capture generation",
         ),
         CapabilityState(AssistantCapability.KWS, not_ready, "6.5", "唤醒词"),
         CapabilityState(
             AssistantCapability.SYSTEM_AUDIO_RECOVERY,
             not_ready,
-            "6",
+            "4",
             "系统音频中断恢复",
         ),
         CapabilityState(AssistantCapability.METRICS_BASE, active, "2.1", "单调时钟基础打点"),
@@ -459,6 +479,10 @@ def validate_assistant_state(state: AssistantState) -> None:
         state.audio.uploaded_frames,
         state.audio.decoded_frames,
         state.audio.played_frames,
+        state.audio.dropped_pcm_frames,
+        state.audio.uplink_overflow_count,
+        state.conversation.voice_turn_counter,
+        state.conversation.last_completed_voice_turn_token,
         state.conversation.streaming_generation,
         state.conversation.streaming_turn_index,
         state.conversation.barge_in_trigger_count,
@@ -472,6 +496,22 @@ def validate_assistant_state(state: AssistantState) -> None:
     if any(value < 0 for value in counters):
         raise StateInvariantError("runtime counters and generations cannot be negative")
 
+    active_voice_turn_token = state.conversation.active_voice_turn_token
+    if active_voice_turn_token is not None:
+        if active_voice_turn_token <= 0:
+            raise StateInvariantError("active voice turn token must be positive")
+        if active_voice_turn_token > state.conversation.voice_turn_counter:
+            raise StateInvariantError("active voice turn cannot exceed allocated counter")
+        if not state.is_connected:
+            raise StateInvariantError("active voice turn requires an active session")
+    if state.conversation.last_completed_voice_turn_token > state.conversation.voice_turn_counter:
+        raise StateInvariantError("completed voice turn cannot exceed allocated counter")
+    if state.audio.status is AssistantAudioStatus.RECORDING:
+        if active_voice_turn_token is None:
+            raise StateInvariantError("recording audio requires an active voice turn")
+        if state.audio.microphone_owner is not MicrophoneOwner.ASSISTANT_CAPTURE:
+            raise StateInvariantError("recording audio requires the assistant microphone lease")
+
     active_text_turn_token = state.conversation.active_text_turn_token
     if active_text_turn_token is not None:
         if active_text_turn_token <= 0:
@@ -482,3 +522,12 @@ def validate_assistant_state(state: AssistantState) -> None:
             raise StateInvariantError("active text turn requires an active session")
     if state.conversation.last_completed_text_turn_token > state.conversation.text_turn_counter:
         raise StateInvariantError("completed text turn cannot exceed the allocated turn counter")
+
+    pending_voice = state.conversation.pending_voice_turn_completion_token
+    if pending_voice is not None:
+        if pending_voice <= 0 or pending_voice > state.conversation.voice_turn_counter:
+            raise StateInvariantError("pending voice completion token is invalid")
+        if pending_voice != state.conversation.active_voice_turn_token:
+            raise StateInvariantError(
+                "pending voice completion must belong to the active voice turn"
+            )

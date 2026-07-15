@@ -17,6 +17,8 @@ from .effects import (
     SendText,
     SetStreamingBargeIn,
     SetVoiceInteractionMode,
+    StartPushToTalk,
+    StopPushToTalk,
 )
 from .events import (
     AbortRequested,
@@ -27,10 +29,13 @@ from .events import (
     AssistantEvent,
     AssistantTextReceived,
     BinaryAudioReceived,
+    AbortSent,
+    AudioCaptureFailed,
     AudioCaptureStarted,
     AudioCaptureStopped,
     AudioCountersUpdated,
     AudioFailureSimulationRequested,
+    AudioUplinkOverflow,
     BargeInTriggered,
     ClientHelloSent,
     ClientTextSent,
@@ -47,6 +52,8 @@ from .events import (
     IdentityReady,
     IdentityReset,
     KwsStateChanged,
+    ListenStartSent,
+    ListenStopSent,
     McpRequestCompleted,
     McpRequestReceived,
     MicrophoneLeaseChanged,
@@ -85,6 +92,7 @@ from .events import (
     UseFakeRuntimeRequested,
     UseRealRuntimeRequested,
     VoiceInteractionModeRequested,
+    VoiceTurnCompleted,
 )
 from .errors import AssistantErrorCode
 from .network.reconnect_policy import ReconnectDecision, ReconnectPolicy
@@ -147,8 +155,12 @@ class ConversationStateMachine:
         if isinstance(event, ClientTextSent):
             return self._client_text_sent(current, event)
         if isinstance(event, AssistantTextReceived):
+            if event.turn_token == current.conversation.active_voice_turn_token:
+                return self._voice_assistant_text(current, event)
             return self._assistant_text(current, event)
         if isinstance(event, TtsStateReceived):
+            if event.turn_token == current.conversation.active_voice_turn_token:
+                return self._voice_tts_state(current, event)
             return self._tts_state(current, event)
         if isinstance(event, TextTurnCompleted):
             return self._text_turn_completed(current, event)
@@ -206,11 +218,24 @@ class ConversationStateMachine:
             return self._voice_interaction_mode_requested(current, event)
         if isinstance(event, StreamingBargeInRequested):
             return self._streaming_barge_in_requested(current, event)
-        if isinstance(
-            event,
-            (AudioCaptureStarted, AudioCaptureStopped, AudioCountersUpdated),
-        ):
-            return self._not_ready(current, event, AssistantCapability.PUSH_TO_TALK)
+        if isinstance(event, ListenStartSent):
+            return self._listen_start_sent(current, event)
+        if isinstance(event, ListenStopSent):
+            return self._listen_stop_sent(current, event)
+        if isinstance(event, AbortSent):
+            return self._abort_sent(current, event)
+        if isinstance(event, AudioCaptureStarted):
+            return self._audio_capture_started(current, event)
+        if isinstance(event, AudioCountersUpdated):
+            return self._audio_counters_updated(current, event)
+        if isinstance(event, AudioCaptureStopped):
+            return self._audio_capture_stopped(current, event)
+        if isinstance(event, AudioCaptureFailed):
+            return self._audio_capture_failed(current, event)
+        if isinstance(event, AudioUplinkOverflow):
+            return self._audio_uplink_overflow(current, event)
+        if isinstance(event, VoiceTurnCompleted):
+            return self._voice_turn_completed(current, event)
         if isinstance(
             event,
             (PlaybackStarted, PlaybackEnded, PlaybackCountersUpdated),
@@ -226,7 +251,7 @@ class ConversationStateMachine:
         if isinstance(event, BargeInTriggered):
             return self._not_ready(current, event, AssistantCapability.BARGE_IN)
         if isinstance(event, MicrophoneLeaseChanged):
-            return self._not_ready(current, event, AssistantCapability.MICROPHONE_OWNERSHIP)
+            return self._microphone_lease_changed(current, event)
         if isinstance(event, (McpRequestReceived, McpRequestCompleted)):
             return self._not_ready(current, event, AssistantCapability.MCP_PROTOCOL)
         if isinstance(event, (WakeWordDetected, KwsStateChanged)):
@@ -240,8 +265,10 @@ class ConversationStateMachine:
                 category=AssistantErrorCategory.RUNTIME,
                 recoverable=True,
             )
-        if isinstance(event, (PushToTalkStartRequested, PushToTalkStopRequested)):
-            return self._not_ready(current, event, AssistantCapability.PUSH_TO_TALK)
+        if isinstance(event, PushToTalkStartRequested):
+            return self._push_to_talk_start_requested(current, event)
+        if isinstance(event, PushToTalkStopRequested):
+            return self._push_to_talk_stop_requested(current, event)
         if isinstance(
             event,
             (StreamingConversationStartRequested, StreamingConversationStopRequested),
@@ -325,6 +352,607 @@ class ConversationStateMachine:
             event,
             (SetStreamingBargeIn(enabled=event.enabled),),
         )
+
+    def _push_to_talk_start_requested(
+        self,
+        current: AssistantState,
+        event: PushToTalkStartRequested,
+    ) -> Transition:
+        if not event.permission_granted:
+            return self._error(
+                current,
+                event,
+                code=AssistantErrorCode.MICROPHONE_PERMISSION_DENIED.value,
+                message="麦克风权限未授予",
+                category=AssistantErrorCategory.AUDIO,
+                recoverable=True,
+                preserve_phase=True,
+            )
+        if not current.is_connected:
+            return self._error(
+                current,
+                event,
+                code=AssistantErrorCode.ASSISTANT_NOT_CONNECTED.value,
+                message="助手未连接，不能开始按住说话",
+                category=AssistantErrorCategory.TRANSPORT,
+                recoverable=True,
+                preserve_phase=True,
+            )
+        if current.conversation.preferred_voice_mode is not VoiceInteractionMode.HOLD_TO_TALK:
+            return self._error(
+                current,
+                event,
+                code=AssistantErrorCode.VOICE_MODE_MISMATCH.value,
+                message="当前设置为连续对话模式",
+                category=AssistantErrorCategory.CAPABILITY,
+                recoverable=True,
+                preserve_phase=True,
+            )
+        if (
+            current.conversation.active_voice_turn_token is not None
+            or current.conversation.active_text_turn_token is not None
+            or current.audio.status is AssistantAudioStatus.RECORDING
+        ):
+            return self._error(
+                current,
+                event,
+                code=AssistantErrorCode.PUSH_TO_TALK_BUSY.value,
+                message="已有对话回合正在运行",
+                category=AssistantErrorCategory.AUDIO,
+                recoverable=True,
+                preserve_phase=True,
+            )
+        if current.phase is not AssistantPhase.CONNECTED:
+            return self._error(
+                current,
+                event,
+                code=AssistantErrorCode.PUSH_TO_TALK_BUSY.value,
+                message="助手当前状态不能开始录音",
+                category=AssistantErrorCategory.AUDIO,
+                recoverable=True,
+                preserve_phase=True,
+            )
+
+        capture_generation = current.audio.capture_generation + 1
+        turn_token = current.conversation.voice_turn_counter + 1
+        state = replace(
+            current,
+            phase=AssistantPhase.CONNECTED,
+            audio=replace(
+                current.audio,
+                status=AssistantAudioStatus.IDLE,
+                capture_generation=capture_generation,
+                microphone_owner=MicrophoneOwner.NONE,
+                active_capture_mode=None,
+                captured_frames=0,
+                encoded_frames=0,
+                uploaded_frames=0,
+                dropped_pcm_frames=0,
+                uplink_overflow_count=0,
+                last_audio_summary=None,
+                push_to_talk_stop_latency_ms=None,
+                first_pcm_latency_ms=None,
+                first_opus_latency_ms=None,
+                first_opus_upload_latency_ms=None,
+                stop_listen_latency_ms=None,
+                input_device_public_name=None,
+            ),
+            conversation=replace(
+                current.conversation,
+                active_entry_source=AssistantEntrySource.PUSH_TO_TALK,
+                last_user_text=None,
+                last_stt_text=None,
+                last_assistant_text=None,
+                last_assistant_source_type=None,
+                assistant_reply_buffer="",
+                voice_turn_counter=turn_token,
+                active_voice_turn_token=turn_token,
+                active_voice_turn_started_at_ns=event.at_ns,
+                pending_voice_turn_completion_token=None,
+            ),
+            status_text="正在准备麦克风和语音上行",
+            error=None,
+        )
+        return self._transition(
+            state,
+            event,
+            (
+                StartPushToTalk(
+                    connection_generation=current.connection.connection_generation,
+                    generation=capture_generation,
+                    turn_token=turn_token,
+                    requested_at_ns=event.at_ns,
+                ),
+            ),
+        )
+
+    def _push_to_talk_stop_requested(
+        self,
+        current: AssistantState,
+        event: PushToTalkStopRequested,
+    ) -> Transition:
+        turn_token = current.conversation.active_voice_turn_token
+        if (
+            turn_token is None
+            or current.conversation.active_entry_source is not AssistantEntrySource.PUSH_TO_TALK
+        ):
+            return self._transition(
+                replace(current, status_text="当前没有按住说话回合", error=None),
+                event,
+            )
+        state = replace(
+            current,
+            phase=AssistantPhase.UPLOADING_AUDIO,
+            status_text="正在结束录音并提交语音",
+            error=None,
+        )
+        return self._transition(
+            state,
+            event,
+            (
+                StopPushToTalk(
+                    connection_generation=current.connection.connection_generation,
+                    generation=current.audio.capture_generation,
+                    turn_token=turn_token,
+                    requested_at_ns=event.at_ns,
+                ),
+            ),
+        )
+
+    def _listen_start_sent(self, current: AssistantState, event: ListenStartSent) -> Transition:
+        if not self._matches_voice_event(
+            current, event.generation, event.capture_generation, event.turn_token
+        ):
+            return Transition.unchanged(current)
+        state = replace(
+            current,
+            protocol=replace(
+                current.protocol,
+                last_client_json_redacted=event.raw_json_redacted,
+                last_protocol_event="ListenStartSent",
+                last_protocol_error=None,
+            ),
+            status_text="语音监听已开始，等待麦克风首帧",
+            error=None,
+        )
+        return self._transition(state, event)
+
+    def _listen_stop_sent(self, current: AssistantState, event: ListenStopSent) -> Transition:
+        if not self._matches_voice_event(
+            current, event.generation, event.capture_generation, event.turn_token
+        ):
+            return Transition.unchanged(current)
+        state = replace(
+            current,
+            protocol=replace(
+                current.protocol,
+                last_client_json_redacted=event.raw_json_redacted,
+                last_protocol_event="ListenStopSent",
+                last_protocol_error=None,
+            ),
+            status_text="语音已提交，等待识别和回复",
+            error=None,
+        )
+        return self._transition(state, event)
+
+    def _abort_sent(self, current: AssistantState, event: AbortSent) -> Transition:
+        if self._is_stale_connection_event(current, event.generation):
+            return Transition.unchanged(current)
+        state = replace(
+            current,
+            protocol=replace(
+                current.protocol,
+                last_client_json_redacted=event.raw_json_redacted,
+                last_protocol_event=f"AbortSent:{event.reason}",
+                last_protocol_error=None,
+            ),
+            status_text=f"语音回合已中止：{event.reason}",
+        )
+        return self._transition(state, event)
+
+    def _audio_capture_started(
+        self,
+        current: AssistantState,
+        event: AudioCaptureStarted,
+    ) -> Transition:
+        if not self._matches_voice_event(
+            current, event.connection_generation, event.generation, event.turn_token
+        ):
+            return Transition.unchanged(current)
+        state = replace(
+            current,
+            phase=AssistantPhase.LISTENING,
+            audio=replace(
+                current.audio,
+                status=AssistantAudioStatus.RECORDING,
+                input_device_public_name=event.input_device_public_name,
+                microphone_owner=MicrophoneOwner.ASSISTANT_CAPTURE,
+                microphone_lease_generation=current.audio.microphone_lease_generation + 1,
+                active_capture_mode="push_to_talk",
+            ),
+            status_text="正在聆听，松开后提交",
+            error=None,
+        )
+        return self._transition(state, event)
+
+    def _audio_counters_updated(
+        self,
+        current: AssistantState,
+        event: AudioCountersUpdated,
+    ) -> Transition:
+        if not self._matches_voice_event(
+            current, event.connection_generation, event.generation, event.turn_token
+        ):
+            return Transition.unchanged(current)
+        state = replace(
+            current,
+            audio=replace(
+                current.audio,
+                captured_frames=event.captured_frames,
+                encoded_frames=event.encoded_frames,
+                uploaded_frames=event.uploaded_frames,
+                dropped_pcm_frames=event.dropped_pcm_frames,
+                uplink_overflow_count=event.uplink_overflow_count,
+                first_pcm_latency_ms=event.first_pcm_latency_ms,
+                first_opus_latency_ms=event.first_opus_latency_ms,
+                first_opus_upload_latency_ms=event.first_opus_upload_latency_ms,
+            ),
+            diagnostics=replace(
+                current.diagnostics,
+                gate_real_audio_upload_verified=(
+                    current.diagnostics.gate_real_audio_upload_verified
+                    or (
+                        current.runtime_mode is AssistantRuntimeMode.REAL
+                        and event.uploaded_frames > 0
+                    )
+                ),
+            ),
+            status_text=f"正在聆听 · 已上传 {event.uploaded_frames} 帧",
+            error=None,
+        )
+        return self._transition(state, event)
+
+    def _audio_capture_stopped(
+        self,
+        current: AssistantState,
+        event: AudioCaptureStopped,
+    ) -> Transition:
+        if self._is_stale_connection_event(current, event.connection_generation):
+            return Transition.unchanged(current)
+        if event.generation != current.audio.capture_generation:
+            return Transition.unchanged(current)
+        active = current.conversation.active_voice_turn_token == event.turn_token
+        already_completed = current.conversation.last_completed_voice_turn_token >= event.turn_token
+        if not active and not already_completed:
+            return Transition.unchanged(current)
+        audio = replace(
+            current.audio,
+            status=AssistantAudioStatus.IDLE,
+            microphone_owner=MicrophoneOwner.NONE,
+            active_capture_mode=None,
+            captured_frames=event.captured_frames,
+            encoded_frames=event.encoded_frames,
+            uploaded_frames=event.uploaded_frames,
+            dropped_pcm_frames=event.dropped_pcm_frames,
+            uplink_overflow_count=event.uplink_overflow_count,
+            last_audio_summary=event.summary,
+            push_to_talk_stop_latency_ms=event.stop_latency_ms,
+            first_pcm_latency_ms=event.first_pcm_latency_ms,
+            first_opus_latency_ms=event.first_opus_latency_ms,
+            first_opus_upload_latency_ms=event.first_opus_upload_latency_ms,
+            stop_listen_latency_ms=event.stop_listen_latency_ms,
+            input_device_public_name=event.input_device_public_name,
+        )
+        conversation = current.conversation
+        phase = current.phase
+        status_text = "语音已提交，等待识别和回复"
+        pending_completed = conversation.pending_voice_turn_completion_token == event.turn_token
+        if pending_completed or not event.useful_audio:
+            conversation = replace(
+                conversation,
+                active_voice_turn_token=None,
+                active_voice_turn_started_at_ns=None,
+                pending_voice_turn_completion_token=None,
+                last_completed_voice_turn_token=max(
+                    conversation.last_completed_voice_turn_token,
+                    event.turn_token,
+                ),
+                last_voice_turn_completed_at_ns=event.at_ns,
+                active_entry_source=None,
+            )
+            phase = AssistantPhase.CONNECTED if current.is_connected else current.phase
+            status_text = (
+                "没有检测到有效语音，本轮已结束" if not event.useful_audio else "语音回合已完成"
+            )
+        elif active:
+            phase = AssistantPhase.THINKING
+        else:
+            phase = AssistantPhase.CONNECTED if current.is_connected else current.phase
+            status_text = "语音回合已完成"
+        state = replace(
+            current,
+            phase=phase,
+            audio=audio,
+            conversation=conversation,
+            diagnostics=replace(
+                current.diagnostics,
+                gate_real_audio_upload_verified=(
+                    current.diagnostics.gate_real_audio_upload_verified
+                    or (
+                        current.runtime_mode is AssistantRuntimeMode.REAL
+                        and event.uploaded_frames > 0
+                    )
+                ),
+            ),
+            status_text=status_text,
+            error=None,
+        )
+        return self._transition(state, event)
+
+    def _audio_capture_failed(
+        self,
+        current: AssistantState,
+        event: AudioCaptureFailed,
+    ) -> Transition:
+        if self._is_stale_connection_event(current, event.connection_generation):
+            return Transition.unchanged(current)
+        if event.generation != current.audio.capture_generation:
+            return Transition.unchanged(current)
+        cleared = replace(
+            current,
+            phase=AssistantPhase.CONNECTED if current.is_connected else AssistantPhase.IDLE,
+            audio=self._idle_audio(
+                current.audio,
+                invalidate_capture=True,
+                invalidate_microphone_lease=True,
+            ),
+            conversation=replace(
+                current.conversation,
+                active_entry_source=None,
+                active_voice_turn_token=None,
+                active_voice_turn_started_at_ns=None,
+                pending_voice_turn_completion_token=None,
+            ),
+        )
+        return self._error(
+            cleared,
+            event,
+            code=event.code or AssistantErrorCode.AUDIO_CAPTURE_FAILED.value,
+            message=event.message,
+            category=AssistantErrorCategory.AUDIO,
+            recoverable=True,
+            effects=(CancelRuntimeEffects(reason="audio_capture_failed"),),
+            preserve_phase=True,
+        )
+
+    def _audio_uplink_overflow(
+        self,
+        current: AssistantState,
+        event: AudioUplinkOverflow,
+    ) -> Transition:
+        failed = AudioCaptureFailed(
+            at_ns=event.at_ns,
+            generation=event.generation,
+            connection_generation=event.connection_generation,
+            turn_token=event.turn_token,
+            code=AssistantErrorCode.AUDIO_UPLINK_OVERFLOW.value,
+            message=event.message,
+        )
+        return self._audio_capture_failed(current, failed)
+
+    def _voice_assistant_text(
+        self,
+        current: AssistantState,
+        event: AssistantTextReceived,
+    ) -> Transition:
+        if not self._matches_voice_protocol_event(
+            current, event.generation, event.turn_token, event.session_id
+        ):
+            return Transition.unchanged(current)
+        source_type = event.source_type.strip().lower() or "text"
+        text = event.text.strip()
+        protocol = replace(
+            current.protocol,
+            last_server_json_redacted=event.raw_json_redacted,
+            last_protocol_event=f"VoiceAssistantText:{source_type}",
+            last_protocol_error=None,
+        )
+        if source_type == "stt":
+            state = replace(
+                current,
+                phase=AssistantPhase.THINKING,
+                conversation=replace(
+                    current.conversation,
+                    last_user_text=text or None,
+                    last_stt_text=text or None,
+                ),
+                protocol=protocol,
+                status_text="语音识别完成，正在等待助手回复",
+                error=None,
+            )
+            return self._transition(state, event)
+        if not has_readable_transcript_text(text):
+            return self._transition(
+                replace(current, protocol=protocol, status_text="收到语音回复状态"),
+                event,
+            )
+        merged = merge_assistant_transcript(current.conversation.assistant_reply_buffer, text)
+        state = replace(
+            current,
+            conversation=replace(
+                current.conversation,
+                last_assistant_text=merged,
+                last_assistant_source_type=source_type,
+                assistant_reply_buffer=merged,
+            ),
+            protocol=protocol,
+            diagnostics=replace(
+                current.diagnostics,
+                gate_real_audio_response_verified=(
+                    current.diagnostics.gate_real_audio_response_verified
+                    or current.runtime_mode is AssistantRuntimeMode.REAL
+                ),
+            ),
+            status_text="收到语音回合助手回复",
+            error=None,
+        )
+        return self._transition(state, event)
+
+    def _voice_tts_state(
+        self,
+        current: AssistantState,
+        event: TtsStateReceived,
+    ) -> Transition:
+        if not self._matches_voice_protocol_event(
+            current, event.generation, event.turn_token, event.session_id
+        ):
+            return Transition.unchanged(current)
+        text = (event.text or "").strip()
+        conversation = current.conversation
+        if has_readable_transcript_text(text):
+            merged = merge_assistant_transcript(conversation.assistant_reply_buffer, text)
+            conversation = replace(
+                conversation,
+                last_assistant_text=merged,
+                last_assistant_source_type="tts",
+                assistant_reply_buffer=merged,
+            )
+        state = replace(
+            current,
+            conversation=conversation,
+            protocol=replace(
+                current.protocol,
+                last_server_json_redacted=event.raw_json_redacted,
+                last_protocol_event=f"VoiceTtsState:{event.state}",
+                last_protocol_error=None,
+            ),
+            diagnostics=replace(
+                current.diagnostics,
+                gate_real_audio_response_verified=(
+                    current.diagnostics.gate_real_audio_response_verified
+                    or (
+                        current.runtime_mode is AssistantRuntimeMode.REAL
+                        and has_readable_transcript_text(text)
+                    )
+                ),
+            ),
+            status_text=f"收到语音回合 TTS state={event.state}；Gate 4 前不播放",
+            error=None,
+        )
+        return self._transition(state, event)
+
+    def _voice_turn_completed(
+        self,
+        current: AssistantState,
+        event: VoiceTurnCompleted,
+    ) -> Transition:
+        if self._is_stale_connection_event(current, event.generation):
+            return Transition.unchanged(current)
+        if event.capture_generation != current.audio.capture_generation:
+            return Transition.unchanged(current)
+        if event.turn_token != current.conversation.active_voice_turn_token:
+            return Transition.unchanged(current)
+
+        capture_cleanup_pending = (
+            current.audio.status is AssistantAudioStatus.RECORDING
+            or current.audio.microphone_owner is MicrophoneOwner.ASSISTANT_CAPTURE
+        )
+        if capture_cleanup_pending:
+            conversation = replace(
+                current.conversation,
+                pending_voice_turn_completion_token=event.turn_token,
+            )
+            phase = current.phase
+            audio = current.audio
+            status_text = "服务端回复已完成，正在释放麦克风"
+        else:
+            conversation = replace(
+                current.conversation,
+                active_voice_turn_token=None,
+                active_voice_turn_started_at_ns=None,
+                pending_voice_turn_completion_token=None,
+                last_completed_voice_turn_token=event.turn_token,
+                last_voice_turn_completed_at_ns=event.at_ns,
+                active_entry_source=None,
+            )
+            phase = AssistantPhase.CONNECTED if current.is_connected else current.phase
+            audio = replace(
+                current.audio,
+                status=AssistantAudioStatus.IDLE,
+                microphone_owner=MicrophoneOwner.NONE,
+                active_capture_mode=None,
+            )
+            status_text = (
+                f"语音回合 {event.turn_token} 完成"
+                if event.had_stt_text or event.had_assistant_text
+                else f"语音回合 {event.turn_token} 已结束"
+            )
+
+        state = replace(
+            current,
+            phase=phase,
+            audio=audio,
+            conversation=conversation,
+            diagnostics=replace(
+                current.diagnostics,
+                gate_real_audio_response_verified=(
+                    current.diagnostics.gate_real_audio_response_verified
+                    or (
+                        current.runtime_mode is AssistantRuntimeMode.REAL
+                        and event.had_assistant_text
+                    )
+                ),
+            ),
+            status_text=status_text,
+            error=None,
+        )
+        return self._transition(state, event)
+
+    def _microphone_lease_changed(
+        self,
+        current: AssistantState,
+        event: MicrophoneLeaseChanged,
+    ) -> Transition:
+        if event.generation < current.audio.microphone_lease_generation:
+            return Transition.unchanged(current)
+        state = replace(
+            current,
+            audio=replace(
+                current.audio,
+                microphone_owner=event.owner,
+                microphone_lease_generation=event.generation,
+            ),
+            status_text=event.reason,
+        )
+        return self._transition(state, event)
+
+    @staticmethod
+    def _matches_voice_event(
+        current: AssistantState,
+        connection_generation: int,
+        capture_generation: int,
+        turn_token: int,
+    ) -> bool:
+        return bool(
+            connection_generation == current.connection.connection_generation
+            and capture_generation == current.audio.capture_generation
+            and turn_token == current.conversation.active_voice_turn_token
+        )
+
+    @staticmethod
+    def _matches_voice_protocol_event(
+        current: AssistantState,
+        generation: int,
+        turn_token: int | None,
+        session_id: str | None,
+    ) -> bool:
+        if generation != current.connection.connection_generation:
+            return False
+        if turn_token != current.conversation.active_voice_turn_token:
+            return False
+        if session_id and session_id != current.connection.session_id:
+            return False
+        return True
 
     def _enable(self, current: AssistantState, event: EnableRequested) -> Transition:
         if current.enabled:
@@ -1841,7 +2469,15 @@ class ConversationStateMachine:
             uploaded_frames=0,
             decoded_frames=0,
             played_frames=0,
+            dropped_pcm_frames=0,
+            uplink_overflow_count=0,
             push_to_talk_stop_latency_ms=None,
+            first_pcm_latency_ms=None,
+            first_opus_latency_ms=None,
+            first_opus_upload_latency_ms=None,
+            stop_listen_latency_ms=None,
+            input_device_public_name=None,
+            active_capture_mode=None,
             last_audio_summary=None,
         )
 
@@ -1856,6 +2492,9 @@ class ConversationStateMachine:
             active_entry_source=None,
             active_text_turn_token=None,
             active_text_turn_started_at_ns=None,
+            active_voice_turn_token=None,
+            active_voice_turn_started_at_ns=None,
+            pending_voice_turn_completion_token=None,
             assistant_reply_buffer="",
             streaming_state=StreamingConversationState.INACTIVE,
             streaming_session_active=False,

@@ -12,6 +12,9 @@ from ..events import (
     BinaryAudioReceived,
     ClientHelloSent,
     ClientTextSent,
+    AbortSent,
+    ListenStartSent,
+    ListenStopSent,
     ProtocolInvalidMessageReceived,
     ProtocolMessageObserved,
     ProtocolUnknownMessageReceived,
@@ -21,6 +24,7 @@ from ..events import (
     TransportFailed,
     TransportOpened,
     TtsStateReceived,
+    VoiceTurnCompleted,
 )
 from ..protocol import (
     AssistantText,
@@ -132,6 +136,12 @@ class _ActiveConnection:
     text_turn_settle_task: asyncio.Task[None] | None = None
     text_turn_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
     text_sent_ready: asyncio.Event = field(default_factory=asyncio.Event)
+    active_voice_turn_token: int | None = None
+    active_capture_generation: int | None = None
+    voice_turn_had_stt_text: bool = False
+    voice_turn_had_assistant_text: bool = False
+    voice_turn_settle_task: asyncio.Task[None] | None = None
+    voice_turn_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
 
 
 class RealWebSocketTransport:
@@ -283,6 +293,8 @@ class RealWebSocketTransport:
                 hello_wait_task.cancel()
             await _cancel_tasks(sender_task, receiver_task)
             if active is not None:
+                self._cancel_text_turn_settle(active)
+                self._cancel_voice_turn_settle(active)
                 await self._safe_close(active, reason="transport_cleanup")
             async with self._active_lock:
                 if self._active is active:
@@ -309,8 +321,11 @@ class RealWebSocketTransport:
             raise ValueError("text turn token must be positive")
 
         async with active.text_turn_lock:
-            if active.active_text_turn_token is not None:
-                raise RuntimeError("上一文本回合尚未完成，拒绝并行发送")
+            if (
+                active.active_text_turn_token is not None
+                or active.active_voice_turn_token is not None
+            ):
+                raise RuntimeError("上一对话回合尚未完成，拒绝并行发送")
             active.active_text_turn_token = turn_token
             active.text_turn_had_assistant_text = False
             active.text_sent_ready.clear()
@@ -341,6 +356,111 @@ class RealWebSocketTransport:
         finally:
             active.text_sent_ready.set()
 
+    async def start_listening(
+        self,
+        generation: int,
+        turn_token: int,
+        capture_generation: int,
+        mode: str,
+        event_sink: EventSink,
+    ) -> None:
+        active = await self._require_voice_session(generation, event_sink)
+        if active is None:
+            return
+        async with active.voice_turn_lock:
+            if (
+                active.active_voice_turn_token is not None
+                or active.active_text_turn_token is not None
+            ):
+                raise RuntimeError("上一对话回合尚未完成，拒绝并行监听")
+            active.active_voice_turn_token = turn_token
+            active.active_capture_generation = capture_generation
+            active.voice_turn_had_stt_text = False
+            active.voice_turn_had_assistant_text = False
+            self._cancel_voice_turn_settle(active)
+            payload = self._builder.start_listening(active.session_id, mode)
+            try:
+                await self._enqueue_and_wait(active, payload)
+            except Exception:
+                self._clear_voice_turn(active)
+                raise
+        await event_sink(
+            ListenStartSent(
+                at_ns=self._clock.now_ns(),
+                generation=generation,
+                capture_generation=capture_generation,
+                turn_token=turn_token,
+                raw_json_redacted=payload,
+            )
+        )
+
+    async def send_audio(
+        self,
+        generation: int,
+        turn_token: int,
+        capture_generation: int,
+        payload: bytes,
+        event_sink: EventSink,
+    ) -> None:
+        active = await self._require_voice_session(generation, event_sink)
+        if active is None:
+            return
+        if not self._voice_matches(active, turn_token, capture_generation):
+            raise RuntimeError("音频帧不属于当前语音回合")
+        await self._enqueue_and_wait(active, bytes(payload))
+
+    async def stop_listening(
+        self,
+        generation: int,
+        turn_token: int,
+        capture_generation: int,
+        event_sink: EventSink,
+    ) -> None:
+        active = await self._require_voice_session(generation, event_sink)
+        if active is None or not self._voice_matches(active, turn_token, capture_generation):
+            return
+        payload = self._builder.stop_listening(active.session_id)
+        await self._enqueue_and_wait(active, payload)
+        await event_sink(
+            ListenStopSent(
+                at_ns=self._clock.now_ns(),
+                generation=generation,
+                capture_generation=capture_generation,
+                turn_token=turn_token,
+                raw_json_redacted=payload,
+            )
+        )
+        self._schedule_voice_turn_settle(
+            active,
+            delay_seconds=TEXT_TURN_RESPONSE_TIMEOUT_SECONDS,
+            reason="voice_response_timeout",
+        )
+
+    async def abort(
+        self,
+        generation: int,
+        turn_token: int,
+        capture_generation: int,
+        reason: str,
+        event_sink: EventSink,
+    ) -> None:
+        active = await self._require_voice_session(generation, event_sink)
+        if active is None or not self._voice_matches(active, turn_token, capture_generation):
+            return
+        payload = self._builder.abort(active.session_id, reason)
+        await self._enqueue_and_wait(active, payload)
+        await event_sink(
+            AbortSent(
+                at_ns=self._clock.now_ns(),
+                generation=generation,
+                capture_generation=capture_generation,
+                turn_token=turn_token,
+                reason=reason,
+                raw_json_redacted=payload,
+            )
+        )
+        await self._complete_voice_turn(active, reason=reason)
+
     async def close(
         self,
         generation: int,
@@ -352,6 +472,7 @@ class RealWebSocketTransport:
             active.expected_close = True
             active.text_sent_ready.set()
             self._cancel_text_turn_settle(active)
+            self._cancel_voice_turn_settle(active)
             await self._safe_close(active, reason=reason)
             await self._emit_close(active, code=1000, reason=reason, expected=True)
             return
@@ -448,11 +569,18 @@ class RealWebSocketTransport:
             active.hello_received.set()
             return
         if isinstance(event, AssistantText):
-            turn_token = active.active_text_turn_token
-            if turn_token is not None:
+            text_turn = active.active_text_turn_token
+            voice_turn = active.active_voice_turn_token
+            turn_token = text_turn if text_turn is not None else voice_turn
+            if text_turn is not None:
                 await active.text_sent_ready.wait()
             readable = has_readable_transcript_text(event.text)
-            if readable and event.source_type != "stt":
+            if voice_turn is not None:
+                if readable and event.source_type == "stt":
+                    active.voice_turn_had_stt_text = True
+                elif readable:
+                    active.voice_turn_had_assistant_text = True
+            elif readable and event.source_type != "stt":
                 active.text_turn_had_assistant_text = True
             await active.event_sink(
                 AssistantTextReceived(
@@ -465,7 +593,13 @@ class RealWebSocketTransport:
                     turn_token=turn_token,
                 )
             )
-            if readable and event.source_type != "stt":
+            if voice_turn is not None and readable and event.source_type != "stt":
+                self._schedule_voice_turn_settle(
+                    active,
+                    delay_seconds=TEXT_TURN_SETTLE_SECONDS,
+                    reason="voice_assistant_text_settled",
+                )
+            elif text_turn is not None and readable and event.source_type != "stt":
                 self._schedule_text_turn_settle(
                     active,
                     delay_seconds=TEXT_TURN_SETTLE_SECONDS,
@@ -473,11 +607,15 @@ class RealWebSocketTransport:
                 )
             return
         if isinstance(event, TtsState):
-            turn_token = active.active_text_turn_token
-            if turn_token is not None:
+            text_turn = active.active_text_turn_token
+            voice_turn = active.active_voice_turn_token
+            turn_token = text_turn if text_turn is not None else voice_turn
+            if text_turn is not None:
                 await active.text_sent_ready.wait()
             readable = has_readable_transcript_text(event.text)
-            if readable:
+            if voice_turn is not None and readable:
+                active.voice_turn_had_assistant_text = True
+            elif text_turn is not None and readable:
                 active.text_turn_had_assistant_text = True
             await active.event_sink(
                 TtsStateReceived(
@@ -491,14 +629,29 @@ class RealWebSocketTransport:
                 )
             )
             if is_terminal_tts_state(event.state):
-                await self._complete_text_turn(active, reason=f"tts_{event.state}")
-            elif readable:
+                if voice_turn is not None:
+                    await self._complete_voice_turn(active, reason=f"tts_{event.state}")
+                else:
+                    await self._complete_text_turn(active, reason=f"tts_{event.state}")
+            elif voice_turn is not None and readable:
+                self._schedule_voice_turn_settle(
+                    active,
+                    delay_seconds=TEXT_TURN_SETTLE_SECONDS,
+                    reason="voice_tts_text_settled",
+                )
+            elif text_turn is not None and readable:
                 self._schedule_text_turn_settle(
                     active,
                     delay_seconds=TEXT_TURN_SETTLE_SECONDS,
                     reason="tts_text_settled",
                 )
-            elif turn_token is not None:
+            elif voice_turn is not None:
+                self._schedule_voice_turn_settle(
+                    active,
+                    delay_seconds=TEXT_TTS_FALLBACK_SECONDS,
+                    reason="voice_tts_state_fallback",
+                )
+            elif text_turn is not None:
                 self._schedule_text_turn_settle(
                     active,
                     delay_seconds=TEXT_TTS_FALLBACK_SECONDS,
@@ -601,6 +754,92 @@ class RealWebSocketTransport:
                 had_assistant_text=had_assistant_text,
             )
         )
+
+    def _schedule_voice_turn_settle(
+        self,
+        active: _ActiveConnection,
+        *,
+        delay_seconds: float,
+        reason: str,
+    ) -> None:
+        self._cancel_voice_turn_settle(active)
+
+        async def settle() -> None:
+            await asyncio.sleep(delay_seconds)
+            await self._complete_voice_turn(active, reason=reason)
+
+        active.voice_turn_settle_task = asyncio.create_task(
+            settle(),
+            name=f"assistant-voice-turn-settle-{active.generation}",
+        )
+
+    def _cancel_voice_turn_settle(self, active: _ActiveConnection) -> None:
+        task = active.voice_turn_settle_task
+        if task is not None and not task.done() and task is not asyncio.current_task():
+            task.cancel()
+        active.voice_turn_settle_task = None
+
+    async def _complete_voice_turn(
+        self,
+        active: _ActiveConnection,
+        *,
+        reason: str,
+    ) -> None:
+        async with active.voice_turn_lock:
+            turn_token = active.active_voice_turn_token
+            capture_generation = active.active_capture_generation
+            if turn_token is None or capture_generation is None:
+                return
+            had_stt_text = active.voice_turn_had_stt_text
+            had_assistant_text = active.voice_turn_had_assistant_text
+            self._clear_voice_turn(active)
+            self._cancel_voice_turn_settle(active)
+        await active.event_sink(
+            VoiceTurnCompleted(
+                at_ns=self._clock.now_ns(),
+                generation=active.generation,
+                capture_generation=capture_generation,
+                turn_token=turn_token,
+                reason=reason,
+                had_stt_text=had_stt_text,
+                had_assistant_text=had_assistant_text,
+            )
+        )
+
+    @staticmethod
+    def _clear_voice_turn(active: _ActiveConnection) -> None:
+        active.active_voice_turn_token = None
+        active.active_capture_generation = None
+        active.voice_turn_had_stt_text = False
+        active.voice_turn_had_assistant_text = False
+
+    @staticmethod
+    def _voice_matches(
+        active: _ActiveConnection,
+        turn_token: int,
+        capture_generation: int,
+    ) -> bool:
+        return bool(
+            active.active_voice_turn_token == turn_token
+            and active.active_capture_generation == capture_generation
+        )
+
+    async def _require_voice_session(
+        self,
+        generation: int,
+        event_sink: EventSink,
+    ) -> _ActiveConnection | None:
+        active = await self._get_active(generation)
+        if active is None or not active.session_id:
+            await event_sink(
+                TransportFailed(
+                    at_ns=self._clock.now_ns(),
+                    generation=generation,
+                    message="真实 WebSocket 尚未建立有效 session",
+                )
+            )
+            return None
+        return active
 
     async def _enqueue_and_wait(self, active: _ActiveConnection, payload: str | bytes) -> None:
         future = asyncio.get_running_loop().create_future()

@@ -7,13 +7,14 @@ license = { text = "Proprietary" }
 authors = [
     { name = "Note Assistant Team" },
 ]
-
 dependencies = [
     "PySide6>=6.6",
     "qasync>=0.27,<1",
     "sqlalchemy>=2.0",
     "pydantic>=2.0",
     "websockets>=16.0,<17",
+    "PyAudio>=0.2.14,<0.3",
+    "av>=13,<17",
 ]
 
 [project.optional-dependencies]
@@ -25,8 +26,6 @@ dev = [
     "ruff>=0.3",
 ]
 
-# 当前仓库是桌面应用源码布局，不需要把 pc-app-build 根目录
-# 自动发现成可导入 Python 包。main.py 会显式加入应用目录。
 [tool.setuptools]
 packages = []
 

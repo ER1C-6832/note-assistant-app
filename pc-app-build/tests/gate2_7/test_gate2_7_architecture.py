@@ -87,9 +87,10 @@ def test_gate2_7_freezes_future_capabilities_without_fake_product_success() -> N
         AssistantCapability.TEXT_CONVERSATION,
         AssistantCapability.MANUAL_RECOVERY,
         AssistantCapability.AUTOMATIC_RECOVERY,
+        AssistantCapability.PUSH_TO_TALK,
+        AssistantCapability.MICROPHONE_OWNERSHIP,
     )
     future = (
-        AssistantCapability.PUSH_TO_TALK,
         AssistantCapability.TTS_PLAYBACK,
         AssistantCapability.MCP_NOTES,
         AssistantCapability.STREAMING_CONVERSATION,
@@ -102,7 +103,7 @@ def test_gate2_7_freezes_future_capabilities_without_fake_product_success() -> N
     assert all(state.capability_status(item) is CapabilityStatus.NOT_READY for item in future)
 
     panel = _read(APP_ROOT / "qml" / "components" / "AssistantPanel.qml")
-    assert "startPushToTalk" not in panel
+    assert "assistantPushToTalkButton" in panel
     assert "wakeWord" not in panel
     assert "requestSendText" in panel
 

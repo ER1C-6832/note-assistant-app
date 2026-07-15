@@ -49,8 +49,7 @@ async def test_scripted_fake_transport_runs_through_single_event_pump() -> None:
         assert transport.sent_texts == [(replied.connection.connection_generation, "你好")]
         assert any(state.phase is AssistantPhase.THINKING for state in snapshots)
         assert (
-            replied.capability_status(AssistantCapability.PUSH_TO_TALK)
-            is CapabilityStatus.NOT_READY
+            replied.capability_status(AssistantCapability.PUSH_TO_TALK) is CapabilityStatus.ACTIVE
         )
     finally:
         await controller.shutdown()

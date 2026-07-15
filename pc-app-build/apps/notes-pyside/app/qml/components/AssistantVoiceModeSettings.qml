@@ -7,8 +7,18 @@ Rectangle {
 
     property var viewModelRef: null
     readonly property bool ready: viewModelRef !== null
-    readonly property bool streamingSelected: ready
-                                               && viewModelRef.voiceInteractionMode === "streaming_conversation"
+    readonly property var model: ready ? viewModelRef : fallbackModel
+    readonly property bool streamingSelected: model.voiceInteractionMode === "streaming_conversation"
+
+    QtObject {
+        id: fallbackModel
+        readonly property string voiceInteractionMode: "hold_to_talk"
+        readonly property bool commandBusy: false
+        readonly property bool streamingBargeInEnabled: false
+        readonly property bool streamingCapabilityReady: false
+        function requestVoiceInteractionMode(value) {}
+        function requestStreamingBargeInEnabled(value) {}
+    }
 
     implicitHeight: settingsColumn.implicitHeight + 20
     radius: 12
@@ -38,9 +48,9 @@ Rectangle {
                 text: "按住说话"
                 checkable: true
                 checked: root.ready
-                         && root.viewModelRef.voiceInteractionMode === "hold_to_talk"
-                enabled: root.ready && !root.viewModelRef.commandBusy
-                onClicked: root.viewModelRef.requestVoiceInteractionMode("hold_to_talk")
+                         && root.model.voiceInteractionMode === "hold_to_talk"
+                enabled: root.ready && !root.model.commandBusy
+                onClicked: root.model.requestVoiceInteractionMode("hold_to_talk")
             }
 
             Button {
@@ -48,8 +58,8 @@ Rectangle {
                 text: "连续对话"
                 checkable: true
                 checked: root.streamingSelected
-                enabled: root.ready && !root.viewModelRef.commandBusy
-                onClicked: root.viewModelRef.requestVoiceInteractionMode("streaming_conversation")
+                enabled: root.ready && !root.model.commandBusy
+                onClicked: root.model.requestVoiceInteractionMode("streaming_conversation")
             }
         }
 
@@ -67,7 +77,7 @@ Rectangle {
                 }
                 Label {
                     Layout.fillWidth: true
-                    text: root.ready && root.viewModelRef.streamingCapabilityReady
+                    text: root.ready && root.model.streamingCapabilityReady
                           ? "回复播放时允许直接说话打断"
                           : "Gate 4.2 激活；当前只保存默认偏好"
                     color: "#94A3B8"
@@ -79,12 +89,12 @@ Rectangle {
             Switch {
                 enabled: root.ready
                          && root.streamingSelected
-                         && !root.viewModelRef.commandBusy
-                checked: root.ready && root.viewModelRef.streamingBargeInEnabled
+                         && !root.model.commandBusy
+                checked: root.ready && root.model.streamingBargeInEnabled
                 onToggled: {
                     if (!root.ready) return
-                    if (checked !== root.viewModelRef.streamingBargeInEnabled) {
-                        root.viewModelRef.requestStreamingBargeInEnabled(checked)
+                    if (checked !== root.model.streamingBargeInEnabled) {
+                        root.model.requestStreamingBargeInEnabled(checked)
                     }
                 }
             }
@@ -94,7 +104,7 @@ Rectangle {
             Layout.fillWidth: true
             visible: root.streamingSelected
                      && root.ready
-                     && !root.viewModelRef.streamingCapabilityReady
+                     && !root.model.streamingCapabilityReady
             text: "连续模式已设为默认；真实连续会话将在 Gate 3.3 接通。"
             color: "#B45309"
             font.pixelSize: 10

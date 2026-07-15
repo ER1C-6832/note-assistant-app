@@ -311,22 +311,101 @@ class ReconnectTimerFired(AssistantEvent):
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
+class ListenStartSent(AssistantEvent):
+    generation: int
+    capture_generation: int
+    turn_token: int
+    raw_json_redacted: str | None = None
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class ListenStopSent(AssistantEvent):
+    generation: int
+    capture_generation: int
+    turn_token: int
+    raw_json_redacted: str | None = None
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class AbortSent(AssistantEvent):
+    generation: int
+    capture_generation: int
+    turn_token: int
+    reason: str
+    raw_json_redacted: str | None = None
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
 class AudioCaptureStarted(AssistantEvent):
     generation: int
+    connection_generation: int = 0
+    turn_token: int = 0
+    input_device_public_name: str | None = None
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class AudioCaptureStopped(AssistantEvent):
     generation: int
+    connection_generation: int = 0
+    turn_token: int = 0
     summary: str | None = None
+    captured_frames: int = 0
+    encoded_frames: int = 0
+    uploaded_frames: int = 0
+    dropped_pcm_frames: int = 0
+    uplink_overflow_count: int = 0
+    speech_seen: bool = False
+    stopped_within_budget: bool = True
+    stop_latency_ms: int = 0
+    input_device_public_name: str | None = None
+    first_pcm_latency_ms: int | None = None
+    first_opus_latency_ms: int | None = None
+    first_opus_upload_latency_ms: int | None = None
+    stop_listen_latency_ms: int | None = None
+    useful_audio: bool = False
+    stop_sent: bool = False
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class AudioCountersUpdated(AssistantEvent):
     generation: int
-    captured_frames: int
-    encoded_frames: int
-    uploaded_frames: int
+    connection_generation: int = 0
+    turn_token: int = 0
+    captured_frames: int = 0
+    encoded_frames: int = 0
+    uploaded_frames: int = 0
+    dropped_pcm_frames: int = 0
+    uplink_overflow_count: int = 0
+    first_pcm_latency_ms: int | None = None
+    first_opus_latency_ms: int | None = None
+    first_opus_upload_latency_ms: int | None = None
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class AudioCaptureFailed(AssistantEvent):
+    generation: int
+    connection_generation: int
+    turn_token: int
+    code: str
+    message: str
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class AudioUplinkOverflow(AssistantEvent):
+    generation: int
+    connection_generation: int
+    turn_token: int
+    message: str
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class VoiceTurnCompleted(AssistantEvent):
+    generation: int
+    capture_generation: int
+    turn_token: int
+    reason: str
+    had_stt_text: bool = False
+    had_assistant_text: bool = False
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)

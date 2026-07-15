@@ -75,12 +75,18 @@ class SetStreamingBargeIn(AssistantEffect):
 
 @dataclass(frozen=True, slots=True)
 class StartPushToTalk(AssistantEffect):
+    connection_generation: int
     generation: int
+    turn_token: int
+    requested_at_ns: int
 
 
 @dataclass(frozen=True, slots=True)
 class StopPushToTalk(AssistantEffect):
+    connection_generation: int
     generation: int
+    turn_token: int
+    requested_at_ns: int
 
 
 @dataclass(frozen=True, slots=True)

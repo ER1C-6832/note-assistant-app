@@ -91,6 +91,41 @@ class AssistantTransport(Protocol):
         event_sink: EventSink,
     ) -> None: ...
 
+    async def start_listening(
+        self,
+        generation: int,
+        turn_token: int,
+        capture_generation: int,
+        mode: str,
+        event_sink: EventSink,
+    ) -> None: ...
+
+    async def send_audio(
+        self,
+        generation: int,
+        turn_token: int,
+        capture_generation: int,
+        payload: bytes,
+        event_sink: EventSink,
+    ) -> None: ...
+
+    async def stop_listening(
+        self,
+        generation: int,
+        turn_token: int,
+        capture_generation: int,
+        event_sink: EventSink,
+    ) -> None: ...
+
+    async def abort(
+        self,
+        generation: int,
+        turn_token: int,
+        capture_generation: int,
+        reason: str,
+        event_sink: EventSink,
+    ) -> None: ...
+
     async def close(
         self,
         generation: int,
@@ -136,6 +171,49 @@ class RuntimeTransportRouter:
             raise RuntimeError("没有与当前 generation 关联的 Transport")
         await self._adapter(mode).send_text(generation, turn_token, text, event_sink)
 
+    async def start_listening(
+        self,
+        generation: int,
+        turn_token: int,
+        capture_generation: int,
+        mode: str,
+        event_sink: EventSink,
+    ) -> None:
+        adapter = await self._adapter_for_generation(generation)
+        await adapter.start_listening(generation, turn_token, capture_generation, mode, event_sink)
+
+    async def send_audio(
+        self,
+        generation: int,
+        turn_token: int,
+        capture_generation: int,
+        payload: bytes,
+        event_sink: EventSink,
+    ) -> None:
+        adapter = await self._adapter_for_generation(generation)
+        await adapter.send_audio(generation, turn_token, capture_generation, payload, event_sink)
+
+    async def stop_listening(
+        self,
+        generation: int,
+        turn_token: int,
+        capture_generation: int,
+        event_sink: EventSink,
+    ) -> None:
+        adapter = await self._adapter_for_generation(generation)
+        await adapter.stop_listening(generation, turn_token, capture_generation, event_sink)
+
+    async def abort(
+        self,
+        generation: int,
+        turn_token: int,
+        capture_generation: int,
+        reason: str,
+        event_sink: EventSink,
+    ) -> None:
+        adapter = await self._adapter_for_generation(generation)
+        await adapter.abort(generation, turn_token, capture_generation, reason, event_sink)
+
     async def close(
         self,
         generation: int,
@@ -155,6 +233,12 @@ class RuntimeTransportRouter:
         # Both adapters must therefore keep close idempotent.
         await self._fake_transport.close(generation, reason, event_sink)
         await self._real_transport.close(generation, reason, event_sink)
+
+    async def _adapter_for_generation(self, generation: int) -> AssistantTransport:
+        mode = await self._mode_for_generation(generation)
+        if mode is None:
+            raise RuntimeError("没有与当前 generation 关联的 Transport")
+        return self._adapter(mode)
 
     async def _mode_for_generation(self, generation: int) -> AssistantRuntimeMode | None:
         async with self._lock:

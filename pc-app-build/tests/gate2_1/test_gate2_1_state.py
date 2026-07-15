@@ -40,10 +40,11 @@ def test_complete_state_defaults_and_android_capability_registry() -> None:
     assert registry[AssistantCapability.RUNTIME_CORE].status is CapabilityStatus.ACTIVE
     assert registry[AssistantCapability.FAKE_TRANSPORT].status is CapabilityStatus.ACTIVE
     assert registry[AssistantCapability.REAL_TRANSPORT].status is CapabilityStatus.ACTIVE
-    assert registry[AssistantCapability.PUSH_TO_TALK].target_gate == "3"
+    assert registry[AssistantCapability.PUSH_TO_TALK].target_gate == "3.2"
+    assert registry[AssistantCapability.PUSH_TO_TALK].status is CapabilityStatus.ACTIVE
     assert registry[AssistantCapability.TTS_PLAYBACK].target_gate == "4"
     assert registry[AssistantCapability.MCP_NOTES].target_gate == "5"
-    assert registry[AssistantCapability.STREAMING_CONVERSATION].target_gate == "6"
+    assert registry[AssistantCapability.STREAMING_CONVERSATION].target_gate == "3.3/4.2"
     assert registry[AssistantCapability.KWS].target_gate == "6.5"
 
 

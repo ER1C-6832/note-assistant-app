@@ -21,6 +21,8 @@ from .effects import (
     SendText,
     SetStreamingBargeIn,
     SetVoiceInteractionMode,
+    StartPushToTalk,
+    StopPushToTalk,
 )
 from .events import (
     AbortRequested,
@@ -29,7 +31,12 @@ from .events import (
     ActivationStarted,
     ActivationSucceeded,
     AssistantEvent,
+    AudioCaptureFailed,
+    AudioCaptureStarted,
+    AudioCaptureStopped,
+    AudioCountersUpdated,
     AudioFailureSimulationRequested,
+    AudioUplinkOverflow,
     ConnectRequested,
     ConnectionClosedSimulationRequested,
     ConnectionFailureSimulationRequested,
@@ -61,6 +68,11 @@ from .events import (
     VoiceInteractionModeRequested,
 )
 from .activation.models import ActivationClient, ActivationOutcomeStatus
+from .audio import (
+    AssistantAudioEngine,
+    AudioEngineFailure,
+    MicrophoneLeaseCoordinator,
+)
 from .errors import redact_error_text
 from .identity.models import DeviceIdentity
 from .network.transport import AssistantTransport
@@ -110,6 +122,8 @@ class EffectRunner:
         fake_activation_client: ActivationClient | None = None,
         real_activation_client: ActivationClient | None = None,
         preferences_store: AssistantPreferencesStore | None = None,
+        audio_engine: AssistantAudioEngine | None = None,
+        microphone_coordinator: MicrophoneLeaseCoordinator | None = None,
     ) -> None:
         self._transport = transport
         self._event_sink = event_sink
@@ -118,6 +132,27 @@ class EffectRunner:
         self._fake_activation_client = fake_activation_client
         self._real_activation_client = real_activation_client
         self._preferences_store = preferences_store
+        self._audio_engine = audio_engine
+        self._microphone_coordinator = microphone_coordinator or MicrophoneLeaseCoordinator()
+        self._audio_lock = asyncio.Lock()
+        self._active_audio_effect: StartPushToTalk | None = None
+        self._audio_uplink_task: asyncio.Task[None] | None = None
+
+    @property
+    def audio_uplink_running(self) -> bool:
+        return self._audio_uplink_task is not None and not self._audio_uplink_task.done()
+
+    @property
+    def audio_capture_active(self) -> bool:
+        return bool(self._audio_engine and self._audio_engine.is_active)
+
+    @property
+    def audio_worker_alive(self) -> bool:
+        return bool(self._audio_engine and self._audio_engine.worker_alive)
+
+    @property
+    def microphone_lease_generation(self) -> int | None:
+        return self._microphone_coordinator.generation
 
     async def execute(self, effect: AssistantEffect) -> None:
         if isinstance(effect, OpenTransport):
@@ -161,9 +196,318 @@ class EffectRunner:
                     effect.enabled,
                 )
             return
+        if isinstance(effect, StartPushToTalk):
+            await self._start_push_to_talk(effect)
+            return
+        if isinstance(effect, StopPushToTalk):
+            await self._stop_push_to_talk(effect)
+            return
         if isinstance(effect, CancelRuntimeEffects):
+            await self.cancel_runtime_effects(effect.reason)
             return
         raise NotImplementedError(f"effect is not active yet: {type(effect).__name__}")
+
+    async def _start_push_to_talk(self, effect: StartPushToTalk) -> None:
+        engine = self._audio_engine
+        if engine is None:
+            await self._emit_audio_failure(
+                effect,
+                "audio_capture_failed",
+                "AudioEngine is not configured",
+            )
+            return
+        async with self._audio_lock:
+            if self._active_audio_effect is not None:
+                await self._emit_audio_failure(
+                    effect,
+                    "push_to_talk_busy",
+                    "another voice capture is already active",
+                )
+                return
+            if not await self._microphone_coordinator.acquire(effect.generation):
+                await self._emit_audio_failure(
+                    effect,
+                    "microphone_busy",
+                    "microphone lease is already owned",
+                )
+                return
+            self._active_audio_effect = effect
+            try:
+                await self._transport.start_listening(
+                    effect.connection_generation,
+                    effect.turn_token,
+                    effect.generation,
+                    "manual",
+                    self._event_sink,
+                )
+                await engine.start_capture(
+                    effect.generation,
+                    requested_at_ns=effect.requested_at_ns,
+                )
+            except Exception as exc:
+                await self._rollback_audio_start(effect, reason="audio_start_failed")
+                await self._emit_audio_failure(
+                    effect,
+                    getattr(exc, "code", "audio_capture_failed"),
+                    redact_error_text(exc),
+                )
+                return
+            await self._event_sink(
+                AudioCaptureStarted(
+                    at_ns=self._clock.now_ns(),
+                    generation=effect.generation,
+                    connection_generation=effect.connection_generation,
+                    turn_token=effect.turn_token,
+                    input_device_public_name=engine.input_device_public_name,
+                )
+            )
+            self._audio_uplink_task = asyncio.create_task(
+                self._audio_uplink_loop(effect),
+                name=f"assistant-audio-uplink-{effect.generation}",
+            )
+
+    async def _audio_uplink_loop(self, effect: StartPushToTalk) -> None:
+        engine = self._audio_engine
+        assert engine is not None
+        last_emitted = (-1, -1, -1)
+        try:
+            while True:
+                packet = await engine.next_packet(effect.generation)
+                if packet is None:
+                    break
+                await self._transport.send_audio(
+                    effect.connection_generation,
+                    effect.turn_token,
+                    effect.generation,
+                    packet.payload,
+                    self._event_sink,
+                )
+                engine.mark_uploaded(packet, uploaded_at_ns=self._clock.now_ns())
+                summary = engine.current_summary(effect.generation)
+                counters = (
+                    summary.captured_frames,
+                    summary.encoded_frames,
+                    summary.uploaded_frames,
+                )
+                if counters != last_emitted and (
+                    summary.uploaded_frames == 1 or summary.uploaded_frames % 10 == 0
+                ):
+                    last_emitted = counters
+                    await self._emit_audio_counters(effect, summary)
+        except asyncio.CancelledError:
+            raise
+        except AudioEngineFailure as exc:
+            if exc.code == "audio_uplink_overflow":
+                await self._event_sink(
+                    AudioUplinkOverflow(
+                        at_ns=self._clock.now_ns(),
+                        generation=effect.generation,
+                        connection_generation=effect.connection_generation,
+                        turn_token=effect.turn_token,
+                        message=redact_error_text(exc),
+                    )
+                )
+            else:
+                await self._emit_audio_failure(effect, exc.code, redact_error_text(exc))
+        except Exception as exc:
+            await self._emit_audio_failure(
+                effect,
+                getattr(exc, "code", "audio_uplink_failed"),
+                redact_error_text(exc),
+            )
+
+    async def _stop_push_to_talk(self, effect: StopPushToTalk) -> None:
+        engine = self._audio_engine
+        async with self._audio_lock:
+            active = self._active_audio_effect
+            if engine is None or active is None:
+                return
+            if (
+                active.generation != effect.generation
+                or active.connection_generation != effect.connection_generation
+                or active.turn_token != effect.turn_token
+            ):
+                return
+            summary = await engine.stop_capture(effect.generation, budget_seconds=1.5)
+            stop_failure = engine.failure
+            task = self._audio_uplink_task
+            if task is not None and not task.done():
+                try:
+                    await asyncio.wait_for(asyncio.shield(task), timeout=1.5)
+                except asyncio.TimeoutError:
+                    task.cancel()
+                    await asyncio.gather(task, return_exceptions=True)
+            self._audio_uplink_task = None
+            summary = engine.current_summary(
+                effect.generation,
+                stop_latency_ms=summary.stop_latency_ms,
+                stopped_within_budget=summary.stopped_within_budget,
+            )
+            useful_audio = bool(
+                stop_failure is None and summary.speech_seen and summary.uploaded_frames > 0
+            )
+            stop_sent = False
+            stop_listen_latency_ms: int | None = None
+            try:
+                if useful_audio:
+                    await self._transport.stop_listening(
+                        effect.connection_generation,
+                        effect.turn_token,
+                        effect.generation,
+                        self._event_sink,
+                    )
+                    stop_sent = True
+                else:
+                    await self._transport.abort(
+                        effect.connection_generation,
+                        effect.turn_token,
+                        effect.generation,
+                        "ptt_no_useful_audio",
+                        self._event_sink,
+                    )
+                stop_listen_latency_ms = max(
+                    0,
+                    int((self._clock.now_ns() - effect.requested_at_ns) / 1_000_000),
+                )
+            except Exception as exc:
+                await self._emit_audio_failure(
+                    active,
+                    getattr(exc, "code", "audio_stop_protocol_failed"),
+                    redact_error_text(exc),
+                )
+            finally:
+                await self._microphone_coordinator.release(effect.generation)
+                await engine.finish_generation(effect.generation)
+                self._active_audio_effect = None
+            await self._event_sink(
+                AudioCaptureStopped(
+                    at_ns=self._clock.now_ns(),
+                    generation=effect.generation,
+                    connection_generation=effect.connection_generation,
+                    turn_token=effect.turn_token,
+                    summary=(
+                        f"pcm={summary.captured_frames} opus={summary.encoded_frames} "
+                        f"uploaded={summary.uploaded_frames} speech={summary.speech_seen}"
+                    ),
+                    captured_frames=summary.captured_frames,
+                    encoded_frames=summary.encoded_frames,
+                    uploaded_frames=summary.uploaded_frames,
+                    dropped_pcm_frames=summary.dropped_pcm_frames,
+                    uplink_overflow_count=summary.uplink_overflow_count,
+                    speech_seen=summary.speech_seen,
+                    stopped_within_budget=summary.stopped_within_budget,
+                    stop_latency_ms=summary.stop_latency_ms,
+                    input_device_public_name=summary.input_device_public_name,
+                    first_pcm_latency_ms=summary.first_pcm_latency_ms,
+                    first_opus_latency_ms=summary.first_opus_latency_ms,
+                    first_opus_upload_latency_ms=summary.first_opus_upload_latency_ms,
+                    stop_listen_latency_ms=stop_listen_latency_ms,
+                    useful_audio=useful_audio,
+                    stop_sent=stop_sent,
+                )
+            )
+            if stop_failure is not None:
+                await self._emit_audio_failure(
+                    active,
+                    stop_failure.code,
+                    redact_error_text(stop_failure),
+                )
+
+    async def cancel_runtime_effects(self, reason: str) -> None:
+        async with self._audio_lock:
+            active = self._active_audio_effect
+            engine = self._audio_engine
+            task = self._audio_uplink_task
+            self._audio_uplink_task = None
+            if task is not None and not task.done():
+                task.cancel()
+                await asyncio.gather(task, return_exceptions=True)
+            if active is not None and engine is not None:
+                try:
+                    await engine.cancel_capture(active.generation, reason=reason)
+                except Exception:
+                    pass
+                try:
+                    await self._transport.abort(
+                        active.connection_generation,
+                        active.turn_token,
+                        active.generation,
+                        reason,
+                        self._event_sink,
+                    )
+                except Exception:
+                    pass
+                await engine.finish_generation(active.generation)
+                await self._microphone_coordinator.release(active.generation)
+            else:
+                await self._microphone_coordinator.force_release()
+            self._active_audio_effect = None
+
+    async def shutdown(self) -> None:
+        await self.cancel_runtime_effects("shutdown")
+        if self._audio_engine is not None:
+            await self._audio_engine.close()
+
+    async def _rollback_audio_start(
+        self,
+        effect: StartPushToTalk,
+        *,
+        reason: str,
+    ) -> None:
+        engine = self._audio_engine
+        if engine is not None and engine.active_generation == effect.generation:
+            try:
+                await engine.cancel_capture(effect.generation, reason=reason)
+            except Exception:
+                pass
+            await engine.finish_generation(effect.generation)
+        try:
+            await self._transport.abort(
+                effect.connection_generation,
+                effect.turn_token,
+                effect.generation,
+                reason,
+                self._event_sink,
+            )
+        except Exception:
+            pass
+        await self._microphone_coordinator.release(effect.generation)
+        self._active_audio_effect = None
+
+    async def _emit_audio_counters(self, effect: StartPushToTalk, summary) -> None:
+        await self._event_sink(
+            AudioCountersUpdated(
+                at_ns=self._clock.now_ns(),
+                generation=effect.generation,
+                connection_generation=effect.connection_generation,
+                turn_token=effect.turn_token,
+                captured_frames=summary.captured_frames,
+                encoded_frames=summary.encoded_frames,
+                uploaded_frames=summary.uploaded_frames,
+                dropped_pcm_frames=summary.dropped_pcm_frames,
+                uplink_overflow_count=summary.uplink_overflow_count,
+                first_pcm_latency_ms=summary.first_pcm_latency_ms,
+                first_opus_latency_ms=summary.first_opus_latency_ms,
+                first_opus_upload_latency_ms=summary.first_opus_upload_latency_ms,
+            )
+        )
+
+    async def _emit_audio_failure(
+        self,
+        effect: StartPushToTalk,
+        code: str,
+        message: str,
+    ) -> None:
+        await self._event_sink(
+            AudioCaptureFailed(
+                at_ns=self._clock.now_ns(),
+                generation=effect.generation,
+                connection_generation=effect.connection_generation,
+                turn_token=effect.turn_token,
+                code=code,
+                message=message,
+            )
+        )
 
     async def _ensure_identity(self) -> None:
         manager = self._identity_manager
@@ -285,6 +629,8 @@ class AssistantController:
         fake_activation_client: ActivationClient | None = None,
         real_activation_client: ActivationClient | None = None,
         preferences_store: AssistantPreferencesStore | None = None,
+        audio_engine: AssistantAudioEngine | None = None,
+        microphone_coordinator: MicrophoneLeaseCoordinator | None = None,
     ) -> None:
         self._clock = clock or SystemRuntimeClock()
         self._state_machine = state_machine or ConversationStateMachine()
@@ -300,6 +646,8 @@ class AssistantController:
             fake_activation_client=fake_activation_client,
             real_activation_client=real_activation_client,
             preferences_store=preferences_store,
+            audio_engine=audio_engine,
+            microphone_coordinator=microphone_coordinator,
         )
         self._effect_tasks: set[asyncio.Task[None]] = set()
         self._listeners: set[StateListener] = set()
@@ -329,6 +677,22 @@ class AssistantController:
     @property
     def reconnect_timer_running(self) -> bool:
         return self._reconnect_task is not None and not self._reconnect_task.done()
+
+    @property
+    def audio_uplink_running(self) -> bool:
+        return self._effect_runner.audio_uplink_running
+
+    @property
+    def audio_capture_active(self) -> bool:
+        return self._effect_runner.audio_capture_active
+
+    @property
+    def audio_worker_alive(self) -> bool:
+        return self._effect_runner.audio_worker_alive
+
+    @property
+    def microphone_lease_generation(self) -> int | None:
+        return self._effect_runner.microphone_lease_generation
 
     @property
     def closed(self) -> bool:
@@ -548,6 +912,7 @@ class AssistantController:
         await self._await_task_bounded(self._pump_task)
         await self._cancel_reconnect_task()
         await self._cancel_effect_tasks()
+        await self._effect_runner.shutdown()
         self._drain_unprocessed_events()
         self._closed = True
 
@@ -601,6 +966,7 @@ class AssistantController:
             if isinstance(effect, CancelRuntimeEffects):
                 await self._cancel_reconnect_task()
                 await self._cancel_effect_tasks()
+                await self._effect_runner.cancel_runtime_effects(effect.reason)
                 continue
             if isinstance(effect, ScheduleReconnect):
                 await self._schedule_reconnect(effect)

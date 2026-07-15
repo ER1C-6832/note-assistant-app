@@ -18,6 +18,16 @@ class AssistantErrorCode(str, Enum):
     RECONNECT_EXHAUSTED = "reconnect_exhausted"
     EFFECT_EXECUTION_FAILED = "effect_execution_failed"
     RUNTIME_OVERLOADED = "runtime_overloaded"
+    PUSH_TO_TALK_BUSY = "push_to_talk_busy"
+    VOICE_MODE_MISMATCH = "voice_mode_mismatch"
+    MICROPHONE_PERMISSION_DENIED = "microphone_permission_denied"
+    MICROPHONE_BUSY = "microphone_busy"
+    AUDIO_CAPTURE_FAILED = "audio_capture_failed"
+    AUDIO_ENCODER_FAILED = "audio_encoder_failed"
+    AUDIO_UPLINK_FAILED = "audio_uplink_failed"
+    AUDIO_UPLINK_OVERFLOW = "audio_uplink_overflow"
+    AUDIO_STOP_TIMEOUT = "audio_stop_timeout"
+    AUDIO_CAPTURE_STOP_FAILED = "audio_capture_stop_failed"
 
 
 _SENSITIVE_ERROR_PATTERN = re.compile(
