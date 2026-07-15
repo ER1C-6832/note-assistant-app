@@ -181,3 +181,21 @@ Gate 5 才接 `NoteCommandService`。
 - Real 验收：`RUN_GATE2_5_REAL_RECOVERY.ps1` 在真实 socket 上强制一次 `1012` 异常关闭，并要求新 generation 完成真实 hello/session。
 
 Gate 2.5 的 Real Gate 不重新执行 OTA/activation，不修改设备身份，也不通过 Fake transport 代替第二次真实握手。
+
+## 12. Gate 2.6 AssistantViewModel / QML 实施状态
+
+- QML 只绑定 `AssistantViewModel` 的不可变 Controller snapshot 投影；
+- 普通产品面只暴露 enabled、连接/断开、文本输入、最近回复、错误与重试；
+- Developer 折叠区暴露 Fake/Real、identity、activation、脱敏协议、模拟断线和 capability；
+- PTT、KWS 等未实现能力不显示为可点击产品成功路径；
+- Bootstrap 只组装一个 `AssistantController`，与 Notes 共用 qasync 进程；
+- UI smoke 使用离屏 QML 验证 context property、event pump 和有界 shutdown。
+
+## 13. Gate 2.7 总验收状态
+
+- `VERIFY_GATE2_7.ps1` 聚合历史自动化、完整 Fake 场景、Notes DB 隔离和 UI smoke；
+- `RUN_GATE2_7_REAL_ACCEPTANCE.ps1` 在一次显式 Real Gate 中执行 identity/OTA、headers、hello/session、文本和异常关闭恢复；
+- Real recovery 必须进入新 connection generation，并不得重复 activation；
+- 公开输出不包含 token、HMAC、challenge、完整 identity 或完整 session；
+- 自动化/Fake 与 Real 结果独立记录；Real 被凭据、激活或服务阻塞时不得降级为 Fake 通过；
+- 只有 `Fake Gate complete` 与 `Real Gate complete` 同时成立，才允许声明 Gate 2 完成。
