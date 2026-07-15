@@ -156,6 +156,43 @@ class AssistantViewModel(QObject):
             is CapabilityStatus.ACTIVE
         )
 
+    @Property(bool, notify=stateChanged)
+    def streamingConversationActive(self) -> bool:
+        return self._state.conversation.streaming_session_active
+
+    @Property(str, notify=stateChanged)
+    def streamingConversationState(self) -> str:
+        return self._state.conversation.streaming_state.value
+
+    @Property(int, notify=stateChanged)
+    def streamingTurnIndex(self) -> int:
+        return self._state.conversation.streaming_turn_index
+
+    @Property(str, notify=stateChanged)
+    def vadState(self) -> str:
+        return self._state.conversation.vad_state.value
+
+    @Property(str, notify=stateChanged)
+    def vadStatusText(self) -> str:
+        return self._state.conversation.vad_status_text
+
+    @Property(bool, notify=stateChanged)
+    def canStartStreamingConversation(self) -> bool:
+        return bool(
+            self.streamingCapabilityReady
+            and self._state.is_connected
+            and self._state.conversation.preferred_voice_mode
+            is VoiceInteractionMode.STREAMING_CONVERSATION
+            and not self._state.conversation.streaming_session_active
+            and self._state.conversation.active_text_turn_token is None
+            and self._state.conversation.active_voice_turn_token is None
+            and self._state.phase is AssistantPhase.CONNECTED
+        )
+
+    @Property(bool, notify=stateChanged)
+    def canStopStreamingConversation(self) -> bool:
+        return self._state.conversation.streaming_session_active
+
     @Property(bool, notify=preferencesChanged)
     def conversationTextEnabled(self) -> bool:
         return self._preferences.conversation_text_enabled
@@ -489,6 +526,27 @@ class AssistantViewModel(QObject):
     @Slot()
     def requestPushToTalkStop(self) -> None:
         self._schedule("push_to_talk_stop", self._controller.stop_push_to_talk)
+
+    @Slot()
+    def requestStreamingConversationStart(self) -> None:
+        self._schedule(
+            "streaming_conversation_start",
+            lambda: self._controller.start_streaming_conversation(permission_granted=True),
+        )
+
+    @Slot()
+    def requestStreamingConversationStop(self) -> None:
+        self._schedule(
+            "streaming_conversation_stop",
+            lambda: self._controller.stop_streaming_conversation("user_stop"),
+        )
+
+    @Slot()
+    def requestStreamingConversationToggle(self) -> None:
+        if self._state.conversation.streaming_session_active:
+            self.requestStreamingConversationStop()
+        else:
+            self.requestStreamingConversationStart()
 
     @Slot(str)
     def requestSendText(self, text: str) -> None:

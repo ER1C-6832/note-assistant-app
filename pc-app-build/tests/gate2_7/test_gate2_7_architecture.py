@@ -89,12 +89,12 @@ def test_gate2_7_freezes_future_capabilities_without_fake_product_success() -> N
         AssistantCapability.AUTOMATIC_RECOVERY,
         AssistantCapability.PUSH_TO_TALK,
         AssistantCapability.MICROPHONE_OWNERSHIP,
+        AssistantCapability.STREAMING_CONVERSATION,
+        AssistantCapability.VAD,
     )
     future = (
         AssistantCapability.TTS_PLAYBACK,
         AssistantCapability.MCP_NOTES,
-        AssistantCapability.STREAMING_CONVERSATION,
-        AssistantCapability.VAD,
         AssistantCapability.BARGE_IN,
         AssistantCapability.KWS,
     )

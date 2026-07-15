@@ -52,16 +52,28 @@ def test_product_ptt_control_is_separate_from_draggable_launcher() -> None:
     assert "requestPushToTalkStart" in view_model
 
 
-def test_gate3_2_delivery_scripts_exist() -> None:
+def test_gate3_2_persistent_assets_and_current_verifier_exist() -> None:
     installer = REPO_ROOT / "INSTALL_GATE3_2_AUDIO_DEPS.ps1"
-    verifier = REPO_ROOT / "VERIFY_GATE3_2.ps1"
-    real_runner = REPO_ROOT / "RUN_GATE3_2_REAL_PTT.ps1"
-    assert installer.is_file()
-    assert verifier.is_file()
-    assert real_runner.is_file()
+    fake_tool = PC_BUILD_ROOT / "tools" / "verify_gate3_2_fake_ptt.py"
+    real_tool = PC_BUILD_ROOT / "tools" / "verify_gate3_2_real_ptt.py"
+    report = PC_BUILD_ROOT / "docs" / "report" / "GATE3_2_IMPLEMENTATION_REPORT.md"
+    for path in (installer, fake_tool, real_tool, report):
+        assert path.is_file(), path
     assert 'pip install -e ".[dev]"' in _read(installer)
-    source = _read(verifier).replace("\\", "/")
-    assert "tests/gate3_2" in source
-    assert "verify_gate3_2_fake_ptt.py" in source
-    assert "$LASTEXITCODE -ne 0" in source
-    assert "verify_gate3_2_real_ptt.py" in _read(real_runner)
+
+    covering = tuple(
+        path
+        for path in sorted(REPO_ROOT.glob("VERIFY_GATE*.ps1"))
+        if "tests/gate3_2" in _read(path).replace("\\", "/")
+    )
+    assert covering
+    for verifier in covering:
+        source = _read(verifier).replace("\\", "/")
+        assert "verify_gate3_2_fake_ptt.py" in source
+        assert "$LASTEXITCODE -ne 0" in source
+        assert "exit 1" in source
+
+    assert "start_push_to_talk" in _read(real_tool)
+    assert 'status="real_gate_complete"' not in _read(real_tool) or "real_gate_complete" in _read(
+        real_tool
+    )

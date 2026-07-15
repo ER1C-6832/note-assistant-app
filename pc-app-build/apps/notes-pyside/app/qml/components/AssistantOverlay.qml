@@ -56,6 +56,17 @@ Item {
         expanded = Boolean(value)
     }
 
+    function handleLauncherActivation() {
+        if (ready
+                && viewModelRef.voiceInteractionMode === "streaming_conversation"
+                && (viewModelRef.streamingConversationActive
+                    || viewModelRef.canStartStreamingConversation)) {
+            viewModelRef.requestStreamingConversationToggle()
+            return
+        }
+        expanded = !expanded
+    }
+
     onWidthChanged: restoreLauncherPosition()
     onHeightChanged: restoreLauncherPosition()
     onReadyChanged: restoreLauncherPosition()
@@ -75,7 +86,12 @@ Item {
             anchors.fill: parent
             viewModelRef: root.viewModelRef
             animationEnabled: root.windowActive
-            onActivated: root.expanded = !root.expanded
+            onActivated: root.handleLauncherActivation()
+        }
+
+        TapHandler {
+            acceptedButtons: Qt.RightButton
+            onTapped: root.expanded = !root.expanded
         }
 
         DragHandler {

@@ -226,7 +226,11 @@ class ConversationState:
     streaming_generation: int = 0
     streaming_session_id: str | None = None
     streaming_turn_index: int = 0
+    active_streaming_turn_token: int | None = None
+    last_completed_streaming_turn_token: int = 0
     streaming_idle_timeout_ms: int = 8_000
+    streaming_response_timeout_ms: int = 20_000
+    streaming_response_deadline_ns: int | None = None
     streaming_barge_in_enabled: bool = False
     barge_in_monitor_active: bool = False
     barge_in_trigger_count: int = 0
@@ -270,6 +274,9 @@ class RuntimeDiagnostics:
     gate_real_audio_upload_verified: bool = False
     gate_real_audio_playback_verified: bool = False
     gate_real_audio_response_verified: bool = False
+    gate_real_streaming_uplink_verified: bool = False
+    vad_speech_started_count: int = 0
+    vad_speech_ended_count: int = 0
     last_event_name: str | None = None
     last_event_at_ns: int | None = None
     metrics_sample_count: int = 0
@@ -389,11 +396,11 @@ def default_capabilities() -> tuple[CapabilityState, ...]:
         CapabilityState(AssistantCapability.MCP_NOTES, not_ready, "5", "便签工具闭环"),
         CapabilityState(
             AssistantCapability.STREAMING_CONVERSATION,
-            not_ready,
+            active,
             "3.3/4.2",
-            "连续对话主线",
+            "连续对话上行、VAD 自动提交；TTS 后自动续轮在 Gate 4.2",
         ),
-        CapabilityState(AssistantCapability.VAD, not_ready, "3.3", "语音活动检测"),
+        CapabilityState(AssistantCapability.VAD, active, "3.3", "本地能量 VAD 与自动提交"),
         CapabilityState(AssistantCapability.BARGE_IN, not_ready, "4.2", "简单打断"),
         CapabilityState(
             AssistantCapability.MICROPHONE_OWNERSHIP,
@@ -485,6 +492,7 @@ def validate_assistant_state(state: AssistantState) -> None:
         state.conversation.last_completed_voice_turn_token,
         state.conversation.streaming_generation,
         state.conversation.streaming_turn_index,
+        state.conversation.last_completed_streaming_turn_token,
         state.conversation.barge_in_trigger_count,
         state.conversation.text_turn_counter,
         state.conversation.last_completed_text_turn_token,
@@ -492,6 +500,8 @@ def validate_assistant_state(state: AssistantState) -> None:
         state.recovery.reconnect_attempt,
         state.recovery.runtime_error_count,
         state.diagnostics.metrics_sample_count,
+        state.diagnostics.vad_speech_started_count,
+        state.diagnostics.vad_speech_ended_count,
     )
     if any(value < 0 for value in counters):
         raise StateInvariantError("runtime counters and generations cannot be negative")
@@ -511,6 +521,20 @@ def validate_assistant_state(state: AssistantState) -> None:
             raise StateInvariantError("recording audio requires an active voice turn")
         if state.audio.microphone_owner is not MicrophoneOwner.ASSISTANT_CAPTURE:
             raise StateInvariantError("recording audio requires the assistant microphone lease")
+
+    active_streaming = state.conversation.active_streaming_turn_token
+    if active_streaming is not None:
+        if not state.conversation.streaming_session_active:
+            raise StateInvariantError("active streaming turn requires an active session")
+        if active_streaming != state.conversation.active_voice_turn_token:
+            raise StateInvariantError("streaming and voice turn tokens must match")
+        if active_streaming <= state.conversation.last_completed_streaming_turn_token:
+            raise StateInvariantError("active streaming turn must be newer than completed turns")
+    if (
+        state.conversation.streaming_response_deadline_ns is not None
+        and not state.conversation.streaming_session_active
+    ):
+        raise StateInvariantError("streaming response deadline requires an active session")
 
     active_text_turn_token = state.conversation.active_text_turn_token
     if active_text_turn_token is not None:

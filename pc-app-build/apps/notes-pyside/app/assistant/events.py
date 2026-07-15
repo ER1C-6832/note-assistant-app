@@ -428,26 +428,59 @@ class PlaybackCountersUpdated(AssistantEvent):
 @dataclass(frozen=True, slots=True, kw_only=True)
 class VoiceActivityChanged(AssistantEvent):
     generation: int
+    connection_generation: int
+    streaming_generation: int
+    turn_token: int
+    frame_sequence: int
     state: VoiceActivityState
     status_text: str
+    peak_abs: int = 0
+    rms: float = 0.0
+    elapsed_ms: int = 0
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class StreamingSessionStarted(AssistantEvent):
     generation: int
+    connection_generation: int
+    capture_generation: int
+    turn_token: int
+    turn_index: int
     session_id: str
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class StreamingTurnChanged(AssistantEvent):
     generation: int
+    turn_token: int
     turn_index: int
     state: StreamingConversationState
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
+class StreamingTurnSubmitted(AssistantEvent):
+    generation: int
+    connection_generation: int
+    capture_generation: int
+    turn_token: int
+    turn_index: int
+    captured_frames: int
+    encoded_frames: int
+    uploaded_frames: int
+    speech_seen: bool
+    stop_listen_latency_ms: int | None = None
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class StreamingResponseTimeout(AssistantEvent):
+    generation: int
+    turn_token: int
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
 class StreamingSessionStopped(AssistantEvent):
     generation: int
+    turn_token: int | None
     reason: str
 
 

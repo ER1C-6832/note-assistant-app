@@ -16,8 +16,11 @@ from .models import (
     AudioCaptureSummary,
     EncodedAudioPacket,
     PcmFrame,
+    VoiceActivitySnapshot,
 )
-from .ports import AudioCapturePort, OpusEncoderPort
+from .ports import AudioCapturePort, OpusEncoderPort, VoiceActivityDetectorPort
+from ..state import VoiceActivityState
+from .vad import EnergyVadConfig, EnergyVoiceActivityDetector
 from .queues import (
     AudioQueueClosed,
     AudioQueueOverflow,
@@ -26,6 +29,7 @@ from .queues import (
 )
 
 EncoderFactory = Callable[[], OpusEncoderPort]
+VadFactory = Callable[[int], VoiceActivityDetectorPort]
 
 
 class AudioEngineBusyError(RuntimeError):
@@ -97,17 +101,28 @@ class AssistantAudioEngine:
         pcm_capacity: int = PCM_INGRESS_CAPACITY,
         packet_capacity: int = ENCODED_PACKET_CAPACITY,
         speech_peak_threshold: int = 500,
+        vad_factory: VadFactory | None = None,
+        vad_event_capacity: int = 32,
     ) -> None:
         self._capture = capture
         self._encoder_factory = encoder_factory
         self._pcm_capacity = int(pcm_capacity)
         self._packet_capacity = int(packet_capacity)
         self._speech_peak_threshold = int(speech_peak_threshold)
+        self._vad_factory = vad_factory or (
+            lambda timeout_ms: EnergyVoiceActivityDetector(
+                EnergyVadConfig(no_speech_timeout_ms=timeout_ms)
+            )
+        )
+        self._vad_event_capacity = int(vad_event_capacity)
         self._state_lock = threading.RLock()
         self._active_generation: int | None = None
         self._started_at_ns: int | None = None
         self._pcm_queue: DropOldestAudioQueue[PcmFrame] | None = None
         self._packet_queue: FailOnOverflowAudioQueue[EncodedAudioPacket] | None = None
+        self._vad_queue: DropOldestAudioQueue[VoiceActivitySnapshot] | None = None
+        self._vad: VoiceActivityDetectorPort | None = None
+        self._last_vad_state: VoiceActivityState | None = None
         self._worker: threading.Thread | None = None
         self._stop_event: threading.Event | None = None
         self._worker_done: threading.Event | None = None
@@ -139,7 +154,14 @@ class AssistantAudioEngine:
         with self._state_lock:
             return self._failure
 
-    async def start_capture(self, generation: int, *, requested_at_ns: int) -> None:
+    async def start_capture(
+        self,
+        generation: int,
+        *,
+        requested_at_ns: int,
+        vad_enabled: bool = False,
+        vad_idle_timeout_ms: int = 8_000,
+    ) -> None:
         if generation < 0:
             raise ValueError("capture generation cannot be negative")
         with self._state_lock:
@@ -151,6 +173,13 @@ class AssistantAudioEngine:
             self._started_at_ns = requested_at_ns
             self._pcm_queue = DropOldestAudioQueue(self._pcm_capacity)
             self._packet_queue = FailOnOverflowAudioQueue(self._packet_capacity)
+            self._vad_queue = (
+                DropOldestAudioQueue(self._vad_event_capacity) if vad_enabled else None
+            )
+            self._vad = self._vad_factory(int(vad_idle_timeout_ms)) if vad_enabled else None
+            if self._vad is not None:
+                self._vad.reset(generation)
+            self._last_vad_state = None
             self._stop_event = threading.Event()
             self._worker_done = threading.Event()
             self._failure = None
@@ -200,6 +229,33 @@ class AssistantAudioEngine:
                     self._metrics.stale_frame_count += 1
                 continue
             return packet
+
+    async def next_voice_activity(self, generation: int) -> VoiceActivitySnapshot | None:
+        while True:
+            with self._state_lock:
+                vad_queue = self._vad_queue
+                worker_done = self._worker_done
+                failure = self._failure
+                active_generation = self._active_generation
+            if failure is not None:
+                raise failure
+            if vad_queue is None:
+                return None
+            if active_generation not in {None, generation}:
+                return None
+            try:
+                snapshot = await asyncio.to_thread(vad_queue.get, 0.05)
+            except queue.Empty:
+                if worker_done is not None and worker_done.is_set() and len(vad_queue) == 0:
+                    return None
+                continue
+            except AudioQueueClosed:
+                return None
+            if snapshot.generation != generation:
+                with self._state_lock:
+                    self._metrics.stale_frame_count += 1
+                continue
+            return snapshot
 
     def mark_uploaded(self, packet: EncodedAudioPacket, *, uploaded_at_ns: int) -> None:
         with self._state_lock:
@@ -279,8 +335,11 @@ class AssistantAudioEngine:
             summary = self._summary(generation, stop_latency_ms=0, stopped_within_budget=False)
         with self._state_lock:
             packet_queue = self._packet_queue
+            vad_queue = self._vad_queue
         if packet_queue is not None:
             packet_queue.drain()
+        if vad_queue is not None:
+            vad_queue.drain()
         return replace(summary, error_message=summary.error_message or reason)
 
     def current_summary(
@@ -302,6 +361,7 @@ class AssistantAudioEngine:
                 return
             packet_queue = self._packet_queue
             pcm_queue = self._pcm_queue
+            vad_queue = self._vad_queue
             self._active_generation = None
             self._started_at_ns = None
             self._worker = None
@@ -309,10 +369,15 @@ class AssistantAudioEngine:
             self._worker_done = None
             self._pcm_queue = None
             self._packet_queue = None
+            self._vad_queue = None
+            self._vad = None
+            self._last_vad_state = None
         if pcm_queue is not None:
             pcm_queue.close()
         if packet_queue is not None:
             packet_queue.close()
+        if vad_queue is not None:
+            vad_queue.close()
 
     async def close(self) -> None:
         with self._state_lock:
@@ -373,6 +438,7 @@ class AssistantAudioEngine:
                         self._metrics.stale_frame_count += 1
                     continue
                 self._observe_speech(frame)
+                self._observe_vad(frame)
                 try:
                     packet = encoder.encode(frame)
                     packet.validate()
@@ -404,11 +470,44 @@ class AssistantAudioEngine:
                     pass
             with self._state_lock:
                 packet_queue = self._packet_queue
+                vad_queue = self._vad_queue
                 worker_done = self._worker_done
             if packet_queue is not None:
                 packet_queue.close()
+            if vad_queue is not None:
+                vad_queue.close()
             if worker_done is not None:
                 worker_done.set()
+
+    def _observe_vad(self, frame: PcmFrame) -> None:
+        with self._state_lock:
+            detector = self._vad
+            vad_queue = self._vad_queue
+            previous = self._last_vad_state
+        if detector is None or vad_queue is None:
+            return
+        try:
+            snapshot = detector.observe(frame)
+        except Exception as exc:
+            self._set_failure(
+                AudioEngineFailure("audio_vad_failed", str(exc) or type(exc).__name__)
+            )
+            return
+        if snapshot.state in {
+            VoiceActivityState.SPEECH_DETECTED,
+            VoiceActivityState.SPEECH_ACTIVE,
+            VoiceActivityState.END_OF_SPEECH,
+        }:
+            with self._state_lock:
+                self._metrics.speech_seen = True
+        if snapshot.state is previous:
+            return
+        with self._state_lock:
+            self._last_vad_state = snapshot.state
+        try:
+            vad_queue.put(snapshot)
+        except AudioQueueClosed:
+            return
 
     def _observe_speech(self, frame: PcmFrame) -> None:
         try:

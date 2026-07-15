@@ -91,15 +91,40 @@ class StopPushToTalk(AssistantEffect):
 
 @dataclass(frozen=True, slots=True)
 class StartStreamingConversation(AssistantEffect):
-    generation: int
+    connection_generation: int
+    streaming_generation: int
+    capture_generation: int
+    turn_token: int
+    turn_index: int
+    requested_at_ns: int
+    idle_timeout_ms: int
     source: AssistantEntrySource
-    wake_keyword: str | None
+    wake_keyword: str | None = None
+    session_id: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
 class StopStreamingConversation(AssistantEffect):
-    generation: int
+    connection_generation: int
+    streaming_generation: int
+    capture_generation: int
+    turn_token: int
+    requested_at_ns: int
     reason: str
+    submit_audio: bool = False
+    end_session: bool = True
+
+
+@dataclass(frozen=True, slots=True)
+class ScheduleStreamingResponseTimeout(AssistantEffect):
+    streaming_generation: int
+    turn_token: int
+    delay_seconds: float
+
+
+@dataclass(frozen=True, slots=True)
+class CancelStreamingResponseTimeout(AssistantEffect):
+    pass
 
 
 @dataclass(frozen=True, slots=True)

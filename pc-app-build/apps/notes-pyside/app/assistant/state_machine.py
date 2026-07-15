@@ -8,17 +8,21 @@ from .effects import (
     AssistantEffect,
     CancelReconnect,
     CancelRuntimeEffects,
+    CancelStreamingResponseTimeout,
     CloseTransport,
     EnsureIdentity,
     OpenTransport,
     ResetIdentity,
     RunActivation,
     ScheduleReconnect,
+    ScheduleStreamingResponseTimeout,
     SendText,
     SetStreamingBargeIn,
     SetVoiceInteractionMode,
     StartPushToTalk,
+    StartStreamingConversation,
     StopPushToTalk,
+    StopStreamingConversation,
 )
 from .events import (
     AbortRequested,
@@ -75,9 +79,11 @@ from .events import (
     StreamingBargeInRequested,
     StreamingConversationStartRequested,
     StreamingConversationStopRequested,
+    StreamingResponseTimeout,
     StreamingSessionStarted,
     StreamingSessionStopped,
     StreamingTurnChanged,
+    StreamingTurnSubmitted,
     SystemAudioInterrupted,
     SystemAudioRecovered,
     TextSubmitted,
@@ -242,12 +248,17 @@ class ConversationStateMachine:
         ):
             return self._not_ready(current, event, AssistantCapability.TTS_PLAYBACK)
         if isinstance(event, VoiceActivityChanged):
-            return self._not_ready(current, event, AssistantCapability.VAD)
-        if isinstance(
-            event,
-            (StreamingSessionStarted, StreamingTurnChanged, StreamingSessionStopped),
-        ):
-            return self._not_ready(current, event, AssistantCapability.STREAMING_CONVERSATION)
+            return self._voice_activity_changed(current, event)
+        if isinstance(event, StreamingSessionStarted):
+            return self._streaming_session_started(current, event)
+        if isinstance(event, StreamingTurnChanged):
+            return self._streaming_turn_changed(current, event)
+        if isinstance(event, StreamingTurnSubmitted):
+            return self._streaming_turn_submitted(current, event)
+        if isinstance(event, StreamingResponseTimeout):
+            return self._streaming_response_timeout(current, event)
+        if isinstance(event, StreamingSessionStopped):
+            return self._streaming_session_stopped(current, event)
         if isinstance(event, BargeInTriggered):
             return self._not_ready(current, event, AssistantCapability.BARGE_IN)
         if isinstance(event, MicrophoneLeaseChanged):
@@ -269,11 +280,10 @@ class ConversationStateMachine:
             return self._push_to_talk_start_requested(current, event)
         if isinstance(event, PushToTalkStopRequested):
             return self._push_to_talk_stop_requested(current, event)
-        if isinstance(
-            event,
-            (StreamingConversationStartRequested, StreamingConversationStopRequested),
-        ):
-            return self._not_ready(current, event, AssistantCapability.STREAMING_CONVERSATION)
+        if isinstance(event, StreamingConversationStartRequested):
+            return self._streaming_start_requested(current, event)
+        if isinstance(event, StreamingConversationStopRequested):
+            return self._streaming_stop_requested(current, event)
         if isinstance(event, AbortRequested):
             return self._not_ready(current, event, AssistantCapability.ABORT_CURRENT_TURN)
         if isinstance(event, (SystemAudioInterrupted, SystemAudioRecovered)):
@@ -300,20 +310,51 @@ class ConversationStateMachine:
         current: AssistantState,
         event: VoiceInteractionModeRequested,
     ) -> Transition:
-        if (
-            current.conversation.streaming_session_active
-            or current.audio.status is AssistantAudioStatus.RECORDING
-        ):
+        if current.conversation.preferred_voice_mode is event.mode:
+            return self._transition(current, event)
+        label = "按住说话" if event.mode is VoiceInteractionMode.HOLD_TO_TALK else "连续对话"
+        if current.conversation.streaming_session_active:
+            turn_token = (
+                current.conversation.active_streaming_turn_token
+                or current.conversation.active_voice_turn_token
+                or current.conversation.last_completed_streaming_turn_token
+            )
+            state = replace(
+                current,
+                conversation=replace(
+                    current.conversation,
+                    preferred_voice_mode=event.mode,
+                    streaming_state=StreamingConversationState.STOPPING,
+                    streaming_response_deadline_ns=None,
+                ),
+                status_text=f"正在停止连续对话并切换为：{label}",
+                error=None,
+            )
+            effects: list[AssistantEffect] = [CancelStreamingResponseTimeout()]
+            if turn_token > 0:
+                effects.append(
+                    StopStreamingConversation(
+                        connection_generation=current.connection.connection_generation,
+                        streaming_generation=current.conversation.streaming_generation,
+                        capture_generation=current.audio.capture_generation,
+                        turn_token=turn_token,
+                        requested_at_ns=event.at_ns,
+                        reason="voice_mode_changed",
+                        submit_audio=False,
+                        end_session=True,
+                    )
+                )
+            return self._transition(state, event, tuple(effects))
+        if current.audio.status is AssistantAudioStatus.RECORDING:
             return self._error(
                 current,
                 event,
                 code="voice_mode_change_busy",
-                message="当前语音会话结束后才能切换默认语音模式",
+                message="当前按住说话回合结束后才能切换默认语音模式",
                 category=AssistantErrorCategory.CAPABILITY,
                 recoverable=True,
                 preserve_phase=True,
             )
-        label = "按住说话" if event.mode is VoiceInteractionMode.HOLD_TO_TALK else "连续对话"
         state = replace(
             current,
             conversation=replace(
@@ -352,6 +393,456 @@ class ConversationStateMachine:
             event,
             (SetStreamingBargeIn(enabled=event.enabled),),
         )
+
+    def _streaming_start_requested(
+        self,
+        current: AssistantState,
+        event: StreamingConversationStartRequested,
+    ) -> Transition:
+        if not event.permission_granted:
+            return self._error(
+                current,
+                event,
+                code=AssistantErrorCode.MICROPHONE_PERMISSION_DENIED.value,
+                message="麦克风权限未授予",
+                category=AssistantErrorCategory.AUDIO,
+                recoverable=True,
+                preserve_phase=True,
+            )
+        if not current.is_connected:
+            return self._error(
+                current,
+                event,
+                code=AssistantErrorCode.ASSISTANT_NOT_CONNECTED.value,
+                message="助手未连接，不能开始连续对话",
+                category=AssistantErrorCategory.TRANSPORT,
+                recoverable=True,
+                preserve_phase=True,
+            )
+        if (
+            current.conversation.preferred_voice_mode
+            is not VoiceInteractionMode.STREAMING_CONVERSATION
+        ):
+            return self._error(
+                current,
+                event,
+                code=AssistantErrorCode.VOICE_MODE_MISMATCH.value,
+                message="当前设置为按住说话模式",
+                category=AssistantErrorCategory.CAPABILITY,
+                recoverable=True,
+                preserve_phase=True,
+            )
+        if (
+            current.conversation.streaming_session_active
+            or current.conversation.active_voice_turn_token is not None
+            or current.conversation.active_text_turn_token is not None
+            or current.audio.status is AssistantAudioStatus.RECORDING
+            or current.phase is not AssistantPhase.CONNECTED
+        ):
+            return self._error(
+                current,
+                event,
+                code=AssistantErrorCode.STREAMING_BUSY.value,
+                message="已有对话回合正在运行",
+                category=AssistantErrorCategory.AUDIO,
+                recoverable=True,
+                preserve_phase=True,
+            )
+
+        streaming_generation = current.conversation.streaming_generation + 1
+        capture_generation = current.audio.capture_generation + 1
+        turn_token = current.conversation.voice_turn_counter + 1
+        turn_index = 1
+        state = replace(
+            current,
+            audio=replace(
+                current.audio,
+                status=AssistantAudioStatus.IDLE,
+                capture_generation=capture_generation,
+                microphone_owner=MicrophoneOwner.NONE,
+                active_capture_mode=None,
+                captured_frames=0,
+                encoded_frames=0,
+                uploaded_frames=0,
+                dropped_pcm_frames=0,
+                uplink_overflow_count=0,
+                last_audio_summary=None,
+                first_pcm_latency_ms=None,
+                first_opus_latency_ms=None,
+                first_opus_upload_latency_ms=None,
+                stop_listen_latency_ms=None,
+                input_device_public_name=None,
+            ),
+            conversation=replace(
+                current.conversation,
+                active_entry_source=event.source,
+                last_user_text=None,
+                last_stt_text=None,
+                last_assistant_text=None,
+                last_assistant_source_type=None,
+                assistant_reply_buffer="",
+                voice_turn_counter=turn_token,
+                active_voice_turn_token=turn_token,
+                active_voice_turn_started_at_ns=event.at_ns,
+                pending_voice_turn_completion_token=None,
+                streaming_state=StreamingConversationState.STARTING,
+                streaming_session_active=True,
+                streaming_generation=streaming_generation,
+                streaming_session_id=None,
+                streaming_turn_index=turn_index,
+                active_streaming_turn_token=turn_token,
+                streaming_response_deadline_ns=None,
+                vad_state=VoiceActivityState.WARMUP,
+                vad_status_text="VAD 准备中",
+            ),
+            status_text="正在启动连续对话",
+            error=None,
+        )
+        return self._transition(
+            state,
+            event,
+            (
+                StartStreamingConversation(
+                    connection_generation=current.connection.connection_generation,
+                    streaming_generation=streaming_generation,
+                    capture_generation=capture_generation,
+                    turn_token=turn_token,
+                    turn_index=turn_index,
+                    requested_at_ns=event.at_ns,
+                    idle_timeout_ms=current.conversation.streaming_idle_timeout_ms,
+                    source=event.source,
+                    wake_keyword=event.wake_keyword,
+                ),
+            ),
+        )
+
+    def _streaming_stop_requested(
+        self,
+        current: AssistantState,
+        event: StreamingConversationStopRequested,
+    ) -> Transition:
+        if not current.conversation.streaming_session_active:
+            return self._transition(
+                replace(current, status_text="当前没有连续对话会话", error=None),
+                event,
+            )
+        turn_token = (
+            current.conversation.active_streaming_turn_token
+            or current.conversation.active_voice_turn_token
+            or current.conversation.last_completed_streaming_turn_token
+        )
+        if turn_token <= 0:
+            return self._transition(
+                replace(current, status_text="连续对话已停止", error=None), event
+            )
+        state = replace(
+            current,
+            phase=(
+                AssistantPhase.UPLOADING_AUDIO
+                if current.audio.status is AssistantAudioStatus.RECORDING
+                else AssistantPhase.CONNECTED
+            ),
+            conversation=replace(
+                current.conversation,
+                streaming_state=StreamingConversationState.STOPPING,
+                streaming_response_deadline_ns=None,
+            ),
+            status_text="正在停止连续对话",
+            error=None,
+        )
+        return self._transition(
+            state,
+            event,
+            (
+                CancelStreamingResponseTimeout(),
+                StopStreamingConversation(
+                    connection_generation=current.connection.connection_generation,
+                    streaming_generation=current.conversation.streaming_generation,
+                    capture_generation=current.audio.capture_generation,
+                    turn_token=turn_token,
+                    requested_at_ns=event.at_ns,
+                    reason=event.reason,
+                    submit_audio=False,
+                    end_session=True,
+                ),
+            ),
+        )
+
+    def _streaming_session_started(
+        self, current: AssistantState, event: StreamingSessionStarted
+    ) -> Transition:
+        if self._is_stale_connection_event(current, event.connection_generation):
+            return Transition.unchanged(current)
+        if (
+            not current.conversation.streaming_session_active
+            or event.generation != current.conversation.streaming_generation
+            or event.capture_generation != current.audio.capture_generation
+            or event.turn_token != current.conversation.active_streaming_turn_token
+        ):
+            return Transition.unchanged(current)
+        state = replace(
+            current,
+            conversation=replace(
+                current.conversation,
+                streaming_session_id=event.session_id,
+                streaming_turn_index=event.turn_index,
+                streaming_state=StreamingConversationState.LISTENING_FOR_SPEECH,
+                vad_state=VoiceActivityState.WARMUP,
+                vad_status_text="VAD 预热中",
+            ),
+            status_text="连续对话已启动，正在准备聆听",
+            error=None,
+        )
+        return self._transition(state, event)
+
+    def _voice_activity_changed(
+        self, current: AssistantState, event: VoiceActivityChanged
+    ) -> Transition:
+        if self._is_stale_connection_event(current, event.connection_generation):
+            return Transition.unchanged(current)
+        if (
+            not current.conversation.streaming_session_active
+            or current.audio.status is not AssistantAudioStatus.RECORDING
+            or current.conversation.streaming_state
+            not in {
+                StreamingConversationState.STARTING,
+                StreamingConversationState.LISTENING_FOR_SPEECH,
+                StreamingConversationState.USER_SPEAKING,
+            }
+            or event.streaming_generation != current.conversation.streaming_generation
+            or event.generation != current.audio.capture_generation
+            or event.turn_token != current.conversation.active_streaming_turn_token
+        ):
+            return Transition.unchanged(current)
+
+        conversation = replace(
+            current.conversation,
+            vad_state=event.state,
+            vad_status_text=event.status_text,
+        )
+        phase = current.phase
+        effects: tuple[AssistantEffect, ...] = ()
+        diagnostics = current.diagnostics
+        if event.state in {VoiceActivityState.WARMUP, VoiceActivityState.WAITING_FOR_SPEECH}:
+            conversation = replace(
+                conversation,
+                streaming_state=StreamingConversationState.LISTENING_FOR_SPEECH,
+            )
+            phase = AssistantPhase.LISTENING
+        elif event.state in {
+            VoiceActivityState.SPEECH_DETECTED,
+            VoiceActivityState.SPEECH_ACTIVE,
+        }:
+            conversation = replace(
+                conversation,
+                streaming_state=StreamingConversationState.USER_SPEAKING,
+            )
+            phase = AssistantPhase.LISTENING
+            if event.state is VoiceActivityState.SPEECH_DETECTED:
+                diagnostics = replace(
+                    diagnostics,
+                    vad_speech_started_count=diagnostics.vad_speech_started_count + 1,
+                )
+        elif event.state is VoiceActivityState.END_OF_SPEECH:
+            if current.conversation.streaming_state is StreamingConversationState.SUBMITTING_TURN:
+                return Transition.unchanged(current)
+            conversation = replace(
+                conversation,
+                streaming_state=StreamingConversationState.SUBMITTING_TURN,
+            )
+            phase = AssistantPhase.UPLOADING_AUDIO
+            diagnostics = replace(
+                diagnostics,
+                vad_speech_ended_count=diagnostics.vad_speech_ended_count + 1,
+            )
+            effects = (
+                StopStreamingConversation(
+                    connection_generation=current.connection.connection_generation,
+                    streaming_generation=current.conversation.streaming_generation,
+                    capture_generation=current.audio.capture_generation,
+                    turn_token=event.turn_token,
+                    requested_at_ns=event.at_ns,
+                    reason="vad_end_of_speech",
+                    submit_audio=True,
+                    end_session=False,
+                ),
+            )
+        elif event.state is VoiceActivityState.NO_SPEECH_TIMEOUT:
+            conversation = replace(
+                conversation,
+                streaming_state=StreamingConversationState.STOPPING,
+            )
+            phase = AssistantPhase.UPLOADING_AUDIO
+            effects = (
+                StopStreamingConversation(
+                    connection_generation=current.connection.connection_generation,
+                    streaming_generation=current.conversation.streaming_generation,
+                    capture_generation=current.audio.capture_generation,
+                    turn_token=event.turn_token,
+                    requested_at_ns=event.at_ns,
+                    reason="streaming_no_speech_timeout",
+                    submit_audio=False,
+                    end_session=True,
+                ),
+            )
+        state = replace(
+            current,
+            phase=phase,
+            conversation=conversation,
+            diagnostics=diagnostics,
+            status_text=event.status_text,
+            error=None,
+        )
+        return self._transition(state, event, effects)
+
+    def _streaming_turn_changed(
+        self, current: AssistantState, event: StreamingTurnChanged
+    ) -> Transition:
+        if (
+            event.generation != current.conversation.streaming_generation
+            or event.turn_token != current.conversation.active_streaming_turn_token
+        ):
+            return Transition.unchanged(current)
+        return self._transition(
+            replace(
+                current,
+                conversation=replace(
+                    current.conversation,
+                    streaming_turn_index=event.turn_index,
+                    streaming_state=event.state,
+                ),
+            ),
+            event,
+        )
+
+    def _streaming_turn_submitted(
+        self, current: AssistantState, event: StreamingTurnSubmitted
+    ) -> Transition:
+        if self._is_stale_connection_event(current, event.connection_generation):
+            return Transition.unchanged(current)
+        if (
+            event.generation != current.conversation.streaming_generation
+            or event.capture_generation != current.audio.capture_generation
+            or event.turn_token != current.conversation.active_streaming_turn_token
+        ):
+            return Transition.unchanged(current)
+        deadline = event.at_ns + current.conversation.streaming_response_timeout_ms * 1_000_000
+        state = replace(
+            current,
+            phase=AssistantPhase.THINKING,
+            conversation=replace(
+                current.conversation,
+                streaming_state=StreamingConversationState.THINKING,
+                streaming_response_deadline_ns=deadline,
+                vad_state=VoiceActivityState.DISABLED,
+                vad_status_text="本轮已自动提交",
+            ),
+            diagnostics=replace(
+                current.diagnostics,
+                gate_real_streaming_uplink_verified=(
+                    current.diagnostics.gate_real_streaming_uplink_verified
+                    or (
+                        current.runtime_mode is AssistantRuntimeMode.REAL
+                        and event.uploaded_frames > 0
+                        and event.speech_seen
+                    )
+                ),
+            ),
+            status_text="连续对话语音已自动提交，等待助手回复",
+            error=None,
+        )
+        return self._transition(
+            state,
+            event,
+            (
+                ScheduleStreamingResponseTimeout(
+                    streaming_generation=event.generation,
+                    turn_token=event.turn_token,
+                    delay_seconds=current.conversation.streaming_response_timeout_ms / 1000.0,
+                ),
+            ),
+        )
+
+    def _streaming_response_timeout(
+        self, current: AssistantState, event: StreamingResponseTimeout
+    ) -> Transition:
+        if (
+            not current.conversation.streaming_session_active
+            or event.generation != current.conversation.streaming_generation
+            or event.turn_token != current.conversation.active_streaming_turn_token
+        ):
+            return Transition.unchanged(current)
+        state = replace(
+            current,
+            phase=AssistantPhase.ERROR,
+            conversation=replace(
+                current.conversation,
+                streaming_state=StreamingConversationState.ERROR,
+                streaming_response_deadline_ns=None,
+            ),
+        )
+        return self._error(
+            state,
+            event,
+            code=AssistantErrorCode.STREAMING_RESPONSE_TIMEOUT.value,
+            message="连续对话等待助手回复超时",
+            category=AssistantErrorCategory.RUNTIME,
+            recoverable=True,
+            effects=(
+                StopStreamingConversation(
+                    connection_generation=current.connection.connection_generation,
+                    streaming_generation=current.conversation.streaming_generation,
+                    capture_generation=current.audio.capture_generation,
+                    turn_token=event.turn_token,
+                    requested_at_ns=event.at_ns,
+                    reason="streaming_response_timeout",
+                    submit_audio=False,
+                    end_session=True,
+                ),
+            ),
+            preserve_phase=True,
+        )
+
+    def _streaming_session_stopped(
+        self, current: AssistantState, event: StreamingSessionStopped
+    ) -> Transition:
+        if event.generation != current.conversation.streaming_generation:
+            return Transition.unchanged(current)
+        conversation = replace(
+            current.conversation,
+            active_entry_source=None,
+            active_voice_turn_token=None,
+            active_voice_turn_started_at_ns=None,
+            pending_voice_turn_completion_token=None,
+            streaming_state=StreamingConversationState.INACTIVE,
+            streaming_session_active=False,
+            streaming_session_id=None,
+            active_streaming_turn_token=None,
+            streaming_response_deadline_ns=None,
+            vad_state=VoiceActivityState.DISABLED,
+            vad_status_text="VAD 未启用",
+        )
+        state = replace(
+            current,
+            phase=AssistantPhase.CONNECTED if current.is_connected else current.phase,
+            audio=replace(
+                current.audio,
+                status=AssistantAudioStatus.IDLE,
+                microphone_owner=MicrophoneOwner.NONE,
+                active_capture_mode=None,
+            ),
+            conversation=conversation,
+            status_text=(
+                "连续对话因未检测到语音而结束"
+                if event.reason == "streaming_no_speech_timeout"
+                else "连续对话已停止"
+            ),
+            error=(current.error if event.reason == "streaming_response_timeout" else None),
+        )
+        effects: list[AssistantEffect] = [CancelStreamingResponseTimeout()]
+        if event.reason == "voice_mode_changed":
+            effects.append(SetVoiceInteractionMode(mode=current.conversation.preferred_voice_mode))
+        return self._transition(state, event, tuple(effects))
 
     def _push_to_talk_start_requested(
         self,
@@ -559,6 +1050,18 @@ class ConversationStateMachine:
             current, event.connection_generation, event.generation, event.turn_token
         ):
             return Transition.unchanged(current)
+        is_streaming = (
+            current.conversation.streaming_session_active
+            and current.conversation.active_streaming_turn_token == event.turn_token
+        )
+        conversation = current.conversation
+        if is_streaming:
+            conversation = replace(
+                conversation,
+                streaming_state=StreamingConversationState.LISTENING_FOR_SPEECH,
+                vad_state=VoiceActivityState.WARMUP,
+                vad_status_text="VAD 预热中",
+            )
         state = replace(
             current,
             phase=AssistantPhase.LISTENING,
@@ -568,9 +1071,10 @@ class ConversationStateMachine:
                 input_device_public_name=event.input_device_public_name,
                 microphone_owner=MicrophoneOwner.ASSISTANT_CAPTURE,
                 microphone_lease_generation=current.audio.microphone_lease_generation + 1,
-                active_capture_mode="push_to_talk",
+                active_capture_mode=("streaming_conversation" if is_streaming else "push_to_talk"),
             ),
-            status_text="正在聆听，松开后提交",
+            conversation=conversation,
+            status_text=("连续对话正在聆听" if is_streaming else "正在聆听，松开后提交"),
             error=None,
         )
         return self._transition(state, event)
@@ -584,6 +1088,7 @@ class ConversationStateMachine:
             current, event.connection_generation, event.generation, event.turn_token
         ):
             return Transition.unchanged(current)
+        is_streaming = current.conversation.streaming_session_active
         state = replace(
             current,
             audio=replace(
@@ -607,7 +1112,11 @@ class ConversationStateMachine:
                     )
                 ),
             ),
-            status_text=f"正在聆听 · 已上传 {event.uploaded_frames} 帧",
+            status_text=(
+                f"连续对话聆听中 · 已上传 {event.uploaded_frames} 帧"
+                if is_streaming
+                else f"正在聆听 · 已上传 {event.uploaded_frames} 帧"
+            ),
             error=None,
         )
         return self._transition(state, event)
@@ -643,6 +1152,91 @@ class ConversationStateMachine:
             stop_listen_latency_ms=event.stop_listen_latency_ms,
             input_device_public_name=event.input_device_public_name,
         )
+        if current.conversation.streaming_session_active:
+            response_already_observed = (
+                current.conversation.streaming_state
+                is StreamingConversationState.WAITING_FOR_NEXT_TURN
+                or current.conversation.pending_voice_turn_completion_token == event.turn_token
+            )
+            conversation = replace(
+                current.conversation,
+                streaming_state=(
+                    StreamingConversationState.WAITING_FOR_NEXT_TURN
+                    if response_already_observed
+                    else (
+                        StreamingConversationState.SUBMITTING_TURN
+                        if event.useful_audio and event.stop_sent
+                        else StreamingConversationState.STOPPING
+                    )
+                ),
+                vad_state=VoiceActivityState.DISABLED,
+                vad_status_text=(
+                    "本轮已收到回复"
+                    if response_already_observed
+                    else ("本轮已停止采集" if event.useful_audio else "未检测到有效语音")
+                ),
+            )
+            effects: tuple[AssistantEffect, ...] = ()
+            if response_already_observed:
+                conversation = replace(
+                    conversation,
+                    active_voice_turn_token=None,
+                    active_voice_turn_started_at_ns=None,
+                    pending_voice_turn_completion_token=None,
+                    last_completed_voice_turn_token=max(
+                        conversation.last_completed_voice_turn_token,
+                        event.turn_token,
+                    ),
+                    last_voice_turn_completed_at_ns=event.at_ns,
+                    active_streaming_turn_token=None,
+                    last_completed_streaming_turn_token=max(
+                        conversation.last_completed_streaming_turn_token,
+                        event.turn_token,
+                    ),
+                    streaming_response_deadline_ns=None,
+                )
+                effects = (CancelStreamingResponseTimeout(),)
+            state = replace(
+                current,
+                phase=(
+                    AssistantPhase.CONNECTED
+                    if response_already_observed or not event.useful_audio or not event.stop_sent
+                    else AssistantPhase.THINKING
+                ),
+                audio=audio,
+                conversation=conversation,
+                diagnostics=replace(
+                    current.diagnostics,
+                    gate_real_audio_upload_verified=(
+                        current.diagnostics.gate_real_audio_upload_verified
+                        or (
+                            current.runtime_mode is AssistantRuntimeMode.REAL
+                            and event.uploaded_frames > 0
+                        )
+                    ),
+                    gate_real_streaming_uplink_verified=(
+                        current.diagnostics.gate_real_streaming_uplink_verified
+                        or (
+                            current.runtime_mode is AssistantRuntimeMode.REAL
+                            and event.uploaded_frames > 0
+                            and event.speech_seen
+                            and event.stop_sent
+                        )
+                    ),
+                ),
+                status_text=(
+                    "连续对话本轮已收到回复"
+                    if response_already_observed
+                    else (
+                        "连续对话语音已提交，等待识别和回复"
+                        if event.useful_audio and event.stop_sent
+                        else "连续对话本轮没有有效语音"
+                    )
+                ),
+                error=None,
+            )
+            return self._transition(state, event, effects)
+
         conversation = current.conversation
         phase = current.phase
         status_text = "语音已提交，等待识别和回复"
@@ -698,6 +1292,24 @@ class ConversationStateMachine:
             return Transition.unchanged(current)
         if event.generation != current.audio.capture_generation:
             return Transition.unchanged(current)
+        conversation = replace(
+            current.conversation,
+            active_entry_source=None,
+            active_voice_turn_token=None,
+            active_voice_turn_started_at_ns=None,
+            pending_voice_turn_completion_token=None,
+        )
+        if current.conversation.streaming_session_active:
+            conversation = replace(
+                conversation,
+                streaming_state=StreamingConversationState.ERROR,
+                streaming_session_active=False,
+                streaming_session_id=None,
+                active_streaming_turn_token=None,
+                streaming_response_deadline_ns=None,
+                vad_state=VoiceActivityState.DISABLED,
+                vad_status_text="连续对话音频失败",
+            )
         cleared = replace(
             current,
             phase=AssistantPhase.CONNECTED if current.is_connected else AssistantPhase.IDLE,
@@ -706,13 +1318,7 @@ class ConversationStateMachine:
                 invalidate_capture=True,
                 invalidate_microphone_lease=True,
             ),
-            conversation=replace(
-                current.conversation,
-                active_entry_source=None,
-                active_voice_turn_token=None,
-                active_voice_turn_started_at_ns=None,
-                pending_voice_turn_completion_token=None,
-            ),
+            conversation=conversation,
         )
         return self._error(
             cleared,
@@ -777,14 +1383,25 @@ class ConversationStateMachine:
                 event,
             )
         merged = merge_assistant_transcript(current.conversation.assistant_reply_buffer, text)
+        conversation = replace(
+            current.conversation,
+            last_assistant_text=merged,
+            last_assistant_source_type=source_type,
+            assistant_reply_buffer=merged,
+        )
+        effects: tuple[AssistantEffect, ...] = ()
+        status_text = "收到语音回合助手回复"
+        if current.conversation.streaming_session_active:
+            conversation = replace(
+                conversation,
+                streaming_state=StreamingConversationState.WAITING_FOR_NEXT_TURN,
+                streaming_response_deadline_ns=None,
+            )
+            effects = (CancelStreamingResponseTimeout(),)
+            status_text = "连续对话本轮已收到回复；Gate 4.2 前不会自动开启下一轮"
         state = replace(
             current,
-            conversation=replace(
-                current.conversation,
-                last_assistant_text=merged,
-                last_assistant_source_type=source_type,
-                assistant_reply_buffer=merged,
-            ),
+            conversation=conversation,
             protocol=protocol,
             diagnostics=replace(
                 current.diagnostics,
@@ -793,10 +1410,10 @@ class ConversationStateMachine:
                     or current.runtime_mode is AssistantRuntimeMode.REAL
                 ),
             ),
-            status_text="收到语音回合助手回复",
+            status_text=status_text,
             error=None,
         )
-        return self._transition(state, event)
+        return self._transition(state, event, effects)
 
     def _voice_tts_state(
         self,
@@ -817,6 +1434,14 @@ class ConversationStateMachine:
                 last_assistant_source_type="tts",
                 assistant_reply_buffer=merged,
             )
+        effects: tuple[AssistantEffect, ...] = ()
+        if current.conversation.streaming_session_active:
+            conversation = replace(
+                conversation,
+                streaming_state=StreamingConversationState.WAITING_FOR_NEXT_TURN,
+                streaming_response_deadline_ns=None,
+            )
+            effects = (CancelStreamingResponseTimeout(),)
         state = replace(
             current,
             conversation=conversation,
@@ -832,14 +1457,18 @@ class ConversationStateMachine:
                     current.diagnostics.gate_real_audio_response_verified
                     or (
                         current.runtime_mode is AssistantRuntimeMode.REAL
-                        and has_readable_transcript_text(text)
+                        and (has_readable_transcript_text(text) or bool(event.state.strip()))
                     )
                 ),
             ),
-            status_text=f"收到语音回合 TTS state={event.state}；Gate 4 前不播放",
+            status_text=(
+                "连续对话收到回复状态；Gate 4 前不播放"
+                if current.conversation.streaming_session_active
+                else f"收到语音回合 TTS state={event.state}；Gate 4 前不播放"
+            ),
             error=None,
         )
-        return self._transition(state, event)
+        return self._transition(state, event, effects)
 
     def _voice_turn_completed(
         self,
@@ -865,6 +1494,34 @@ class ConversationStateMachine:
             phase = current.phase
             audio = current.audio
             status_text = "服务端回复已完成，正在释放麦克风"
+            effects: tuple[AssistantEffect, ...] = ()
+        elif current.conversation.streaming_session_active:
+            conversation = replace(
+                current.conversation,
+                active_voice_turn_token=None,
+                active_voice_turn_started_at_ns=None,
+                pending_voice_turn_completion_token=None,
+                last_completed_voice_turn_token=max(
+                    current.conversation.last_completed_voice_turn_token, event.turn_token
+                ),
+                last_voice_turn_completed_at_ns=event.at_ns,
+                active_streaming_turn_token=None,
+                last_completed_streaming_turn_token=max(
+                    current.conversation.last_completed_streaming_turn_token,
+                    event.turn_token,
+                ),
+                streaming_state=StreamingConversationState.WAITING_FOR_NEXT_TURN,
+                streaming_response_deadline_ns=None,
+            )
+            phase = AssistantPhase.CONNECTED if current.is_connected else current.phase
+            audio = replace(
+                current.audio,
+                status=AssistantAudioStatus.IDLE,
+                microphone_owner=MicrophoneOwner.NONE,
+                active_capture_mode=None,
+            )
+            status_text = "连续对话本轮完成；Gate 4.2 前等待用户停止"
+            effects = (CancelStreamingResponseTimeout(),)
         else:
             conversation = replace(
                 current.conversation,
@@ -887,6 +1544,7 @@ class ConversationStateMachine:
                 if event.had_stt_text or event.had_assistant_text
                 else f"语音回合 {event.turn_token} 已结束"
             )
+            effects = ()
 
         state = replace(
             current,
@@ -906,7 +1564,7 @@ class ConversationStateMachine:
             status_text=status_text,
             error=None,
         )
-        return self._transition(state, event)
+        return self._transition(state, event, effects)
 
     def _microphone_lease_changed(
         self,
@@ -1413,6 +2071,66 @@ class ConversationStateMachine:
                 ),
             )
 
+        recovering_streaming = (
+            current.conversation.streaming_session_active
+            and current.conversation.streaming_state is StreamingConversationState.RECOVERING
+            and current.conversation.preferred_voice_mode
+            is VoiceInteractionMode.STREAMING_CONVERSATION
+        )
+        conversation = current.conversation
+        audio = current.audio
+        effects: tuple[AssistantEffect, ...] = (CancelReconnect(),)
+        status_text = (
+            "Scripted Fake Runtime 已连接"
+            if current.runtime_mode is AssistantRuntimeMode.FAKE
+            else "真实 WebSocket hello/session 已验证"
+        )
+        if recovering_streaming:
+            capture_generation = current.audio.capture_generation + 1
+            turn_token = current.conversation.voice_turn_counter + 1
+            turn_index = current.conversation.streaming_turn_index + 1
+            audio = replace(
+                current.audio,
+                capture_generation=capture_generation,
+                status=AssistantAudioStatus.IDLE,
+                microphone_owner=MicrophoneOwner.NONE,
+                active_capture_mode=None,
+                captured_frames=0,
+                encoded_frames=0,
+                uploaded_frames=0,
+                dropped_pcm_frames=0,
+                uplink_overflow_count=0,
+            )
+            conversation = replace(
+                current.conversation,
+                active_entry_source=AssistantEntrySource.STREAMING_BUTTON,
+                voice_turn_counter=turn_token,
+                active_voice_turn_token=turn_token,
+                active_voice_turn_started_at_ns=event.at_ns,
+                pending_voice_turn_completion_token=None,
+                streaming_state=StreamingConversationState.STARTING,
+                streaming_turn_index=turn_index,
+                active_streaming_turn_token=turn_token,
+                streaming_response_deadline_ns=None,
+                vad_state=VoiceActivityState.WARMUP,
+                vad_status_text="VAD 准备中",
+            )
+            effects = (
+                CancelReconnect(),
+                StartStreamingConversation(
+                    connection_generation=event.generation,
+                    streaming_generation=current.conversation.streaming_generation,
+                    capture_generation=capture_generation,
+                    turn_token=turn_token,
+                    turn_index=turn_index,
+                    requested_at_ns=event.at_ns,
+                    idle_timeout_ms=current.conversation.streaming_idle_timeout_ms,
+                    source=AssistantEntrySource.STREAMING_BUTTON,
+                    session_id=current.conversation.streaming_session_id,
+                ),
+            )
+            status_text = "连接已恢复，正在恢复连续对话监听"
+
         state = replace(
             current,
             phase=AssistantPhase.CONNECTED,
@@ -1425,6 +2143,8 @@ class ConversationStateMachine:
                 close_reason=None,
             ),
             activation=replace(current.activation, status=AssistantActivationStatus.ACTIVATED),
+            audio=audio,
+            conversation=conversation,
             protocol=replace(
                 current.protocol,
                 last_server_json_redacted=event.raw_json_redacted,
@@ -1445,14 +2165,10 @@ class ConversationStateMachine:
                 next_reconnect_at_ns=None,
                 manual_disconnect_requested=False,
             ),
-            status_text=(
-                "Scripted Fake Runtime 已连接"
-                if current.runtime_mode is AssistantRuntimeMode.FAKE
-                else "真实 WebSocket hello/session 已验证"
-            ),
+            status_text=status_text,
             error=None,
         )
-        return self._transition(state, event, (CancelReconnect(),))
+        return self._transition(state, event, effects)
 
     def _client_text_sent(
         self,
@@ -1934,12 +2650,31 @@ class ConversationStateMachine:
     ) -> Transition:
         assert decision.delay_seconds is not None
         next_reconnect_at_ns = event.at_ns + int(decision.delay_seconds * 1_000_000_000)
+        streaming_active = current.conversation.streaming_session_active
+        if streaming_active:
+            conversation = replace(
+                current.conversation,
+                active_voice_turn_token=None,
+                active_voice_turn_started_at_ns=None,
+                pending_voice_turn_completion_token=None,
+                active_streaming_turn_token=None,
+                streaming_state=StreamingConversationState.RECOVERING,
+                streaming_response_deadline_ns=None,
+                vad_state=VoiceActivityState.DISABLED,
+                vad_status_text="网络恢复中",
+            )
+        else:
+            conversation = self._idle_conversation(current.conversation)
         state = replace(
             current,
             phase=AssistantPhase.RECONNECTING,
             connection=connection,
-            audio=self._idle_audio(current.audio),
-            conversation=self._idle_conversation(current.conversation),
+            audio=self._idle_audio(
+                current.audio,
+                invalidate_capture=streaming_active,
+                invalidate_microphone_lease=streaming_active,
+            ),
+            conversation=conversation,
             recovery=replace(
                 current.recovery,
                 reconnect_attempt=decision.next_attempt,
@@ -1948,7 +2683,9 @@ class ConversationStateMachine:
                 manual_disconnect_requested=False,
                 runtime_error_count=current.recovery.runtime_error_count + 1,
             ),
-            status_text=decision.user_message,
+            status_text=(
+                "连续对话连接中断，正在恢复" if streaming_active else decision.user_message
+            ),
             error=AssistantError(
                 code=error_code,
                 message=error_message,
@@ -2501,6 +3238,8 @@ class ConversationStateMachine:
             streaming_generation=(conversation.streaming_generation + int(invalidate_streaming)),
             streaming_session_id=None,
             streaming_turn_index=0,
+            active_streaming_turn_token=None,
+            streaming_response_deadline_ns=None,
             barge_in_monitor_active=False,
             vad_state=VoiceActivityState.DISABLED,
             vad_status_text="VAD 未启用",

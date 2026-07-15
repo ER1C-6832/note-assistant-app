@@ -104,8 +104,6 @@ async def run_fake_acceptance(data_root: Path) -> dict[str, object]:
         for capability in (
             AssistantCapability.TTS_PLAYBACK,
             AssistantCapability.MCP_NOTES,
-            AssistantCapability.STREAMING_CONVERSATION,
-            AssistantCapability.VAD,
             AssistantCapability.BARGE_IN,
             AssistantCapability.KWS,
         )

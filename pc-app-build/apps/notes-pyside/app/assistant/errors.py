@@ -28,6 +28,12 @@ class AssistantErrorCode(str, Enum):
     AUDIO_UPLINK_OVERFLOW = "audio_uplink_overflow"
     AUDIO_STOP_TIMEOUT = "audio_stop_timeout"
     AUDIO_CAPTURE_STOP_FAILED = "audio_capture_stop_failed"
+    AUDIO_VAD_FAILED = "audio_vad_failed"
+    STREAMING_BUSY = "streaming_busy"
+    STREAMING_START_FAILED = "streaming_start_failed"
+    STREAMING_NO_SPEECH_TIMEOUT = "streaming_no_speech_timeout"
+    STREAMING_RESPONSE_TIMEOUT = "streaming_response_timeout"
+    STREAMING_RECONNECT_EXHAUSTED = "streaming_reconnect_exhausted"
 
 
 _SENSITIVE_ERROR_PATTERN = re.compile(

@@ -32,6 +32,7 @@ from .models import (
 from .opus_codec import OpusUnavailableError, PyAvOpusEncoder
 from .ports import AudioCapturePort, AudioClock, OpusEncoderPort, VoiceActivityDetectorPort
 from .pyaudio_adapter import PyAudioCaptureAdapter, PyAudioUnavailableError
+from .vad import EnergyVadConfig, EnergyVoiceActivityDetector
 from .queues import (
     AudioQueueClosed,
     AudioQueueOverflow,
@@ -60,6 +61,8 @@ __all__ = [
     "DEFAULT_SAMPLE_RATE_HZ",
     "DEFAULT_SAMPLES_PER_FRAME",
     "DropOldestAudioQueue",
+    "EnergyVadConfig",
+    "EnergyVoiceActivityDetector",
     "ENCODED_PACKET_CAPACITY",
     "EncodedAudioPacket",
     "FailOnOverflowAudioQueue",

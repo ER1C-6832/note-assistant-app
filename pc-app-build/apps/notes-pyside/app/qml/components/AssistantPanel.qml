@@ -26,6 +26,13 @@ Rectangle {
         readonly property bool pushToTalkActive: false
         readonly property bool pushToTalkRecording: false
         readonly property bool pushToTalkStopping: false
+        readonly property bool streamingConversationActive: false
+        readonly property string streamingConversationState: "inactive"
+        readonly property int streamingTurnIndex: 0
+        readonly property string vadState: "disabled"
+        readonly property string vadStatusText: "VAD 未启用"
+        readonly property bool canStartStreamingConversation: false
+        readonly property bool canStopStreamingConversation: false
         readonly property string phaseText: "未初始化"
         readonly property string connectionStatusText: "未连接"
         readonly property string runtimeMode: "real"
@@ -62,6 +69,9 @@ Rectangle {
         function requestSimulateFailure() {}
         function requestPushToTalkStart() {}
         function requestPushToTalkStop() {}
+        function requestStreamingConversationStart() {}
+        function requestStreamingConversationStop() {}
+        function requestStreamingConversationToggle() {}
     }
     signal textSubmitted(string text)
 
@@ -284,6 +294,46 @@ Rectangle {
             }
             onReleased: root.releaseOwnedPtt()
             onCanceled: root.releaseOwnedPtt()
+        }
+
+        ColumnLayout {
+            Layout.fillWidth: true
+            spacing: 6
+            visible: root.model.voiceInteractionMode === "streaming_conversation"
+
+            Button {
+                id: streamingConversationButton
+                objectName: "assistantStreamingConversationButton"
+                Layout.fillWidth: true
+                Layout.preferredHeight: 52
+                enabled: root.ready
+                         && !root.model.commandBusy
+                         && (root.model.streamingConversationActive
+                             ? root.model.canStopStreamingConversation
+                             : root.model.canStartStreamingConversation)
+                text: root.model.streamingConversationActive
+                      ? "停止连续对话"
+                      : "开始连续对话"
+                Accessible.name: text
+                onClicked: root.model.requestStreamingConversationToggle()
+            }
+
+            Label {
+                objectName: "assistantStreamingVadStatus"
+                Layout.fillWidth: true
+                visible: root.model.streamingConversationActive
+                text: root.model.vadStatusText
+                      + (root.model.streamingTurnIndex > 0
+                         ? " · 第 " + root.model.streamingTurnIndex + " 轮"
+                         : "")
+                color: root.model.vadState === "speech_active"
+                       || root.model.vadState === "speech_detected"
+                       ? "#C2410C"
+                       : "#64748B"
+                font.pixelSize: 11
+                wrapMode: Text.Wrap
+                horizontalAlignment: Text.AlignHCenter
+            }
         }
 
         Label {

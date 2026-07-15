@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import time
+import uuid
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import Protocol
@@ -12,17 +13,21 @@ from .effects import (
     AssistantEffect,
     CancelReconnect,
     CancelRuntimeEffects,
+    CancelStreamingResponseTimeout,
     CloseTransport,
     EnsureIdentity,
     OpenTransport,
     ResetIdentity,
     RunActivation,
     ScheduleReconnect,
+    ScheduleStreamingResponseTimeout,
     SendText,
     SetStreamingBargeIn,
     SetVoiceInteractionMode,
     StartPushToTalk,
+    StartStreamingConversation,
     StopPushToTalk,
+    StopStreamingConversation,
 )
 from .events import (
     AbortRequested,
@@ -59,6 +64,11 @@ from .events import (
     StreamingBargeInRequested,
     StreamingConversationStartRequested,
     StreamingConversationStopRequested,
+    StreamingResponseTimeout,
+    StreamingSessionStarted,
+    StreamingSessionStopped,
+    StreamingTurnSubmitted,
+    VoiceActivityChanged,
     SystemAudioInterrupted,
     SystemAudioRecovered,
     TextSubmitted,
@@ -77,7 +87,12 @@ from .errors import redact_error_text
 from .identity.models import DeviceIdentity
 from .network.transport import AssistantTransport
 from .preferences import AssistantPreferencesStore
-from .state import AssistantEntrySource, AssistantState, VoiceInteractionMode
+from .state import (
+    AssistantEntrySource,
+    AssistantState,
+    VoiceActivityState,
+    VoiceInteractionMode,
+)
 from .state_machine import ConversationStateMachine
 
 EventSink = Callable[[AssistantEvent], Awaitable[None]]
@@ -109,6 +124,14 @@ class _QueuedEvent:
     processed: asyncio.Future[None] | None = None
 
 
+def _capture_generation_of(
+    effect: StartPushToTalk | StartStreamingConversation,
+) -> int:
+    if isinstance(effect, StartPushToTalk):
+        return effect.generation
+    return effect.capture_generation
+
+
 class EffectRunner:
     """Execute effect descriptions against adapters and emit typed result events."""
 
@@ -135,12 +158,24 @@ class EffectRunner:
         self._audio_engine = audio_engine
         self._microphone_coordinator = microphone_coordinator or MicrophoneLeaseCoordinator()
         self._audio_lock = asyncio.Lock()
-        self._active_audio_effect: StartPushToTalk | None = None
+        self._active_audio_effect: StartPushToTalk | StartStreamingConversation | None = None
         self._audio_uplink_task: asyncio.Task[None] | None = None
+        self._streaming_vad_task: asyncio.Task[None] | None = None
+        self._streaming_response_task: asyncio.Task[None] | None = None
 
     @property
     def audio_uplink_running(self) -> bool:
         return self._audio_uplink_task is not None and not self._audio_uplink_task.done()
+
+    @property
+    def streaming_vad_running(self) -> bool:
+        return self._streaming_vad_task is not None and not self._streaming_vad_task.done()
+
+    @property
+    def streaming_response_timer_running(self) -> bool:
+        return (
+            self._streaming_response_task is not None and not self._streaming_response_task.done()
+        )
 
     @property
     def audio_capture_active(self) -> bool:
@@ -201,6 +236,18 @@ class EffectRunner:
             return
         if isinstance(effect, StopPushToTalk):
             await self._stop_push_to_talk(effect)
+            return
+        if isinstance(effect, StartStreamingConversation):
+            await self._start_streaming_conversation(effect)
+            return
+        if isinstance(effect, StopStreamingConversation):
+            await self._stop_streaming_conversation(effect)
+            return
+        if isinstance(effect, ScheduleStreamingResponseTimeout):
+            await self._schedule_streaming_response_timeout(effect)
+            return
+        if isinstance(effect, CancelStreamingResponseTimeout):
+            await self._cancel_streaming_response_timeout()
             return
         if isinstance(effect, CancelRuntimeEffects):
             await self.cancel_runtime_effects(effect.reason)
@@ -266,24 +313,27 @@ class EffectRunner:
                 name=f"assistant-audio-uplink-{effect.generation}",
             )
 
-    async def _audio_uplink_loop(self, effect: StartPushToTalk) -> None:
+    async def _audio_uplink_loop(
+        self, effect: StartPushToTalk | StartStreamingConversation
+    ) -> None:
         engine = self._audio_engine
         assert engine is not None
+        capture_generation = _capture_generation_of(effect)
         last_emitted = (-1, -1, -1)
         try:
             while True:
-                packet = await engine.next_packet(effect.generation)
+                packet = await engine.next_packet(capture_generation)
                 if packet is None:
                     break
                 await self._transport.send_audio(
                     effect.connection_generation,
                     effect.turn_token,
-                    effect.generation,
+                    capture_generation,
                     packet.payload,
                     self._event_sink,
                 )
                 engine.mark_uploaded(packet, uploaded_at_ns=self._clock.now_ns())
-                summary = engine.current_summary(effect.generation)
+                summary = engine.current_summary(capture_generation)
                 counters = (
                     summary.captured_frames,
                     summary.encoded_frames,
@@ -301,7 +351,7 @@ class EffectRunner:
                 await self._event_sink(
                     AudioUplinkOverflow(
                         at_ns=self._clock.now_ns(),
-                        generation=effect.generation,
+                        generation=capture_generation,
                         connection_generation=effect.connection_generation,
                         turn_token=effect.turn_token,
                         message=redact_error_text(exc),
@@ -413,7 +463,307 @@ class EffectRunner:
                     redact_error_text(stop_failure),
                 )
 
+    async def _start_streaming_conversation(self, effect: StartStreamingConversation) -> None:
+        engine = self._audio_engine
+        if engine is None:
+            await self._emit_audio_failure(
+                effect,
+                "streaming_start_failed",
+                "AudioEngine is not configured",
+            )
+            return
+        async with self._audio_lock:
+            if self._active_audio_effect is not None:
+                await self._emit_audio_failure(
+                    effect,
+                    "streaming_busy",
+                    "another voice capture is already active",
+                )
+                return
+            if not await self._microphone_coordinator.acquire(effect.capture_generation):
+                await self._emit_audio_failure(
+                    effect,
+                    "microphone_busy",
+                    "microphone lease is already owned",
+                )
+                return
+            self._active_audio_effect = effect
+            session_id = effect.session_id or str(uuid.uuid4())
+            try:
+                await self._transport.start_listening(
+                    effect.connection_generation,
+                    effect.turn_token,
+                    effect.capture_generation,
+                    "manual",
+                    self._event_sink,
+                )
+                await engine.start_capture(
+                    effect.capture_generation,
+                    requested_at_ns=effect.requested_at_ns,
+                    vad_enabled=True,
+                    vad_idle_timeout_ms=effect.idle_timeout_ms,
+                )
+            except Exception as exc:
+                await self._rollback_audio_start(effect, reason="streaming_start_failed")
+                await self._emit_audio_failure(
+                    effect,
+                    getattr(exc, "code", "streaming_start_failed"),
+                    redact_error_text(exc),
+                )
+                return
+            await self._event_sink(
+                StreamingSessionStarted(
+                    at_ns=self._clock.now_ns(),
+                    generation=effect.streaming_generation,
+                    connection_generation=effect.connection_generation,
+                    capture_generation=effect.capture_generation,
+                    turn_token=effect.turn_token,
+                    turn_index=effect.turn_index,
+                    session_id=session_id,
+                )
+            )
+            await self._event_sink(
+                AudioCaptureStarted(
+                    at_ns=self._clock.now_ns(),
+                    generation=effect.capture_generation,
+                    connection_generation=effect.connection_generation,
+                    turn_token=effect.turn_token,
+                    input_device_public_name=engine.input_device_public_name,
+                )
+            )
+            self._audio_uplink_task = asyncio.create_task(
+                self._audio_uplink_loop(effect),
+                name=f"assistant-audio-uplink-{effect.capture_generation}",
+            )
+            self._streaming_vad_task = asyncio.create_task(
+                self._streaming_vad_loop(effect),
+                name=f"assistant-streaming-vad-{effect.streaming_generation}",
+            )
+
+    async def _streaming_vad_loop(self, effect: StartStreamingConversation) -> None:
+        engine = self._audio_engine
+        assert engine is not None
+        labels = {
+            VoiceActivityState.WARMUP: "VAD 预热中",
+            VoiceActivityState.WAITING_FOR_SPEECH: "等待说话",
+            VoiceActivityState.SPEECH_DETECTED: "检测到说话",
+            VoiceActivityState.SPEECH_ACTIVE: "正在说话",
+            VoiceActivityState.END_OF_SPEECH: "检测到说话结束，正在自动提交",
+            VoiceActivityState.NO_SPEECH_TIMEOUT: "等待说话超时",
+        }
+        try:
+            while True:
+                snapshot = await engine.next_voice_activity(effect.capture_generation)
+                if snapshot is None:
+                    return
+                await self._event_sink(
+                    VoiceActivityChanged(
+                        at_ns=self._clock.now_ns(),
+                        generation=effect.capture_generation,
+                        connection_generation=effect.connection_generation,
+                        streaming_generation=effect.streaming_generation,
+                        turn_token=effect.turn_token,
+                        frame_sequence=snapshot.frame_sequence,
+                        state=snapshot.state,
+                        status_text=labels.get(snapshot.state, snapshot.state.value),
+                        peak_abs=snapshot.peak_abs,
+                        rms=snapshot.rms,
+                        elapsed_ms=snapshot.elapsed_ms,
+                    )
+                )
+                if snapshot.state in {
+                    VoiceActivityState.END_OF_SPEECH,
+                    VoiceActivityState.NO_SPEECH_TIMEOUT,
+                }:
+                    return
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            await self._emit_audio_failure(
+                effect,
+                getattr(exc, "code", "audio_vad_failed"),
+                redact_error_text(exc),
+            )
+
+    async def _stop_streaming_conversation(self, effect: StopStreamingConversation) -> None:
+        await self._cancel_streaming_vad_task()
+        if effect.end_session:
+            await self._cancel_streaming_response_timeout()
+        engine = self._audio_engine
+        async with self._audio_lock:
+            active = self._active_audio_effect
+            if not isinstance(active, StartStreamingConversation):
+                if effect.end_session:
+                    try:
+                        await self._transport.abort(
+                            effect.connection_generation,
+                            effect.turn_token,
+                            effect.capture_generation,
+                            effect.reason,
+                            self._event_sink,
+                        )
+                    except Exception:
+                        pass
+                    await self._event_sink(
+                        StreamingSessionStopped(
+                            at_ns=self._clock.now_ns(),
+                            generation=effect.streaming_generation,
+                            turn_token=effect.turn_token,
+                            reason=effect.reason,
+                        )
+                    )
+                return
+            if (
+                active.streaming_generation != effect.streaming_generation
+                or active.capture_generation != effect.capture_generation
+                or active.turn_token != effect.turn_token
+            ):
+                return
+            assert engine is not None
+            summary = await engine.stop_capture(effect.capture_generation, budget_seconds=1.5)
+            stop_failure = engine.failure
+            task = self._audio_uplink_task
+            if task is not None and not task.done():
+                try:
+                    await asyncio.wait_for(asyncio.shield(task), timeout=1.5)
+                except asyncio.TimeoutError:
+                    task.cancel()
+                    await asyncio.gather(task, return_exceptions=True)
+            self._audio_uplink_task = None
+            summary = engine.current_summary(
+                effect.capture_generation,
+                stop_latency_ms=summary.stop_latency_ms,
+                stopped_within_budget=summary.stopped_within_budget,
+            )
+            useful_audio = bool(
+                stop_failure is None and summary.speech_seen and summary.uploaded_frames > 0
+            )
+            submitted = bool(effect.submit_audio and useful_audio)
+            stop_listen_latency_ms: int | None = None
+            try:
+                if submitted:
+                    await self._transport.stop_listening(
+                        effect.connection_generation,
+                        effect.turn_token,
+                        effect.capture_generation,
+                        self._event_sink,
+                    )
+                else:
+                    await self._transport.abort(
+                        effect.connection_generation,
+                        effect.turn_token,
+                        effect.capture_generation,
+                        effect.reason,
+                        self._event_sink,
+                    )
+                stop_listen_latency_ms = max(
+                    0,
+                    int((self._clock.now_ns() - effect.requested_at_ns) / 1_000_000),
+                )
+            finally:
+                await self._microphone_coordinator.release(effect.capture_generation)
+                await engine.finish_generation(effect.capture_generation)
+                self._active_audio_effect = None
+            await self._event_sink(
+                AudioCaptureStopped(
+                    at_ns=self._clock.now_ns(),
+                    generation=effect.capture_generation,
+                    connection_generation=effect.connection_generation,
+                    turn_token=effect.turn_token,
+                    summary=(
+                        f"streaming pcm={summary.captured_frames} "
+                        f"opus={summary.encoded_frames} uploaded={summary.uploaded_frames} "
+                        f"speech={summary.speech_seen}"
+                    ),
+                    captured_frames=summary.captured_frames,
+                    encoded_frames=summary.encoded_frames,
+                    uploaded_frames=summary.uploaded_frames,
+                    dropped_pcm_frames=summary.dropped_pcm_frames,
+                    uplink_overflow_count=summary.uplink_overflow_count,
+                    speech_seen=summary.speech_seen,
+                    stopped_within_budget=summary.stopped_within_budget,
+                    stop_latency_ms=summary.stop_latency_ms,
+                    input_device_public_name=summary.input_device_public_name,
+                    first_pcm_latency_ms=summary.first_pcm_latency_ms,
+                    first_opus_latency_ms=summary.first_opus_latency_ms,
+                    first_opus_upload_latency_ms=summary.first_opus_upload_latency_ms,
+                    stop_listen_latency_ms=stop_listen_latency_ms,
+                    useful_audio=useful_audio,
+                    stop_sent=submitted,
+                )
+            )
+            if submitted:
+                await self._event_sink(
+                    StreamingTurnSubmitted(
+                        at_ns=self._clock.now_ns(),
+                        generation=effect.streaming_generation,
+                        connection_generation=effect.connection_generation,
+                        capture_generation=effect.capture_generation,
+                        turn_token=effect.turn_token,
+                        turn_index=active.turn_index,
+                        captured_frames=summary.captured_frames,
+                        encoded_frames=summary.encoded_frames,
+                        uploaded_frames=summary.uploaded_frames,
+                        speech_seen=summary.speech_seen,
+                        stop_listen_latency_ms=stop_listen_latency_ms,
+                    )
+                )
+            if effect.end_session or not submitted:
+                await self._event_sink(
+                    StreamingSessionStopped(
+                        at_ns=self._clock.now_ns(),
+                        generation=effect.streaming_generation,
+                        turn_token=effect.turn_token,
+                        reason=effect.reason,
+                    )
+                )
+            if stop_failure is not None:
+                await self._emit_audio_failure(
+                    active, stop_failure.code, redact_error_text(stop_failure)
+                )
+
+    async def _schedule_streaming_response_timeout(
+        self, effect: ScheduleStreamingResponseTimeout
+    ) -> None:
+        await self._cancel_streaming_response_timeout()
+
+        async def wait_and_fire() -> None:
+            await asyncio.sleep(max(0.05, effect.delay_seconds))
+            await self._event_sink(
+                StreamingResponseTimeout(
+                    at_ns=self._clock.now_ns(),
+                    generation=effect.streaming_generation,
+                    turn_token=effect.turn_token,
+                )
+            )
+
+        self._streaming_response_task = asyncio.create_task(
+            wait_and_fire(),
+            name=(
+                f"assistant-streaming-response-"
+                f"{effect.streaming_generation}-{effect.turn_token}"
+            ),
+        )
+
+    async def _cancel_streaming_response_timeout(self) -> None:
+        task = self._streaming_response_task
+        self._streaming_response_task = None
+        if task is None or task.done():
+            return
+        task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
+
+    async def _cancel_streaming_vad_task(self) -> None:
+        task = self._streaming_vad_task
+        self._streaming_vad_task = None
+        if task is None or task.done():
+            return
+        task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
+
     async def cancel_runtime_effects(self, reason: str) -> None:
+        await self._cancel_streaming_response_timeout()
+        await self._cancel_streaming_vad_task()
         async with self._audio_lock:
             active = self._active_audio_effect
             engine = self._audio_engine
@@ -423,22 +773,23 @@ class EffectRunner:
                 task.cancel()
                 await asyncio.gather(task, return_exceptions=True)
             if active is not None and engine is not None:
+                capture_generation = _capture_generation_of(active)
                 try:
-                    await engine.cancel_capture(active.generation, reason=reason)
+                    await engine.cancel_capture(capture_generation, reason=reason)
                 except Exception:
                     pass
                 try:
                     await self._transport.abort(
                         active.connection_generation,
                         active.turn_token,
-                        active.generation,
+                        capture_generation,
                         reason,
                         self._event_sink,
                     )
                 except Exception:
                     pass
-                await engine.finish_generation(active.generation)
-                await self._microphone_coordinator.release(active.generation)
+                await engine.finish_generation(capture_generation)
+                await self._microphone_coordinator.release(capture_generation)
             else:
                 await self._microphone_coordinator.force_release()
             self._active_audio_effect = None
@@ -450,35 +801,38 @@ class EffectRunner:
 
     async def _rollback_audio_start(
         self,
-        effect: StartPushToTalk,
+        effect: StartPushToTalk | StartStreamingConversation,
         *,
         reason: str,
     ) -> None:
         engine = self._audio_engine
-        if engine is not None and engine.active_generation == effect.generation:
+        capture_generation = _capture_generation_of(effect)
+        if engine is not None and engine.active_generation == capture_generation:
             try:
-                await engine.cancel_capture(effect.generation, reason=reason)
+                await engine.cancel_capture(capture_generation, reason=reason)
             except Exception:
                 pass
-            await engine.finish_generation(effect.generation)
+            await engine.finish_generation(capture_generation)
         try:
             await self._transport.abort(
                 effect.connection_generation,
                 effect.turn_token,
-                effect.generation,
+                capture_generation,
                 reason,
                 self._event_sink,
             )
         except Exception:
             pass
-        await self._microphone_coordinator.release(effect.generation)
+        await self._microphone_coordinator.release(capture_generation)
         self._active_audio_effect = None
 
-    async def _emit_audio_counters(self, effect: StartPushToTalk, summary) -> None:
+    async def _emit_audio_counters(
+        self, effect: StartPushToTalk | StartStreamingConversation, summary
+    ) -> None:
         await self._event_sink(
             AudioCountersUpdated(
                 at_ns=self._clock.now_ns(),
-                generation=effect.generation,
+                generation=_capture_generation_of(effect),
                 connection_generation=effect.connection_generation,
                 turn_token=effect.turn_token,
                 captured_frames=summary.captured_frames,
@@ -494,14 +848,14 @@ class EffectRunner:
 
     async def _emit_audio_failure(
         self,
-        effect: StartPushToTalk,
+        effect: StartPushToTalk | StartStreamingConversation,
         code: str,
         message: str,
     ) -> None:
         await self._event_sink(
             AudioCaptureFailed(
                 at_ns=self._clock.now_ns(),
-                generation=effect.generation,
+                generation=_capture_generation_of(effect),
                 connection_generation=effect.connection_generation,
                 turn_token=effect.turn_token,
                 code=code,
@@ -681,6 +1035,14 @@ class AssistantController:
     @property
     def audio_uplink_running(self) -> bool:
         return self._effect_runner.audio_uplink_running
+
+    @property
+    def streaming_vad_running(self) -> bool:
+        return self._effect_runner.streaming_vad_running
+
+    @property
+    def streaming_response_timer_running(self) -> bool:
+        return self._effect_runner.streaming_response_timer_running
 
     @property
     def audio_capture_active(self) -> bool:
