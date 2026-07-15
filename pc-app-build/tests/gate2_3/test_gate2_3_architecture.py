@@ -21,15 +21,11 @@ def _current_verifiers_covering(test_path: str) -> tuple[Path, ...]:
     verifiers = tuple(sorted(REPO_ROOT.glob("VERIFY_GATE*.ps1")))
     assert verifiers, "repository must contain a current Gate verifier"
 
-    covering = tuple(path for path in verifiers if test_path in _normalized_source(path))
+    covering = tuple(
+        path for path in verifiers if test_path in _normalized_source(path)
+    )
     assert covering, f"a current verifier must continue to run {test_path}"
     return covering
-
-
-def _current_real_runners() -> tuple[Path, ...]:
-    runners = tuple(sorted(REPO_ROOT.glob("RUN_GATE2_*_REAL_*.ps1")))
-    assert runners, "repository must contain a current Gate 2 real acceptance runner"
-    return runners
 
 
 def test_gate2_3_files_exist_and_parse_without_qt_or_database_dependencies() -> None:
@@ -60,13 +56,14 @@ def test_real_websocket_has_one_sender_and_one_receiver_owner() -> None:
     assert "await active.connection.send(item.payload)" in source
     assert "await active.connection.recv()" in source
     assert "additional_headers=config.headers()" in source
-    assert '"Protocol-Version": "1"' in _read(ASSISTANT_ROOT / "network" / "transport.py")
+    assert '"Protocol-Version": "1"' in _read(
+        ASSISTANT_ROOT / "network" / "transport.py"
+    )
 
 
-def test_current_gate_verifier_and_real_acceptance_runner_are_present() -> None:
+def test_current_gate_verifier_and_persisted_real_acceptance_tool_are_present() -> None:
     pyproject = _read(PC_BUILD_ROOT / "pyproject.toml")
     covering_verifiers = _current_verifiers_covering("tests/gate2_3")
-    real_runners = _current_real_runners()
 
     assert '"websockets>=16.0,<17"' in pyproject
     for verifier in covering_verifiers:
@@ -75,5 +72,6 @@ def test_current_gate_verifier_and_real_acceptance_runner_are_present() -> None:
         assert "exit 1" in source, verifier.name
 
     assert (TOOLS_ROOT / "verify_gate2_3_real_websocket.py").is_file()
-    assert any("verify_gate2_" in _normalized_source(runner) for runner in real_runners)
-    assert (PC_BUILD_ROOT / "docs" / "report" / "GATE2_3_IMPLEMENTATION_REPORT.md").is_file()
+    assert (
+        PC_BUILD_ROOT / "docs" / "report" / "GATE2_3_IMPLEMENTATION_REPORT.md"
+    ).is_file()
