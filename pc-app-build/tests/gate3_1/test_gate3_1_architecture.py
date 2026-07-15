@@ -14,6 +14,18 @@ def _read(path: Path) -> str:
     return path.read_text(encoding="utf-8")
 
 
+def _normalized(path: Path) -> str:
+    return _read(path).replace("\\", "/")
+
+
+def _current_verifiers_covering(test_path: str) -> tuple[Path, ...]:
+    return tuple(
+        path
+        for path in sorted(REPO_ROOT.glob("VERIFY_GATE*.ps1"))
+        if test_path in _normalized(path)
+    )
+
+
 def test_floating_shell_removes_fixed_assistant_column() -> None:
     main = _read(QML_ROOT / "Main.qml")
     overlay = _read(COMPONENTS / "AssistantOverlay.qml")
@@ -77,12 +89,19 @@ def test_preferences_are_separate_from_runtime_credentials() -> None:
     assert "ConversationStateMachine(ReconnectPolicy())" in bootstrap
 
 
-def test_gate3_1_delivery_and_verifier_exist() -> None:
-    expected = (
-        REPO_ROOT / "VERIFY_GATE3_1.ps1",
-        REPO_ROOT / "RUN_GATE3_1_UI_SMOKE.ps1",
+def test_gate3_1_persistent_assets_and_current_verifier_exist() -> None:
+    persistent_assets = (
         PC_BUILD_ROOT / "tools" / "verify_gate3_1_ui_shell.py",
         PC_BUILD_ROOT / "docs" / "report" / "GATE3_1_IMPLEMENTATION_REPORT.md",
     )
-    for path in expected:
+    for path in persistent_assets:
         assert path.is_file(), path
+
+    covering = _current_verifiers_covering("tests/gate3_1")
+    assert covering, "current verifier must retain Gate 3.1 regression coverage"
+    assert any("verify_gate3_1_ui_shell.py" in _normalized(path) for path in covering)
+
+    for path in covering:
+        source = _normalized(path)
+        assert "$LASTEXITCODE -ne 0" in source, path.name
+        assert "exit 1" in source, path.name
