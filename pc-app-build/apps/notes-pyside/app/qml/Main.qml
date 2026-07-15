@@ -8,9 +8,9 @@ import "pages"
 ApplicationWindow {
     id: root
 
-    width: 1440
+    width: 1520
     height: 960
-    minimumWidth: 1180
+    minimumWidth: 1280
     minimumHeight: 760
     visible: true
     title: "小智便签"
@@ -22,6 +22,8 @@ ApplicationWindow {
 
     readonly property var viewModel: notesViewModel
     readonly property bool viewModelReady: root.viewModel !== null
+    readonly property var assistantModel: assistantViewModel
+    readonly property bool assistantModelReady: root.assistantModel !== null
 
     function createInitialTags() {
         if (currentCategory === "todo") {
@@ -150,6 +152,7 @@ ApplicationWindow {
                 id: pageLoader
                 Layout.fillWidth: true
                 Layout.fillHeight: true
+                Layout.minimumWidth: 520
                 sourceComponent: {
                     if (root.currentPage === "create") return createPage
                     if (root.currentPage === "edit") return editPage
@@ -158,6 +161,14 @@ ApplicationWindow {
                     if (root.currentPage === "search") return searchPage
                     return homePage
                 }
+            }
+
+            AssistantPanel {
+                Layout.preferredWidth: 370
+                Layout.minimumWidth: 330
+                Layout.maximumWidth: 410
+                Layout.fillHeight: true
+                viewModelRef: root.assistantModel
             }
         }
     }

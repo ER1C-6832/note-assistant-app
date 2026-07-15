@@ -15,6 +15,22 @@ from qasync import QEventLoop
 from sqlalchemy import Engine
 
 from .app_paths import AppPaths
+from .assistant import (
+    AssistantController,
+    ConversationStateMachine,
+    DeviceIdentityManager,
+    DeviceIdentityStore,
+    FakeActivationClient,
+    PersistedConnectionConfigProvider,
+    RealOtaActivationClient,
+    RealWebSocketTransport,
+    ReconnectPolicy,
+    RuntimeConfigStore,
+    RuntimeTransportRouter,
+)
+from .assistant.controller import SystemRuntimeClock
+from .assistant.identity import LegacyPyXiaozhiIdentitySource
+from .assistant.network import ScriptedFakeTransport
 from .lifecycle import ApplicationLifecycle
 from .notes import (
     DatabaseExecutor,
@@ -30,6 +46,7 @@ from .notes import (
 )
 from .notes.sqlalchemy_repository import SessionFactory
 from .ui import NoteListModel, NotesViewModel
+from .ui.assistant_view_model import AssistantViewModel
 
 
 @dataclass(slots=True)
@@ -43,6 +60,14 @@ class NotesRuntime:
 
 
 @dataclass(slots=True)
+class AssistantRuntime:
+    config_store: RuntimeConfigStore
+    identity_manager: DeviceIdentityManager
+    controller: AssistantController
+    view_model: AssistantViewModel
+
+
+@dataclass(slots=True)
 class ApplicationContext:
     app: QGuiApplication
     engine: QQmlApplicationEngine
@@ -51,6 +76,7 @@ class ApplicationContext:
     migration_result: MigrationResult
     tag_catalog: TagCatalog
     notes_runtime: NotesRuntime
+    assistant_runtime: AssistantRuntime
     notes_view_model: NotesViewModel
     notes_list_model: NoteListModel
     deleted_notes_list_model: NoteListModel
@@ -78,6 +104,14 @@ class ApplicationContext:
     @property
     def note_query_service(self) -> NoteQueryService:
         return self.notes_runtime.note_query_service
+
+    @property
+    def assistant_controller(self) -> AssistantController:
+        return self.assistant_runtime.controller
+
+    @property
+    def assistant_view_model(self) -> AssistantViewModel:
+        return self.assistant_runtime.view_model
 
 
 def create_event_loop(app: QGuiApplication) -> QEventLoop:
@@ -124,6 +158,47 @@ def create_notes_runtime(paths: AppPaths) -> NotesRuntime:
     )
 
 
+def create_assistant_runtime(paths: AppPaths) -> AssistantRuntime:
+    config_store = RuntimeConfigStore(paths.assistant_runtime_config)
+    legacy_source = LegacyPyXiaozhiIdentitySource.from_local_app_data()
+    identity_manager = DeviceIdentityManager(
+        DeviceIdentityStore(config_store),
+        legacy_identity=legacy_source.load,
+    )
+    clock = SystemRuntimeClock()
+    config_provider = PersistedConnectionConfigProvider(
+        config_store=config_store,
+        identity_manager=identity_manager,
+    )
+    transport = RuntimeTransportRouter(
+        fake_transport=ScriptedFakeTransport(),
+        real_transport=RealWebSocketTransport(
+            config_provider=config_provider,
+            clock=clock,
+        ),
+    )
+    controller = AssistantController(
+        transport=transport,
+        state_machine=ConversationStateMachine(ReconnectPolicy()),
+        clock=clock,
+        identity_manager=identity_manager,
+        fake_activation_client=FakeActivationClient(
+            config_store=config_store,
+            identity_manager=identity_manager,
+        ),
+        real_activation_client=RealOtaActivationClient(
+            config_store=config_store,
+            identity_manager=identity_manager,
+        ),
+    )
+    return AssistantRuntime(
+        config_store=config_store,
+        identity_manager=identity_manager,
+        controller=controller,
+        view_model=AssistantViewModel(controller),
+    )
+
+
 async def dispose_database_engine(database_engine: Engine) -> None:
     database_engine.dispose()
 
@@ -149,6 +224,7 @@ def create_application_context(
     tag_catalog.load()
 
     notes_runtime = create_notes_runtime(paths)
+    assistant_runtime = create_assistant_runtime(paths)
     notes_list_model = NoteListModel()
     deleted_notes_list_model = NoteListModel()
     notes_view_model = NotesViewModel(
@@ -172,12 +248,21 @@ def create_application_context(
         "notes-view-model",
         notes_view_model.close,
     )
+    lifecycle.register_async_closer(
+        "assistant-controller",
+        assistant_runtime.controller.shutdown,
+    )
+    lifecycle.register_async_closer(
+        "assistant-view-model",
+        assistant_runtime.view_model.close,
+    )
 
     engine = QQmlApplicationEngine()
     context = engine.rootContext()
     context.setContextProperty("notesViewModel", notes_view_model)
     context.setContextProperty("notesListModel", notes_list_model)
     context.setContextProperty("deletedNotesListModel", deleted_notes_list_model)
+    context.setContextProperty("assistantViewModel", assistant_runtime.view_model)
 
     qml_file = Path(__file__).resolve().parent / "qml" / "Main.qml"
     engine.load(QUrl.fromLocalFile(str(qml_file)))
@@ -187,6 +272,7 @@ def create_application_context(
 
     engine.quit.connect(app.quit)
     QTimer.singleShot(0, notes_view_model.loadAll)
+    QTimer.singleShot(0, assistant_runtime.view_model.initialize)
 
     return ApplicationContext(
         app=app,
@@ -196,6 +282,7 @@ def create_application_context(
         migration_result=migration_result,
         tag_catalog=tag_catalog,
         notes_runtime=notes_runtime,
+        assistant_runtime=assistant_runtime,
         notes_view_model=notes_view_model,
         notes_list_model=notes_list_model,
         deleted_notes_list_model=deleted_notes_list_model,
@@ -240,7 +327,7 @@ def run_application(
     try:
         with loop:
             loop.run_forever()
-            loop.run_until_complete(context.lifecycle.shutdown(timeout_seconds=1.0))
+            loop.run_until_complete(context.lifecycle.shutdown(timeout_seconds=10.0))
     finally:
         asyncio.set_event_loop(None)
         if owns_app:
