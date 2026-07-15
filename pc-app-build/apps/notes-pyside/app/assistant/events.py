@@ -161,23 +161,60 @@ class ShutdownRequested(AssistantEvent):
 @dataclass(frozen=True, slots=True, kw_only=True)
 class TransportOpened(AssistantEvent):
     generation: int
+    websocket_url_public: str | None = None
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class ClientHelloSent(AssistantEvent):
     generation: int
+    raw_json_redacted: str | None = None
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class ServerHelloReceived(AssistantEvent):
     generation: int
     session_id: str
+    transport: str | None = None
+    raw_json_redacted: str | None = None
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class AssistantTextReceived(AssistantEvent):
     generation: int
     text: str
+    source_type: str = "text"
+    session_id: str | None = None
+    raw_json_redacted: str | None = None
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class ProtocolMessageObserved(AssistantEvent):
+    generation: int
+    event_name: str
+    message_type: str
+    session_id: str | None = None
+    raw_json_redacted: str | None = None
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class ProtocolUnknownMessageReceived(AssistantEvent):
+    generation: int
+    message_type: str
+    session_id: str | None = None
+    raw_json_redacted: str | None = None
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class ProtocolInvalidMessageReceived(AssistantEvent):
+    generation: int
+    error: str
+    raw_text_redacted: str
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class BinaryAudioReceived(AssistantEvent):
+    generation: int
+    size_bytes: int
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)

@@ -39,7 +39,7 @@ def test_complete_state_defaults_and_android_capability_registry() -> None:
     assert set(registry) == set(AssistantCapability)
     assert registry[AssistantCapability.RUNTIME_CORE].status is CapabilityStatus.ACTIVE
     assert registry[AssistantCapability.FAKE_TRANSPORT].status is CapabilityStatus.ACTIVE
-    assert registry[AssistantCapability.REAL_TRANSPORT].status is CapabilityStatus.NOT_READY
+    assert registry[AssistantCapability.REAL_TRANSPORT].status is CapabilityStatus.ACTIVE
     assert registry[AssistantCapability.PUSH_TO_TALK].target_gate == "3"
     assert registry[AssistantCapability.TTS_PLAYBACK].target_gate == "4"
     assert registry[AssistantCapability.MCP_NOTES].target_gate == "5"

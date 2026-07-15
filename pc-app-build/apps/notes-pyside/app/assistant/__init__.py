@@ -9,6 +9,13 @@ from .activation import (
 )
 from .controller import AssistantController, ControllerClosedError
 from .identity import DeviceIdentity, DeviceIdentityManager, DeviceIdentityStore
+from .network import (
+    PersistedConnectionConfigProvider,
+    RealWebSocketTransport,
+    RuntimeTransportRouter,
+    WebSocketConnectionConfig,
+)
+from .protocol import XiaozhiMessageBuilder, XiaozhiMessageRouter
 from .runtime_config import (
     AssistantRuntimeConfig,
     FakeRuntimeConfig,
@@ -62,6 +69,12 @@ __all__ = [
     "DeviceIdentityStore",
     "FakeActivationClient",
     "FakeRuntimeConfig",
+    "PersistedConnectionConfigProvider",
+    "RealWebSocketTransport",
+    "RuntimeTransportRouter",
+    "WebSocketConnectionConfig",
+    "XiaozhiMessageBuilder",
+    "XiaozhiMessageRouter",
     "MicrophoneOwner",
     "RealOtaActivationClient",
     "RealRuntimeConfig",

@@ -218,6 +218,7 @@ class ProtocolState:
     last_protocol_event: str | None = None
     last_unknown_message_type: str | None = None
     last_protocol_error: str | None = None
+    last_binary_size_bytes: int | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -324,7 +325,9 @@ def default_capabilities() -> tuple[CapabilityState, ...]:
     return (
         CapabilityState(AssistantCapability.RUNTIME_CORE, active, "2.1", "完整状态与单事件泵"),
         CapabilityState(AssistantCapability.FAKE_TRANSPORT, active, "2.1", "脚本化 Fake 链路"),
-        CapabilityState(AssistantCapability.REAL_TRANSPORT, not_ready, "2.3", "真实 WebSocket"),
+        CapabilityState(
+            AssistantCapability.REAL_TRANSPORT, active, "2.3", "真实 WebSocket hello/session"
+        ),
         CapabilityState(AssistantCapability.IDENTITY, active, "2.2", "稳定设备身份"),
         CapabilityState(AssistantCapability.ACTIVATION, active, "2.2", "Fake/Real OTA 与激活适配"),
         CapabilityState(AssistantCapability.TEXT_CONVERSATION, active, "2.1/2.4", "Fake 文本骨架"),
@@ -338,7 +341,12 @@ def default_capabilities() -> tuple[CapabilityState, ...]:
         ),
         CapabilityState(AssistantCapability.PUSH_TO_TALK, not_ready, "3", "PTT 音频上行"),
         CapabilityState(AssistantCapability.TTS_PLAYBACK, not_ready, "4", "TTS 下行播放"),
-        CapabilityState(AssistantCapability.MCP_PROTOCOL, not_ready, "2.3/5", "MCP 协议路由"),
+        CapabilityState(
+            AssistantCapability.MCP_PROTOCOL,
+            active,
+            "2.3/5",
+            "MCP envelope typed route；工具执行仍 blocked",
+        ),
         CapabilityState(AssistantCapability.MCP_NOTES, not_ready, "5", "便签工具闭环"),
         CapabilityState(
             AssistantCapability.STREAMING_CONVERSATION,

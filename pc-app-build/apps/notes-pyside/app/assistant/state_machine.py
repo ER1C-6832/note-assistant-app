@@ -22,6 +22,7 @@ from .events import (
     ActivationSucceeded,
     AssistantEvent,
     AssistantTextReceived,
+    BinaryAudioReceived,
     AudioCaptureStarted,
     AudioCaptureStopped,
     AudioCountersUpdated,
@@ -44,6 +45,9 @@ from .events import (
     McpRequestCompleted,
     McpRequestReceived,
     MicrophoneLeaseChanged,
+    ProtocolInvalidMessageReceived,
+    ProtocolMessageObserved,
+    ProtocolUnknownMessageReceived,
     PushToTalkStartRequested,
     PushToTalkStopRequested,
     PlaybackCountersUpdated,
@@ -128,6 +132,14 @@ class ConversationStateMachine:
             return self._hello_received(current, event)
         if isinstance(event, AssistantTextReceived):
             return self._assistant_text(current, event)
+        if isinstance(event, ProtocolMessageObserved):
+            return self._protocol_observed(current, event)
+        if isinstance(event, ProtocolUnknownMessageReceived):
+            return self._protocol_unknown(current, event)
+        if isinstance(event, ProtocolInvalidMessageReceived):
+            return self._protocol_invalid(current, event)
+        if isinstance(event, BinaryAudioReceived):
+            return self._binary_audio(current, event)
         if isinstance(event, TransportClosed):
             return self._transport_closed(current, event)
         if isinstance(event, TransportFailed):
@@ -353,7 +365,7 @@ class ConversationStateMachine:
             status_text=(
                 "已切换到 Scripted Fake Runtime"
                 if mode is AssistantRuntimeMode.FAKE
-                else "真实 Runtime 契约已冻结，传输将在 Gate 2.3 接通"
+                else "已切换到真实 WebSocket Runtime"
             ),
             error=None,
         )
@@ -377,8 +389,6 @@ class ConversationStateMachine:
                 category=AssistantErrorCategory.VALIDATION,
                 recoverable=True,
             )
-        if current.runtime_mode is AssistantRuntimeMode.REAL:
-            return self._not_ready(current, event, AssistantCapability.REAL_TRANSPORT)
         if current.connection.status is AssistantConnectionStatus.CONNECTED:
             return self._transition(replace(current, status_text="助手已经连接", error=None), event)
         if current.connection.status is AssistantConnectionStatus.CONNECTING:
@@ -387,7 +397,11 @@ class ConversationStateMachine:
         generation = current.connection.connection_generation + 1
         connection = ConnectionState(
             status=AssistantConnectionStatus.CONNECTING,
-            websocket_url_public="scripted://fake-runtime",
+            websocket_url_public=(
+                "scripted://fake-runtime"
+                if current.runtime_mode is AssistantRuntimeMode.FAKE
+                else current.connection.websocket_url_public
+            ),
             connection_generation=generation,
         )
         state = replace(
@@ -399,7 +413,11 @@ class ConversationStateMachine:
                 next_reconnect_at_ns=None,
                 manual_disconnect_requested=False,
             ),
-            status_text="正在连接 Scripted Fake Runtime",
+            status_text=(
+                "正在连接 Scripted Fake Runtime"
+                if current.runtime_mode is AssistantRuntimeMode.FAKE
+                else "正在连接真实 WebSocket，等待 hello/session"
+            ),
             error=None,
         )
         return self._transition(
@@ -418,9 +436,6 @@ class ConversationStateMachine:
                 category=AssistantErrorCategory.VALIDATION,
                 recoverable=True,
             )
-        if current.runtime_mode is AssistantRuntimeMode.REAL:
-            return self._not_ready(current, event, AssistantCapability.REAL_TRANSPORT)
-
         old_generation = current.connection.connection_generation
         generation = old_generation + 1
         state = replace(
@@ -428,7 +443,11 @@ class ConversationStateMachine:
             phase=AssistantPhase.RECONNECTING,
             connection=ConnectionState(
                 status=AssistantConnectionStatus.CONNECTING,
-                websocket_url_public="scripted://fake-runtime",
+                websocket_url_public=(
+                    "scripted://fake-runtime"
+                    if current.runtime_mode is AssistantRuntimeMode.FAKE
+                    else current.connection.websocket_url_public
+                ),
                 connection_generation=generation,
             ),
             audio=self._idle_audio(current.audio),
@@ -440,7 +459,11 @@ class ConversationStateMachine:
                 next_reconnect_at_ns=None,
                 manual_disconnect_requested=False,
             ),
-            status_text="正在手工重连 Scripted Fake Runtime",
+            status_text=(
+                "正在手工重连 Scripted Fake Runtime"
+                if current.runtime_mode is AssistantRuntimeMode.FAKE
+                else "正在手工重连真实 WebSocket"
+            ),
             error=None,
         )
         effects = (
@@ -545,8 +568,18 @@ class ConversationStateMachine:
             return Transition.unchanged(current)
         state = replace(
             current,
-            connection=replace(current.connection, opened_at_ns=event.at_ns),
-            status_text="Fake Transport 已打开，等待 hello/session",
+            connection=replace(
+                current.connection,
+                opened_at_ns=event.at_ns,
+                websocket_url_public=(
+                    event.websocket_url_public or current.connection.websocket_url_public
+                ),
+            ),
+            status_text=(
+                "Fake Transport 已打开，等待 hello/session"
+                if current.runtime_mode is AssistantRuntimeMode.FAKE
+                else "真实 WebSocket 已打开，等待 hello/session"
+            ),
         )
         return self._transition(state, event)
 
@@ -558,6 +591,12 @@ class ConversationStateMachine:
         state = replace(
             current,
             connection=replace(current.connection, hello_sent_at_ns=event.at_ns),
+            protocol=replace(
+                current.protocol,
+                last_client_json_redacted=event.raw_json_redacted,
+                last_protocol_event="ClientHelloSent",
+                last_protocol_error=None,
+            ),
             status_text="客户端 hello 已发送，等待服务端 session",
         )
         return self._transition(state, event)
@@ -567,6 +606,39 @@ class ConversationStateMachine:
             return Transition.unchanged(current)
         if current.connection.status is not AssistantConnectionStatus.CONNECTING:
             return Transition.unchanged(current)
+        if event.transport and event.transport != "websocket":
+            disconnected = replace(
+                current,
+                connection=replace(
+                    current.connection,
+                    status=AssistantConnectionStatus.DISCONNECTED,
+                    session_id=None,
+                    connection_generation=event.generation + 1,
+                    hello_received_at_ns=event.at_ns,
+                    close_reason="unsupported_hello_transport",
+                ),
+                protocol=replace(
+                    current.protocol,
+                    last_server_json_redacted=event.raw_json_redacted,
+                    last_protocol_event="ServerHelloReceived",
+                    last_protocol_error=f"unsupported transport: {event.transport}",
+                ),
+            )
+            return self._error(
+                disconnected,
+                event,
+                code="hello_unsupported_transport",
+                message=f"服务端 hello transport 不兼容：{event.transport}",
+                category=AssistantErrorCategory.PROTOCOL,
+                recoverable=True,
+                effects=(
+                    CloseTransport(
+                        generation=event.generation,
+                        reason="hello_unsupported_transport",
+                    ),
+                ),
+            )
+
         session_id = event.session_id.strip()
         if not session_id:
             disconnected = replace(
@@ -578,6 +650,12 @@ class ConversationStateMachine:
                     connection_generation=event.generation + 1,
                     hello_received_at_ns=event.at_ns,
                     close_reason="empty_session_id",
+                ),
+                protocol=replace(
+                    current.protocol,
+                    last_server_json_redacted=event.raw_json_redacted,
+                    last_protocol_event="ServerHelloReceived",
+                    last_protocol_error="missing session_id",
                 ),
             )
             return self._error(
@@ -607,6 +685,19 @@ class ConversationStateMachine:
                 close_reason=None,
             ),
             activation=replace(current.activation, status=AssistantActivationStatus.ACTIVATED),
+            protocol=replace(
+                current.protocol,
+                last_server_json_redacted=event.raw_json_redacted,
+                last_protocol_event="ServerHelloReceived",
+                last_protocol_error=None,
+            ),
+            diagnostics=replace(
+                current.diagnostics,
+                gate_real_handshake_verified=(
+                    current.diagnostics.gate_real_handshake_verified
+                    or current.runtime_mode is AssistantRuntimeMode.REAL
+                ),
+            ),
             recovery=replace(
                 current.recovery,
                 reconnect_attempt=0,
@@ -614,7 +705,11 @@ class ConversationStateMachine:
                 next_reconnect_at_ns=None,
                 manual_disconnect_requested=False,
             ),
-            status_text="Scripted Fake Runtime 已连接",
+            status_text=(
+                "Scripted Fake Runtime 已连接"
+                if current.runtime_mode is AssistantRuntimeMode.FAKE
+                else "真实 WebSocket hello/session 已验证"
+            ),
             error=None,
         )
         return self._transition(state, event)
@@ -636,8 +731,90 @@ class ConversationStateMachine:
                 last_assistant_text=event.text,
                 active_entry_source=AssistantEntrySource.TEXT,
             ),
+            protocol=replace(
+                current.protocol,
+                last_server_json_redacted=event.raw_json_redacted,
+                last_protocol_event=f"AssistantTextReceived:{event.source_type}",
+                last_protocol_error=None,
+            ),
             status_text="收到助手文本回复",
             error=None,
+        )
+        return self._transition(state, event)
+
+    def _protocol_observed(
+        self,
+        current: AssistantState,
+        event: ProtocolMessageObserved,
+    ) -> Transition:
+        if self._is_stale_connection_event(current, event.generation):
+            return Transition.unchanged(current)
+        state = replace(
+            current,
+            protocol=replace(
+                current.protocol,
+                last_server_json_redacted=event.raw_json_redacted,
+                last_protocol_event=event.event_name,
+                last_protocol_error=None,
+            ),
+            status_text=f"收到协议事件：{event.message_type}",
+        )
+        return self._transition(state, event)
+
+    def _protocol_unknown(
+        self,
+        current: AssistantState,
+        event: ProtocolUnknownMessageReceived,
+    ) -> Transition:
+        if self._is_stale_connection_event(current, event.generation):
+            return Transition.unchanged(current)
+        state = replace(
+            current,
+            protocol=replace(
+                current.protocol,
+                last_server_json_redacted=event.raw_json_redacted,
+                last_protocol_event="UnknownJson",
+                last_unknown_message_type=event.message_type,
+                last_protocol_error=None,
+            ),
+            status_text=f"已忽略未知协议消息：{event.message_type}",
+        )
+        return self._transition(state, event)
+
+    def _protocol_invalid(
+        self,
+        current: AssistantState,
+        event: ProtocolInvalidMessageReceived,
+    ) -> Transition:
+        if self._is_stale_connection_event(current, event.generation):
+            return Transition.unchanged(current)
+        state = replace(
+            current,
+            protocol=replace(
+                current.protocol,
+                last_server_json_redacted=event.raw_text_redacted,
+                last_protocol_event="ProtocolError",
+                last_protocol_error=event.error,
+            ),
+            status_text="收到无效协议消息，连接保持运行",
+        )
+        return self._transition(state, event)
+
+    def _binary_audio(
+        self,
+        current: AssistantState,
+        event: BinaryAudioReceived,
+    ) -> Transition:
+        if self._is_stale_connection_event(current, event.generation):
+            return Transition.unchanged(current)
+        state = replace(
+            current,
+            protocol=replace(
+                current.protocol,
+                last_protocol_event="BinaryAudio",
+                last_binary_size_bytes=event.size_bytes,
+            ),
+            status_text=f"收到二进制下行帧：{event.size_bytes} bytes（Gate 4 前不播放）",
         )
         return self._transition(state, event)
 

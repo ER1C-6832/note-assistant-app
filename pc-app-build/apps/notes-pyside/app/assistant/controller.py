@@ -1,4 +1,4 @@
-"""Single-writer AssistantController and Gate 2.2 identity/activation effect runner."""
+"""Single-writer AssistantController and Gate 2.3 transport effect runner."""
 
 from __future__ import annotations
 
@@ -58,6 +58,7 @@ from .events import (
 )
 from .activation.models import ActivationClient, ActivationOutcomeStatus
 from .identity.models import DeviceIdentity
+from .network.transport import AssistantTransport
 from .state import AssistantEntrySource, AssistantState, VoiceInteractionMode
 from .state_machine import ConversationStateMachine
 
@@ -73,24 +74,6 @@ class IdentityManager(Protocol):
     async def ensure_identity(self) -> DeviceIdentity: ...
 
     async def reset_identity(self) -> DeviceIdentity: ...
-
-
-class AssistantTransport(Protocol):
-    async def open(self, generation: int, event_sink: EventSink) -> None: ...
-
-    async def send_text(
-        self,
-        generation: int,
-        text: str,
-        event_sink: EventSink,
-    ) -> None: ...
-
-    async def close(
-        self,
-        generation: int,
-        reason: str,
-        event_sink: EventSink,
-    ) -> None: ...
 
 
 class SystemRuntimeClock:
@@ -130,7 +113,11 @@ class EffectRunner:
 
     async def execute(self, effect: AssistantEffect) -> None:
         if isinstance(effect, OpenTransport):
-            await self._transport.open(effect.generation, self._event_sink)
+            await self._transport.open(
+                effect.generation,
+                effect.runtime_mode,
+                self._event_sink,
+            )
             return
         if isinstance(effect, CloseTransport):
             await self._transport.close(effect.generation, effect.reason, self._event_sink)
@@ -153,7 +140,7 @@ class EffectRunner:
             return
         if isinstance(effect, CancelRuntimeEffects):
             return
-        raise NotImplementedError(f"effect is not active in Gate 2.2: {type(effect).__name__}")
+        raise NotImplementedError(f"effect is not active in Gate 2.3: {type(effect).__name__}")
 
     async def _ensure_identity(self) -> None:
         manager = self._identity_manager

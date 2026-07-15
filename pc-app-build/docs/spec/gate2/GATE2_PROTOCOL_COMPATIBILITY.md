@@ -139,3 +139,16 @@ websocket remains connected
 ```
 
 Gate 5 才接 `NoteCommandService`。
+
+## 9. Gate 2.3 实施状态
+
+- Adapter：`websockets>=16.0,<17` asyncio API；
+- TLS：默认系统证书验证；
+- Headers：Authorization / Protocol-Version / Device-Id / Client-Id；
+- Client hello：与 Android Builder 字段一致；
+- Connected：仅非空 `session_id`；
+- Sender：单有界队列、单 owner；
+- Receiver：单 owner；
+- Unknown/invalid JSON：typed event，连接保持；
+- Binary：typed route，Gate 4 前不播放；
+- Real 验收：`RUN_GATE2_3_REAL_WEBSOCKET_HELLO.ps1` 返回 0 才算 hello/session 通过。

@@ -115,7 +115,7 @@ async def test_disable_cancels_blocked_text_effect() -> None:
 
 
 @pytest.mark.asyncio
-async def test_real_transport_is_explicitly_not_ready_in_gate2_1() -> None:
+async def test_transport_adapter_rejects_a_runtime_mode_mismatch() -> None:
     clock = FakeClock()
     transport = ScriptedFakeTransport(clock=clock)
     controller = AssistantController(transport=transport, clock=clock)
@@ -123,11 +123,13 @@ async def test_real_transport_is_explicitly_not_ready_in_gate2_1() -> None:
     try:
         await controller.enable_assistant()
         await controller.connect()
+        failed = await controller.wait_for_state(
+            lambda state: state.error is not None and state.error.code == "transport_failure"
+        )
 
-        assert controller.state.phase is AssistantPhase.ERROR
-        assert controller.state.error is not None
-        assert controller.state.error.code == "capability_not_ready"
-        assert transport.open_calls == []
+        assert failed.phase is AssistantPhase.ERROR
+        assert transport.open_calls == [1]
+        assert transport.open_modes == [AssistantRuntimeMode.REAL]
     finally:
         await controller.shutdown()
 
