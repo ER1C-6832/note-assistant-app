@@ -21,9 +21,7 @@ def _current_verifiers_covering(test_path: str) -> tuple[Path, ...]:
     verifiers = tuple(sorted(REPO_ROOT.glob("VERIFY_GATE*.ps1")))
     assert verifiers, "repository must contain a current Gate verifier"
 
-    covering = tuple(
-        path for path in verifiers if test_path in _normalized_source(path)
-    )
+    covering = tuple(path for path in verifiers if test_path in _normalized_source(path))
     assert covering, f"a current verifier must continue to run {test_path}"
     return covering
 
@@ -62,6 +60,4 @@ def test_current_verifier_and_persisted_real_recovery_tool_are_present() -> None
         assert "exit 1" in source, verifier.name
 
     assert (TOOLS_ROOT / "verify_gate2_5_real_recovery.py").is_file()
-    assert (
-        PC_BUILD_ROOT / "docs" / "report" / "GATE2_5_IMPLEMENTATION_REPORT.md"
-    ).is_file()
+    assert (PC_BUILD_ROOT / "docs" / "report" / "GATE2_5_IMPLEMENTATION_REPORT.md").is_file()

@@ -1,4 +1,4 @@
-"""Single-writer AssistantController and Gate 2.5 recovery effect runner."""
+"""Single-writer AssistantController with recovery and Gate 3.1 preferences effects."""
 
 from __future__ import annotations
 
@@ -19,6 +19,8 @@ from .effects import (
     RunActivation,
     ScheduleReconnect,
     SendText,
+    SetStreamingBargeIn,
+    SetVoiceInteractionMode,
 )
 from .events import (
     AbortRequested,
@@ -62,6 +64,7 @@ from .activation.models import ActivationClient, ActivationOutcomeStatus
 from .errors import redact_error_text
 from .identity.models import DeviceIdentity
 from .network.transport import AssistantTransport
+from .preferences import AssistantPreferencesStore
 from .state import AssistantEntrySource, AssistantState, VoiceInteractionMode
 from .state_machine import ConversationStateMachine
 
@@ -106,6 +109,7 @@ class EffectRunner:
         identity_manager: IdentityManager | None = None,
         fake_activation_client: ActivationClient | None = None,
         real_activation_client: ActivationClient | None = None,
+        preferences_store: AssistantPreferencesStore | None = None,
     ) -> None:
         self._transport = transport
         self._event_sink = event_sink
@@ -113,6 +117,7 @@ class EffectRunner:
         self._identity_manager = identity_manager
         self._fake_activation_client = fake_activation_client
         self._real_activation_client = real_activation_client
+        self._preferences_store = preferences_store
 
     async def execute(self, effect: AssistantEffect) -> None:
         if isinstance(effect, OpenTransport):
@@ -142,9 +147,23 @@ class EffectRunner:
         if isinstance(effect, RunActivation):
             await self._run_activation(fake=effect.fake)
             return
+        if isinstance(effect, SetVoiceInteractionMode):
+            if self._preferences_store is not None:
+                await asyncio.to_thread(
+                    self._preferences_store.update_voice_interaction_mode,
+                    effect.mode,
+                )
+            return
+        if isinstance(effect, SetStreamingBargeIn):
+            if self._preferences_store is not None:
+                await asyncio.to_thread(
+                    self._preferences_store.update_streaming_barge_in_enabled,
+                    effect.enabled,
+                )
+            return
         if isinstance(effect, CancelRuntimeEffects):
             return
-        raise NotImplementedError(f"effect is not active in Gate 2.5: {type(effect).__name__}")
+        raise NotImplementedError(f"effect is not active yet: {type(effect).__name__}")
 
     async def _ensure_identity(self) -> None:
         manager = self._identity_manager
@@ -265,6 +284,7 @@ class AssistantController:
         identity_manager: IdentityManager | None = None,
         fake_activation_client: ActivationClient | None = None,
         real_activation_client: ActivationClient | None = None,
+        preferences_store: AssistantPreferencesStore | None = None,
     ) -> None:
         self._clock = clock or SystemRuntimeClock()
         self._state_machine = state_machine or ConversationStateMachine()
@@ -279,6 +299,7 @@ class AssistantController:
             identity_manager=identity_manager,
             fake_activation_client=fake_activation_client,
             real_activation_client=real_activation_client,
+            preferences_store=preferences_store,
         )
         self._effect_tasks: set[asyncio.Task[None]] = set()
         self._listeners: set[StateListener] = set()

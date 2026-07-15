@@ -15,6 +15,8 @@ from .effects import (
     RunActivation,
     ScheduleReconnect,
     SendText,
+    SetStreamingBargeIn,
+    SetVoiceInteractionMode,
 )
 from .events import (
     AbortRequested,
@@ -106,6 +108,7 @@ from .state import (
     MicrophoneOwner,
     StreamingConversationState,
     VoiceActivityState,
+    VoiceInteractionMode,
 )
 from .transitions import Transition
 
@@ -199,6 +202,10 @@ class ConversationStateMachine:
             return self._activation_failed(current, event)
         if isinstance(event, ReconnectTimerFired):
             return self._reconnect_timer_fired(current, event)
+        if isinstance(event, VoiceInteractionModeRequested):
+            return self._voice_interaction_mode_requested(current, event)
+        if isinstance(event, StreamingBargeInRequested):
+            return self._streaming_barge_in_requested(current, event)
         if isinstance(
             event,
             (AudioCaptureStarted, AudioCaptureStopped, AudioCountersUpdated),
@@ -233,10 +240,6 @@ class ConversationStateMachine:
                 category=AssistantErrorCategory.RUNTIME,
                 recoverable=True,
             )
-        if isinstance(event, VoiceInteractionModeRequested):
-            return self._not_ready(current, event, AssistantCapability.STREAMING_CONVERSATION)
-        if isinstance(event, StreamingBargeInRequested):
-            return self._not_ready(current, event, AssistantCapability.BARGE_IN)
         if isinstance(event, (PushToTalkStartRequested, PushToTalkStopRequested)):
             return self._not_ready(current, event, AssistantCapability.PUSH_TO_TALK)
         if isinstance(
@@ -263,6 +266,64 @@ class ConversationStateMachine:
             message=f"未识别的 Runtime 事件：{type(event).__name__}",
             category=AssistantErrorCategory.RUNTIME,
             recoverable=False,
+        )
+
+    def _voice_interaction_mode_requested(
+        self,
+        current: AssistantState,
+        event: VoiceInteractionModeRequested,
+    ) -> Transition:
+        if (
+            current.conversation.streaming_session_active
+            or current.audio.status is AssistantAudioStatus.RECORDING
+        ):
+            return self._error(
+                current,
+                event,
+                code="voice_mode_change_busy",
+                message="当前语音会话结束后才能切换默认语音模式",
+                category=AssistantErrorCategory.CAPABILITY,
+                recoverable=True,
+                preserve_phase=True,
+            )
+        label = "按住说话" if event.mode is VoiceInteractionMode.HOLD_TO_TALK else "连续对话"
+        state = replace(
+            current,
+            conversation=replace(
+                current.conversation,
+                preferred_voice_mode=event.mode,
+            ),
+            status_text=f"默认语音模式已切换为：{label}",
+            error=None,
+        )
+        return self._transition(
+            state,
+            event,
+            (SetVoiceInteractionMode(mode=event.mode),),
+        )
+
+    def _streaming_barge_in_requested(
+        self,
+        current: AssistantState,
+        event: StreamingBargeInRequested,
+    ) -> Transition:
+        state = replace(
+            current,
+            conversation=replace(
+                current.conversation,
+                streaming_barge_in_enabled=event.enabled,
+            ),
+            status_text=(
+                "连续对话插话偏好已开启；Gate 4.2 前不会启动监听"
+                if event.enabled
+                else "连续对话插话偏好已关闭"
+            ),
+            error=None,
+        )
+        return self._transition(
+            state,
+            event,
+            (SetStreamingBargeIn(enabled=event.enabled),),
         )
 
     def _enable(self, current: AssistantState, event: EnableRequested) -> Transition:
@@ -1626,6 +1687,26 @@ class ConversationStateMachine:
             event.generation,
         ):
             return Transition.unchanged(current)
+        if event.effect_name in {"SetVoiceInteractionMode", "SetStreamingBargeIn"}:
+            error = AssistantError(
+                code="assistant_preferences_write_failed",
+                message=f"设置已生效，但保存失败：{event.message}",
+                category=AssistantErrorCategory.VALIDATION,
+                recoverable=True,
+                source_event=type(event).__name__,
+                occurred_at_ns=event.at_ns,
+                details_redacted=event.effect_name,
+            )
+            state = replace(
+                current,
+                recovery=replace(
+                    current.recovery,
+                    runtime_error_count=current.recovery.runtime_error_count + 1,
+                ),
+                status_text="设置已生效，但本地偏好保存失败",
+                error=error,
+            )
+            return self._transition(state, event)
         if event.effect_name == "OpenTransport" and event.generation is not None:
             return self._transport_failed(
                 current,

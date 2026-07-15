@@ -85,7 +85,10 @@ def test_assistant_panel_exposes_gate2_6_product_and_developer_surface_only() ->
     ):
         assert token in panel
 
-    assert "AssistantPanel" in main
+    assert "AssistantOverlay" in main
+    assert "AssistantPanel {" not in main
+    floating = _read(APP_ROOT / "qml" / "components" / "AssistantFloatingPanel.qml")
+    assert "AssistantPanel" in floating
     assert "viewModelRef: root.assistantModel" in main
     assert "pushToTalk" not in panel
     assert "startPushToTalk" not in panel
@@ -118,9 +121,7 @@ def test_current_verifier_covers_gate2_6_and_keeps_historical_gates() -> None:
     smoke_source = _read(smoke_tool)
     assert "create_application_context" in smoke_source
     assert "context.lifecycle.shutdown" in smoke_source
-    assert (
-        PC_BUILD_ROOT / "docs" / "report" / "GATE2_6_IMPLEMENTATION_REPORT.md"
-    ).is_file()
+    assert (PC_BUILD_ROOT / "docs" / "report" / "GATE2_6_IMPLEMENTATION_REPORT.md").is_file()
 
 
 def _call_name(node: ast.Call) -> str | None:

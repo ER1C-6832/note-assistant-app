@@ -24,6 +24,7 @@ ApplicationWindow {
     readonly property bool viewModelReady: root.viewModel !== null
     readonly property var assistantModel: assistantViewModel
     readonly property bool assistantModelReady: root.assistantModel !== null
+    property alias assistantOverlayItem: assistantOverlay
 
     function createInitialTags() {
         if (currentCategory === "todo") {
@@ -125,6 +126,8 @@ ApplicationWindow {
         }
 
         RowLayout {
+            id: notesMainRow
+            objectName: "notesMainRow"
             Layout.fillWidth: true
             Layout.fillHeight: true
             spacing: 20
@@ -150,6 +153,7 @@ ApplicationWindow {
 
             Loader {
                 id: pageLoader
+                objectName: "pageLoader"
                 Layout.fillWidth: true
                 Layout.fillHeight: true
                 Layout.minimumWidth: 520
@@ -163,14 +167,16 @@ ApplicationWindow {
                 }
             }
 
-            AssistantPanel {
-                Layout.preferredWidth: 370
-                Layout.minimumWidth: 330
-                Layout.maximumWidth: 410
-                Layout.fillHeight: true
-                viewModelRef: root.assistantModel
-            }
         }
+    }
+
+    AssistantOverlay {
+        id: assistantOverlay
+        objectName: "assistantOverlay"
+        anchors.fill: parent
+        viewModelRef: root.assistantModel
+        windowActive: root.visible && root.visibility !== Window.Minimized
+        z: 40
     }
 
     Component {

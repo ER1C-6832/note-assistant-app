@@ -19,6 +19,12 @@ from .network import (
     WebSocketConnectionConfig,
 )
 from .protocol import XiaozhiMessageBuilder, XiaozhiMessageRouter
+from .preferences import (
+    ASSISTANT_PREFERENCES_SCHEMA_VERSION,
+    AssistantPreferences,
+    AssistantPreferencesError,
+    AssistantPreferencesStore,
+)
 from .runtime_config import (
     AssistantRuntimeConfig,
     FakeRuntimeConfig,
@@ -61,6 +67,10 @@ __all__ = [
     "AssistantErrorCode",
     "AssistantErrorCategory",
     "AssistantPhase",
+    "AssistantPreferences",
+    "AssistantPreferencesError",
+    "AssistantPreferencesStore",
+    "ASSISTANT_PREFERENCES_SCHEMA_VERSION",
     "AssistantRuntimeConfig",
     "AssistantRuntimeMode",
     "AssistantState",

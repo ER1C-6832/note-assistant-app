@@ -212,7 +212,7 @@ class ConversationState:
     streaming_generation: int = 0
     streaming_session_id: str | None = None
     streaming_turn_index: int = 0
-    streaming_idle_timeout_ms: int = 15_000
+    streaming_idle_timeout_ms: int = 8_000
     streaming_barge_in_enabled: bool = False
     barge_in_monitor_active: bool = False
     barge_in_trigger_count: int = 0

@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import sys
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 from PySide6.QtCore import QTimer, QUrl
@@ -17,6 +17,8 @@ from sqlalchemy import Engine
 from .app_paths import AppPaths
 from .assistant import (
     AssistantController,
+    AssistantPreferencesStore,
+    AssistantState,
     ConversationStateMachine,
     DeviceIdentityManager,
     DeviceIdentityStore,
@@ -62,6 +64,7 @@ class NotesRuntime:
 @dataclass(slots=True)
 class AssistantRuntime:
     config_store: RuntimeConfigStore
+    preferences_store: AssistantPreferencesStore
     identity_manager: DeviceIdentityManager
     controller: AssistantController
     view_model: AssistantViewModel
@@ -160,6 +163,8 @@ def create_notes_runtime(paths: AppPaths) -> NotesRuntime:
 
 def create_assistant_runtime(paths: AppPaths) -> AssistantRuntime:
     config_store = RuntimeConfigStore(paths.assistant_runtime_config)
+    preferences_store = AssistantPreferencesStore(paths.assistant_preferences)
+    preferences = preferences_store.load()
     legacy_source = LegacyPyXiaozhiIdentitySource.from_local_app_data()
     identity_manager = DeviceIdentityManager(
         DeviceIdentityStore(config_store),
@@ -177,10 +182,21 @@ def create_assistant_runtime(paths: AppPaths) -> AssistantRuntime:
             clock=clock,
         ),
     )
+    disabled_state = AssistantState.disabled(now_ns=clock.now_ns())
+    initial_state = replace(
+        disabled_state,
+        conversation=replace(
+            disabled_state.conversation,
+            preferred_voice_mode=preferences.voice_interaction_mode,
+            streaming_idle_timeout_ms=preferences.streaming_idle_timeout_ms,
+            streaming_barge_in_enabled=preferences.streaming_barge_in_enabled,
+        ),
+    )
     controller = AssistantController(
         transport=transport,
         state_machine=ConversationStateMachine(ReconnectPolicy()),
         clock=clock,
+        initial_state=initial_state,
         identity_manager=identity_manager,
         fake_activation_client=FakeActivationClient(
             config_store=config_store,
@@ -190,12 +206,18 @@ def create_assistant_runtime(paths: AppPaths) -> AssistantRuntime:
             config_store=config_store,
             identity_manager=identity_manager,
         ),
+        preferences_store=preferences_store,
     )
     return AssistantRuntime(
         config_store=config_store,
+        preferences_store=preferences_store,
         identity_manager=identity_manager,
         controller=controller,
-        view_model=AssistantViewModel(controller),
+        view_model=AssistantViewModel(
+            controller,
+            preferences_store=preferences_store,
+            initial_preferences=preferences,
+        ),
     )
 
 
