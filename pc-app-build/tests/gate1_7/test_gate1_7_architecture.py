@@ -15,7 +15,12 @@ FORBIDDEN_RUNTIME_TEXT = (
     "uvicorn",
     "http://127.0.0.1",
     "http://localhost",
-    "py-xiaozhi",
+)
+FORBIDDEN_EXTERNAL_RUNTIME_IMPORTS = (
+    "import py_xiaozhi",
+    "from py_xiaozhi",
+    "import src.",
+    "from src.",
 )
 FORBIDDEN_PROCESS_APIS = (
     "subprocess",
@@ -69,6 +74,7 @@ def test_runtime_source_has_no_legacy_transport_or_second_process_path() -> None
         text = _read(path).lower()
         for token in (
             *FORBIDDEN_RUNTIME_TEXT,
+            *FORBIDDEN_EXTERNAL_RUNTIME_IMPORTS,
             *FORBIDDEN_PROCESS_APIS,
             *FORBIDDEN_SIDECAR_PATTERNS,
         ):
@@ -76,6 +82,16 @@ def test_runtime_source_has_no_legacy_transport_or_second_process_path() -> None
                 violations.append(f"{path.relative_to(APP_PACKAGE)}: {token}")
 
     assert violations == []
+
+
+def test_legacy_identity_compatibility_is_read_only_not_a_runtime_dependency() -> None:
+    source = _read(APP_PACKAGE / "assistant" / "identity" / "legacy.py").lower()
+
+    assert "subprocess" not in source
+    assert "multiprocessing" not in source
+    assert "socket.send" not in source
+    assert "urllib" not in source
+    assert "websocket" not in source
 
 
 def test_qml_uses_view_model_signals_and_only_search_debounce_timer() -> None:

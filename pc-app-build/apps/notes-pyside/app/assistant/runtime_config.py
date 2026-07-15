@@ -26,6 +26,7 @@ class IdentityRecord:
     serial_number: str
     hmac_key: str
     generation: int = 1
+    source: str = "unknown"
 
 
 @dataclass(frozen=True, slots=True)
@@ -160,6 +161,7 @@ def _decode_config(payload: object) -> AssistantRuntimeConfig:
                 serial_number=str(identity_payload["serial_number"]),
                 hmac_key=str(identity_payload["hmac_key"]),
                 generation=int(identity_payload.get("generation", 1)),
+                source=str(identity_payload.get("source", "unknown")).strip() or "unknown",
             )
         except (KeyError, TypeError, ValueError) as exc:
             raise RuntimeConfigError("identity 字段不完整") from exc
@@ -207,6 +209,7 @@ def _validate_config(config: AssistantRuntimeConfig) -> None:
             ("client_id", identity.client_id),
             ("serial_number", identity.serial_number),
             ("hmac_key", identity.hmac_key),
+            ("source", identity.source),
         ):
             if not value.strip():
                 raise RuntimeConfigError(f"identity.{name} 不能为空")

@@ -117,3 +117,143 @@ async def test_legacy_py_xiaozhi_identity_is_migrated_before_generating_new_iden
     assert identity.hmac_key == "legacy-hmac"
     assert legacy_source.local_activation_marked is True
     assert config_store.load().identity is not None
+
+
+@pytest.mark.asyncio
+async def test_pre_fix_unknown_identity_is_repaired_from_legacy_and_clears_bad_activation(
+    tmp_path,
+) -> None:
+    from dataclasses import replace
+
+    from app.assistant.identity import DeviceIdentity, LegacyPyXiaozhiIdentitySource
+
+    legacy_config_dir = tmp_path / "legacy" / "config"
+    legacy_config_dir.mkdir(parents=True)
+    (legacy_config_dir / "efuse.json").write_text(
+        """
+        {
+          "mac_address": "10-20-30-40-50-60",
+          "serial_number": "SN-OLD-PC",
+          "hmac_key": "old-pc-hmac",
+          "activation_status": true
+        }
+        """,
+        encoding="utf-8",
+    )
+    (legacy_config_dir / "config.json").write_text(
+        """
+        {
+          "SYSTEM_OPTIONS": {
+            "CLIENT_ID": "old-pc-client",
+            "DEVICE_ID": "10:20:30:40:50:60"
+          }
+        }
+        """,
+        encoding="utf-8",
+    )
+
+    config_store = RuntimeConfigStore(tmp_path / "assistant_runtime.json")
+    store = DeviceIdentityStore(config_store)
+    store.save(
+        DeviceIdentity(
+            device_id="22:33:44:55:66:77",
+            client_id="bug-generated-client",
+            serial_number="BUG-SERIAL",
+            hmac_key="bug-hmac",
+            generation=1,
+            source="unknown",
+        )
+    )
+    config_store.update(
+        lambda current: replace(
+            current,
+            real=replace(
+                current.real,
+                websocket_url="wss://bad-identity.example/ws",
+                websocket_token="bad-token",
+                activated=False,
+                activation_code="046173",
+                activation_challenge="bad-challenge",
+            ),
+        )
+    )
+
+    source = LegacyPyXiaozhiIdentitySource(legacy_config_dir)
+    manager = DeviceIdentityManager(store, legacy_identity=source.load)
+    repaired = await manager.ensure_identity()
+    persisted = config_store.load()
+
+    assert manager.last_identity_replaced is True
+    assert repaired.device_id == "10:20:30:40:50:60"
+    assert repaired.client_id == "old-pc-client"
+    assert repaired.source == "legacy_config"
+    assert repaired.generation == 2
+    assert persisted.real.websocket_url == ""
+    assert persisted.real.websocket_token == ""
+    assert persisted.real.activation_code == ""
+    assert persisted.real.activation_challenge == ""
+
+
+def test_legacy_source_combines_partial_files_and_machine_fingerprint(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    from app.assistant.identity import LegacyPyXiaozhiIdentitySource
+    from app.assistant.identity import legacy as legacy_module
+
+    first_dir = tmp_path / "first" / "config"
+    second_dir = tmp_path / "second" / "config"
+    first_dir.mkdir(parents=True)
+    second_dir.mkdir(parents=True)
+    (first_dir / "config.json").write_text(
+        '{"SYSTEM_OPTIONS":{"CLIENT_ID":"remembered-client"}}',
+        encoding="utf-8",
+    )
+    (second_dir / "efuse.json").write_text(
+        '{"activation_status":true}',
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        legacy_module,
+        "_physical_mac_address",
+        lambda: "aa:bb:cc:dd:ee:11",
+    )
+    monkeypatch.setattr(legacy_module, "_windows_machine_guid", lambda: "machine-guid")
+    monkeypatch.setattr(legacy_module.platform, "node", lambda: "test-host")
+
+    source = LegacyPyXiaozhiIdentitySource(
+        config_dir=first_dir,
+        additional_config_dirs=(second_dir,),
+    )
+    identity = source.load()
+
+    assert identity is not None
+    assert identity.device_id == "aa:bb:cc:dd:ee:11"
+    assert identity.client_id == "remembered-client"
+    assert identity.source == "machine_fingerprint_with_legacy_client"
+    assert identity.serial_number.startswith("SN-")
+    assert len(identity.hmac_key) == 64
+
+
+def test_legacy_source_finds_platformdirs_windows_nested_app_directory(tmp_path) -> None:
+    from app.assistant.identity import LegacyPyXiaozhiIdentitySource
+
+    nested = tmp_path / "py-xiaozhi" / "py-xiaozhi" / "config"
+    nested.mkdir(parents=True)
+    (nested / "efuse.json").write_text(
+        '{"mac_address":"de:ad:be:ef:00:01","serial_number":"SN-NESTED",'
+        '"hmac_key":"nested-hmac","activation_status":true}',
+        encoding="utf-8",
+    )
+    (nested / "config.json").write_text(
+        '{"SYSTEM_OPTIONS":{"CLIENT_ID":"nested-client",' '"DEVICE_ID":"de:ad:be:ef:00:01"}}',
+        encoding="utf-8",
+    )
+
+    source = LegacyPyXiaozhiIdentitySource.from_local_app_data(tmp_path)
+    identity = source.load()
+
+    assert identity is not None
+    assert identity.client_id == "nested-client"
+    assert identity.source == "legacy_config"
+    assert source.imported_from == nested

@@ -14,6 +14,7 @@ class DeviceIdentity:
     serial_number: str
     hmac_key: str
     generation: int
+    source: str = "unknown"
 
     @classmethod
     def from_record(cls, record: IdentityRecord) -> "DeviceIdentity":
@@ -23,6 +24,7 @@ class DeviceIdentity:
             serial_number=record.serial_number,
             hmac_key=record.hmac_key,
             generation=record.generation,
+            source=record.source,
         )
 
     def to_record(self) -> IdentityRecord:
@@ -32,6 +34,7 @@ class DeviceIdentity:
             serial_number=self.serial_number,
             hmac_key=self.hmac_key,
             generation=self.generation,
+            source=self.source,
         )
 
     @property

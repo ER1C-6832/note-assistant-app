@@ -71,3 +71,18 @@ def test_blank_persisted_real_endpoints_are_migrated_to_defaults(tmp_path) -> No
     assert config.real.ota_url == "https://api.tenclass.net/xiaozhi/ota/"
     assert config.real.authorization_url == "https://xiaozhi.me/"
     assert config.real.activation_version == "v2"
+
+
+def test_pre_fix_identity_without_source_loads_as_unknown(tmp_path) -> None:
+    path = tmp_path / "assistant_runtime.json"
+    path.write_text(
+        '{"schema_version":1,"identity":{"device_id":"22:33:44:55:66:77",'
+        '"client_id":"client","serial_number":"serial","hmac_key":"key",'
+        '"generation":1},"real":{},"fake":{}}',
+        encoding="utf-8",
+    )
+
+    config = RuntimeConfigStore(path).load()
+
+    assert config.identity is not None
+    assert config.identity.source == "unknown"

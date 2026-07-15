@@ -24,6 +24,20 @@ class DeviceIdentityStore:
         self._config_store.update(lambda current: replace(current, identity=identity.to_record()))
         return identity
 
+    def install_migrated(self, identity: DeviceIdentity) -> DeviceIdentity:
+        result: DeviceIdentity | None = None
+
+        def mutate(current: AssistantRuntimeConfig) -> AssistantRuntimeConfig:
+            nonlocal result
+            previous_generation = current.identity.generation if current.identity is not None else 0
+            result = replace(identity, generation=max(identity.generation, previous_generation + 1))
+            cleared = clear_identity_bound_runtime(current)
+            return replace(cleared, identity=result.to_record())
+
+        self._config_store.update(mutate)
+        assert result is not None
+        return result
+
     def ensure(self, factory) -> DeviceIdentity:
         result: DeviceIdentity | None = None
 

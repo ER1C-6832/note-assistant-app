@@ -61,21 +61,16 @@ async def _run() -> int:
         config_store.update_real_endpoints,
         ota_url=ota_url or DEFAULT_ASSISTANT_OTA_URL,
         authorization_url=authorization_url or DEFAULT_ASSISTANT_AUTHORIZATION_URL,
-        activation_version=(activation_version or DEFAULT_ASSISTANT_ACTIVATION_VERSION),
+        activation_version=activation_version or DEFAULT_ASSISTANT_ACTIVATION_VERSION,
     )
 
-    had_current_identity = (await asyncio.to_thread(config_store.load)).identity is not None
-    legacy_source = LegacyPyXiaozhiIdentitySource.from_local_app_data()
+    identity_before = (await asyncio.to_thread(config_store.load)).identity
+    compatibility_source = LegacyPyXiaozhiIdentitySource.from_local_app_data()
     identity_manager = DeviceIdentityManager(
         DeviceIdentityStore(config_store),
-        legacy_identity=legacy_source.load,
+        legacy_identity=compatibility_source.load,
     )
     identity = await identity_manager.ensure_identity()
-    identity_source = (
-        "legacy_py_xiaozhi"
-        if legacy_source.imported_from is not None
-        else "note_assistant_config" if had_current_identity else "new_identity"
-    )
 
     client = RealOtaActivationClient(
         config_store=config_store,
@@ -92,12 +87,15 @@ async def _run() -> int:
         "device_id_masked": identity.device_id_masked,
         "client_id_masked": identity.client_id_masked,
         "identity_generation": identity.generation,
-        "identity_source": identity_source,
-        "legacy_local_activation_marked": (
-            legacy_source.local_activation_marked
-            if legacy_source.imported_from is not None
+        "identity_source": identity.source,
+        "identity_repaired": identity_manager.last_identity_replaced,
+        "previous_identity_source": identity_before.source if identity_before is not None else None,
+        "compatibility_config_path": (
+            str(compatibility_source.imported_from)
+            if compatibility_source.imported_from is not None
             else None
         ),
+        "legacy_local_activation_marked": compatibility_source.local_activation_marked,
         "config_path": str(paths.assistant_runtime_config),
     }
     print(json.dumps(public_result, ensure_ascii=False, indent=2, sort_keys=True))
