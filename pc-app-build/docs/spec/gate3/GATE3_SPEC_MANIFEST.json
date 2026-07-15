@@ -1,0 +1,72 @@
+{
+  "package": "note-assistant-gate3-spec-freeze",
+  "base_commit": "872d5be8b44f679a0531b081c61ac3d7b0921255",
+  "type": "docs-only overlay",
+  "files": [
+    {
+      "path": "pc-app-build/docs/adr/ADR-0004-GLOBAL_FLOATING_ASSISTANT_AND_STREAMING_MAINLINE.md",
+      "bytes": 2195,
+      "sha256": "eb0bf5c279f31e24df4bde8f7edc1fe4a8ace196bb54e37d48a2669138e490d6"
+    },
+    {
+      "path": "pc-app-build/docs/amendments/PC_ASSISTANT_RUNTIME_MASTER_PLAN_GATE3_AMENDMENT.md",
+      "bytes": 3124,
+      "sha256": "6871150dc13f3ee7984ab43471c49d2ac452aa6619273424748428ccafd4858c"
+    },
+    {
+      "path": "pc-app-build/docs/report/GATE3_SPEC_FREEZE_REPORT.md",
+      "bytes": 2078,
+      "sha256": "188d4709015cfc8a9a69f18a48f20adae59c6f8f394c59f2ca3b652aaa642857"
+    },
+    {
+      "path": "pc-app-build/docs/spec/gate3/GATE3_ASSISTANT_PREFERENCES_SPEC.md",
+      "bytes": 4611,
+      "sha256": "75361e513b6b13a6042c8370b0c00d6ce2c7933b100d5dc30492eee53ef8504c"
+    },
+    {
+      "path": "pc-app-build/docs/spec/gate3/GATE3_AUDIO_PIPELINE_SPEC.md",
+      "bytes": 5580,
+      "sha256": "3d4fce36cde5b86bc772689d57258e254687f17cedbc454bac04e673cd4936aa"
+    },
+    {
+      "path": "pc-app-build/docs/spec/gate3/GATE3_IMPLEMENTATION_PLAN.md",
+      "bytes": 3766,
+      "sha256": "9e03698b258fd3a50075f9fb5e4c7c731c016c2ef75a9d2434b2be60ec9ddad3"
+    },
+    {
+      "path": "pc-app-build/docs/spec/gate3/GATE3_SPEC_INDEX.md",
+      "bytes": 3346,
+      "sha256": "0df2b054c07800e480177b7a4e0bb53911eceed0d82c76a62f6bd398ca2b174d"
+    },
+    {
+      "path": "pc-app-build/docs/spec/gate3/GATE3_SPEC_PACKAGE_README.md",
+      "bytes": 653,
+      "sha256": "60a2fb69194eed437402512eb17f7fe2dbdb070c208747f418a113272e8616ef"
+    },
+    {
+      "path": "pc-app-build/docs/spec/gate3/GATE3_STATE_EVENT_EFFECT_CONTRACT.md",
+      "bytes": 6050,
+      "sha256": "22e03e593736fc772640c54c572808096e11cd916d4258dbf254e2c36aa8f193"
+    },
+    {
+      "path": "pc-app-build/docs/spec/gate3/GATE3_STREAMING_CONVERSATION_SPEC.md",
+      "bytes": 5710,
+      "sha256": "b30f4648ff32bf4c2700e1d0a07712be1e029678249c2aa5d3290eedfb479bba"
+    },
+    {
+      "path": "pc-app-build/docs/spec/gate3/GATE3_TEST_AND_ACCEPTANCE_PLAN.md",
+      "bytes": 4545,
+      "sha256": "e8822ac63c17aac91daae2cae8b7a9681af9bae3a4366c8b5f55b3c2c0167999"
+    },
+    {
+      "path": "pc-app-build/docs/spec/gate3/GATE3_UI_SHELL_AND_AURORA_SPEC.md",
+      "bytes": 7121,
+      "sha256": "bca23c4ca192e51a42a34188f5be5a77b4f87f3bf7fca0c14d8186cddea84de2"
+    },
+    {
+      "path": "pc-app-build/docs/spec/gate3/UI_CURRENT_STATE_AUDIT.md",
+      "bytes": 2784,
+      "sha256": "5a37461418737aff23aaeccabaef79dd58291802ee9215ea21cc1340025bab3c"
+    }
+  ]
+}
