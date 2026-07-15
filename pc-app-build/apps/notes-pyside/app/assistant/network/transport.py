@@ -86,6 +86,7 @@ class AssistantTransport(Protocol):
     async def send_text(
         self,
         generation: int,
+        turn_token: int,
         text: str,
         event_sink: EventSink,
     ) -> None: ...
@@ -126,13 +127,14 @@ class RuntimeTransportRouter:
     async def send_text(
         self,
         generation: int,
+        turn_token: int,
         text: str,
         event_sink: EventSink,
     ) -> None:
         mode = await self._mode_for_generation(generation)
         if mode is None:
             raise RuntimeError("没有与当前 generation 关联的 Transport")
-        await self._adapter(mode).send_text(generation, text, event_sink)
+        await self._adapter(mode).send_text(generation, turn_token, text, event_sink)
 
     async def close(
         self,

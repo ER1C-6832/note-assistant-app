@@ -29,6 +29,7 @@ from .events import (
     AudioFailureSimulationRequested,
     BargeInTriggered,
     ClientHelloSent,
+    ClientTextSent,
     ConnectRequested,
     ConnectionClosedSimulationRequested,
     ConnectionFailureSimulationRequested,
@@ -69,7 +70,9 @@ from .events import (
     SystemAudioInterrupted,
     SystemAudioRecovered,
     TextSubmitted,
+    TextTurnCompleted,
     ToolsListSimulationRequested,
+    TtsStateReceived,
     VoiceActivityChanged,
     WakeWordDetected,
     TransportClosed,
@@ -79,6 +82,7 @@ from .events import (
     UseRealRuntimeRequested,
     VoiceInteractionModeRequested,
 )
+from .protocol import has_readable_transcript_text, merge_assistant_transcript
 from .state import (
     AssistantActivationStatus,
     AssistantAudioStatus,
@@ -130,8 +134,14 @@ class ConversationStateMachine:
             return self._hello_sent(current, event)
         if isinstance(event, ServerHelloReceived):
             return self._hello_received(current, event)
+        if isinstance(event, ClientTextSent):
+            return self._client_text_sent(current, event)
         if isinstance(event, AssistantTextReceived):
             return self._assistant_text(current, event)
+        if isinstance(event, TtsStateReceived):
+            return self._tts_state(current, event)
+        if isinstance(event, TextTurnCompleted):
+            return self._text_turn_completed(current, event)
         if isinstance(event, ProtocolMessageObserved):
             return self._protocol_observed(current, event)
         if isinstance(event, ProtocolUnknownMessageReceived):
@@ -532,7 +542,7 @@ class ConversationStateMachine:
                 category=AssistantErrorCategory.TRANSPORT,
                 recoverable=True,
             )
-        if current.phase is AssistantPhase.THINKING:
+        if current.conversation.active_text_turn_token is not None:
             return self._error(
                 current,
                 event,
@@ -543,6 +553,7 @@ class ConversationStateMachine:
                 preserve_phase=True,
             )
 
+        turn_token = current.conversation.text_turn_counter + 1
         state = replace(
             current,
             phase=AssistantPhase.THINKING,
@@ -551,14 +562,25 @@ class ConversationStateMachine:
                 active_entry_source=AssistantEntrySource.TEXT,
                 last_user_text=text,
                 last_assistant_text=None,
+                last_assistant_source_type=None,
+                assistant_reply_buffer="",
+                text_turn_counter=turn_token,
+                active_text_turn_token=turn_token,
+                active_text_turn_started_at_ns=event.at_ns,
             ),
-            status_text="已发送文本，等待助手回复",
+            status_text=f"文本回合 {turn_token} 已提交，等待助手回复",
             error=None,
         )
         return self._transition(
             state,
             event,
-            (SendText(generation=current.connection.connection_generation, text=text),),
+            (
+                SendText(
+                    generation=current.connection.connection_generation,
+                    turn_token=turn_token,
+                    text=text,
+                ),
+            ),
         )
 
     def _transport_opened(self, current: AssistantState, event: TransportOpened) -> Transition:
@@ -714,6 +736,28 @@ class ConversationStateMachine:
         )
         return self._transition(state, event)
 
+    def _client_text_sent(
+        self,
+        current: AssistantState,
+        event: ClientTextSent,
+    ) -> Transition:
+        if self._is_stale_connection_event(current, event.generation):
+            return Transition.unchanged(current)
+        if event.turn_token != current.conversation.active_text_turn_token:
+            return Transition.unchanged(current)
+        state = replace(
+            current,
+            protocol=replace(
+                current.protocol,
+                last_client_json_redacted=event.raw_json_redacted,
+                last_protocol_event=f"ClientTextSent:{event.turn_token}",
+                last_protocol_error=None,
+            ),
+            status_text=f"文本回合 {event.turn_token} 已写入 WebSocket",
+            error=None,
+        )
+        return self._transition(state, event)
+
     def _assistant_text(
         self,
         current: AssistantState,
@@ -723,22 +767,212 @@ class ConversationStateMachine:
             return Transition.unchanged(current)
         if not current.is_connected:
             return Transition.unchanged(current)
+        if not self._matches_active_text_turn(
+            current,
+            turn_token=event.turn_token,
+            session_id=event.session_id,
+        ):
+            return self._archive_late_text_event(
+                current,
+                event,
+                event_name=f"LateAssistantText:{event.source_type}",
+                raw_json_redacted=event.raw_json_redacted,
+            )
+
+        source_type = event.source_type.strip().lower() or "text"
+        cleaned_text = event.text.strip()
+        protocol = replace(
+            current.protocol,
+            last_server_json_redacted=event.raw_json_redacted,
+            last_protocol_event=f"AssistantTextReceived:{source_type}",
+            last_protocol_error=None,
+        )
+        if source_type == "stt":
+            state = replace(
+                current,
+                conversation=replace(
+                    current.conversation,
+                    last_stt_text=cleaned_text or None,
+                ),
+                protocol=protocol,
+                status_text="收到 STT 文本；文本输入回合不覆盖已提交的用户文本",
+                error=None,
+            )
+            return self._transition(state, event)
+
+        if source_type == "llm" and not has_readable_transcript_text(cleaned_text):
+            state = replace(
+                current,
+                protocol=protocol,
+                status_text="收到 LLM 情绪/状态标记，未写入产品 transcript",
+                error=None,
+            )
+            return self._transition(state, event)
+
+        if not has_readable_transcript_text(cleaned_text):
+            state = replace(
+                current,
+                protocol=protocol,
+                status_text=f"收到空白 {source_type} 文本，未写入产品 transcript",
+                error=None,
+            )
+            return self._transition(state, event)
+
+        merged = merge_assistant_transcript(
+            current.conversation.assistant_reply_buffer,
+            cleaned_text,
+        )
         state = replace(
             current,
             phase=AssistantPhase.CONNECTED,
             conversation=replace(
                 current.conversation,
-                last_assistant_text=event.text,
+                last_assistant_text=merged,
+                last_assistant_source_type=source_type,
+                assistant_reply_buffer=merged,
                 active_entry_source=AssistantEntrySource.TEXT,
+            ),
+            protocol=protocol,
+            diagnostics=replace(
+                current.diagnostics,
+                gate_real_text_verified=(
+                    current.diagnostics.gate_real_text_verified
+                    or current.runtime_mode is AssistantRuntimeMode.REAL
+                ),
+            ),
+            status_text=f"收到助手 {source_type} 文本回复",
+            error=None,
+        )
+        return self._transition(state, event)
+
+    def _tts_state(
+        self,
+        current: AssistantState,
+        event: TtsStateReceived,
+    ) -> Transition:
+        if self._is_stale_connection_event(current, event.generation):
+            return Transition.unchanged(current)
+        if not current.is_connected:
+            return Transition.unchanged(current)
+        if not self._matches_active_text_turn(
+            current,
+            turn_token=event.turn_token,
+            session_id=event.session_id,
+        ):
+            return self._archive_late_text_event(
+                current,
+                event,
+                event_name=f"LateTtsState:{event.state}",
+                raw_json_redacted=event.raw_json_redacted,
+            )
+
+        protocol = replace(
+            current.protocol,
+            last_server_json_redacted=event.raw_json_redacted,
+            last_protocol_event=f"TtsStateReceived:{event.state}",
+            last_protocol_error=None,
+        )
+        spoken_text = (event.text or "").strip()
+        if not has_readable_transcript_text(spoken_text):
+            state = replace(
+                current,
+                protocol=protocol,
+                status_text=f"收到 TTS state={event.state}；Gate 4 前仅记录状态",
+                error=None,
+            )
+            return self._transition(state, event)
+
+        merged = merge_assistant_transcript(
+            current.conversation.assistant_reply_buffer,
+            spoken_text,
+        )
+        state = replace(
+            current,
+            phase=AssistantPhase.CONNECTED,
+            conversation=replace(
+                current.conversation,
+                last_assistant_text=merged,
+                last_assistant_source_type="tts",
+                assistant_reply_buffer=merged,
+                active_entry_source=AssistantEntrySource.TEXT,
+            ),
+            protocol=protocol,
+            diagnostics=replace(
+                current.diagnostics,
+                gate_real_text_verified=(
+                    current.diagnostics.gate_real_text_verified
+                    or current.runtime_mode is AssistantRuntimeMode.REAL
+                ),
+            ),
+            status_text=f"收到 TTS 文本 state={event.state}；Gate 4 前不播放",
+            error=None,
+        )
+        return self._transition(state, event)
+
+    def _text_turn_completed(
+        self,
+        current: AssistantState,
+        event: TextTurnCompleted,
+    ) -> Transition:
+        if self._is_stale_connection_event(current, event.generation):
+            return Transition.unchanged(current)
+        if event.turn_token != current.conversation.active_text_turn_token:
+            return Transition.unchanged(current)
+
+        state = replace(
+            current,
+            phase=AssistantPhase.CONNECTED if current.is_connected else current.phase,
+            conversation=replace(
+                current.conversation,
+                active_text_turn_token=None,
+                active_text_turn_started_at_ns=None,
+                last_completed_text_turn_token=event.turn_token,
+                last_text_turn_completed_at_ns=event.at_ns,
+            ),
+            status_text=(
+                f"文本回合 {event.turn_token} 完成"
+                if event.had_assistant_text
+                else f"文本回合 {event.turn_token} 结束，但没有可显示的助手文本"
+            ),
+            error=None,
+        )
+        return self._transition(state, event)
+
+    @staticmethod
+    def _matches_active_text_turn(
+        current: AssistantState,
+        *,
+        turn_token: int | None,
+        session_id: str | None,
+    ) -> bool:
+        active_token = current.conversation.active_text_turn_token
+        if active_token is None or turn_token != active_token:
+            return False
+        if session_id and session_id != current.connection.session_id:
+            return False
+        return True
+
+    def _archive_late_text_event(
+        self,
+        current: AssistantState,
+        event: AssistantTextReceived | TtsStateReceived,
+        *,
+        event_name: str,
+        raw_json_redacted: str | None,
+    ) -> Transition:
+        state = replace(
+            current,
+            conversation=replace(
+                current.conversation,
+                late_text_event_count=current.conversation.late_text_event_count + 1,
             ),
             protocol=replace(
                 current.protocol,
-                last_server_json_redacted=event.raw_json_redacted,
-                last_protocol_event=f"AssistantTextReceived:{event.source_type}",
+                last_server_json_redacted=raw_json_redacted,
+                last_protocol_event=event_name,
                 last_protocol_error=None,
             ),
-            status_text="收到助手文本回复",
-            error=None,
+            status_text="已归档不属于当前文本回合的迟到协议文本",
         )
         return self._transition(state, event)
 
@@ -875,6 +1109,7 @@ class ConversationStateMachine:
                 connection_generation=event.generation + 1,
                 close_reason=event.message,
             ),
+            conversation=self._idle_conversation(current.conversation),
         )
         return self._error(
             disconnected,
@@ -1184,8 +1419,19 @@ class ConversationStateMachine:
             event.generation,
         ):
             return Transition.unchanged(current)
+        state = current
+        if event.effect_name == "SendText":
+            state = replace(
+                current,
+                conversation=replace(
+                    current.conversation,
+                    active_text_turn_token=None,
+                    active_text_turn_started_at_ns=None,
+                    assistant_reply_buffer="",
+                ),
+            )
         return self._error(
-            current,
+            state,
             event,
             code="effect_execution_failed",
             message=f"{event.effect_name} 执行失败：{event.message}",
@@ -1311,6 +1557,9 @@ class ConversationStateMachine:
         return replace(
             conversation,
             active_entry_source=None,
+            active_text_turn_token=None,
+            active_text_turn_started_at_ns=None,
+            assistant_reply_buffer="",
             streaming_state=StreamingConversationState.INACTIVE,
             streaming_session_active=False,
             streaming_generation=(conversation.streaming_generation + int(invalidate_streaming)),

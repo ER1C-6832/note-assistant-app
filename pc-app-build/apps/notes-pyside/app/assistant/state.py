@@ -197,7 +197,16 @@ class ConversationState:
     preferred_voice_mode: VoiceInteractionMode = VoiceInteractionMode.HOLD_TO_TALK
     active_entry_source: AssistantEntrySource | None = None
     last_user_text: str | None = None
+    last_stt_text: str | None = None
     last_assistant_text: str | None = None
+    last_assistant_source_type: str | None = None
+    assistant_reply_buffer: str = ""
+    text_turn_counter: int = 0
+    active_text_turn_token: int | None = None
+    active_text_turn_started_at_ns: int | None = None
+    last_completed_text_turn_token: int = 0
+    last_text_turn_completed_at_ns: int | None = None
+    late_text_event_count: int = 0
     streaming_state: StreamingConversationState = StreamingConversationState.INACTIVE
     streaming_session_active: bool = False
     streaming_generation: int = 0
@@ -330,7 +339,12 @@ def default_capabilities() -> tuple[CapabilityState, ...]:
         ),
         CapabilityState(AssistantCapability.IDENTITY, active, "2.2", "稳定设备身份"),
         CapabilityState(AssistantCapability.ACTIVATION, active, "2.2", "Fake/Real OTA 与激活适配"),
-        CapabilityState(AssistantCapability.TEXT_CONVERSATION, active, "2.1/2.4", "Fake 文本骨架"),
+        CapabilityState(
+            AssistantCapability.TEXT_CONVERSATION,
+            active,
+            "2.4",
+            "Fake/Real listen-detect 文本回合与 transcript 规则",
+        ),
         CapabilityState(AssistantCapability.MANUAL_RECOVERY, active, "2.1", "手工重连骨架"),
         CapabilityState(AssistantCapability.AUTOMATIC_RECOVERY, not_ready, "2.5", "有界自动重连"),
         CapabilityState(
@@ -443,9 +457,23 @@ def validate_assistant_state(state: AssistantState) -> None:
         state.conversation.streaming_generation,
         state.conversation.streaming_turn_index,
         state.conversation.barge_in_trigger_count,
+        state.conversation.text_turn_counter,
+        state.conversation.last_completed_text_turn_token,
+        state.conversation.late_text_event_count,
         state.recovery.reconnect_attempt,
         state.recovery.runtime_error_count,
         state.diagnostics.metrics_sample_count,
     )
     if any(value < 0 for value in counters):
         raise StateInvariantError("runtime counters and generations cannot be negative")
+
+    active_text_turn_token = state.conversation.active_text_turn_token
+    if active_text_turn_token is not None:
+        if active_text_turn_token <= 0:
+            raise StateInvariantError("active text turn token must be positive")
+        if active_text_turn_token > state.conversation.text_turn_counter:
+            raise StateInvariantError("active text turn cannot exceed the allocated turn counter")
+        if not state.is_connected:
+            raise StateInvariantError("active text turn requires an active session")
+    if state.conversation.last_completed_text_turn_token > state.conversation.text_turn_counter:
+        raise StateInvariantError("completed text turn cannot exceed the allocated turn counter")

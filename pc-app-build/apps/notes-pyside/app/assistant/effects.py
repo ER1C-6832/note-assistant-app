@@ -27,6 +27,7 @@ class CloseTransport(AssistantEffect):
 @dataclass(frozen=True, slots=True)
 class SendText(AssistantEffect):
     generation: int
+    turn_token: int
     text: str
 
 

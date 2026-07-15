@@ -179,12 +179,38 @@ class ServerHelloReceived(AssistantEvent):
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
+class ClientTextSent(AssistantEvent):
+    generation: int
+    turn_token: int
+    raw_json_redacted: str | None = None
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
 class AssistantTextReceived(AssistantEvent):
     generation: int
     text: str
     source_type: str = "text"
     session_id: str | None = None
     raw_json_redacted: str | None = None
+    turn_token: int | None = None
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class TtsStateReceived(AssistantEvent):
+    generation: int
+    state: str
+    turn_token: int | None = None
+    text: str | None = None
+    session_id: str | None = None
+    raw_json_redacted: str | None = None
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class TextTurnCompleted(AssistantEvent):
+    generation: int
+    turn_token: int
+    reason: str
+    had_assistant_text: bool
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)

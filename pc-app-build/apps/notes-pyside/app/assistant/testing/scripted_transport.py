@@ -12,7 +12,9 @@ from ..events import (
     AssistantEvent,
     AssistantTextReceived,
     ClientHelloSent,
+    ClientTextSent,
     ServerHelloReceived,
+    TextTurnCompleted,
     TransportClosed,
     TransportFailed,
     TransportOpened,
@@ -39,6 +41,7 @@ class OpenFailed:
 @dataclass(frozen=True, slots=True)
 class TextReply:
     text: str
+    source_type: str = "text"
     delay_seconds: float = 0.0
 
 
@@ -78,6 +81,7 @@ class ScriptedFakeTransport:
         self.open_modes: list[AssistantRuntimeMode] = []
         self.close_calls: list[tuple[int, str]] = []
         self.sent_texts: list[tuple[int, str]] = []
+        self.sent_turns: list[tuple[int, int, str]] = []
         self.cancelled_open_count = 0
         self.cancelled_text_count = 0
         self.active_generation: int | None = None
@@ -166,10 +170,12 @@ class ScriptedFakeTransport:
     async def send_text(
         self,
         generation: int,
+        turn_token: int,
         text: str,
         event_sink: EventSink,
     ) -> None:
         self.sent_texts.append((generation, text))
+        self.sent_turns.append((generation, turn_token, text))
         if not self.is_open or self.active_generation != generation or not self.session_id:
             await event_sink(
                 TransportFailed(
@@ -181,7 +187,15 @@ class ScriptedFakeTransport:
             return
 
         # Build the same client payload used by Real before producing a scripted server reply.
-        self.message_builder.listen_detect(self.session_id, text)
+        outgoing_json = self.message_builder.listen_detect(self.session_id, text)
+        await event_sink(
+            ClientTextSent(
+                at_ns=self.clock.now_ns(),
+                generation=generation,
+                turn_token=turn_token,
+                raw_json_redacted=outgoing_json,
+            )
+        )
         step = self.text_steps.popleft() if self.text_steps else TextReply(f"Fake: {text}")
         try:
             await self._wait(self.text_gate, step.delay_seconds)
@@ -202,7 +216,7 @@ class ScriptedFakeTransport:
         reply_json = json.dumps(
             {
                 "session_id": self.session_id,
-                "type": "text",
+                "type": step.source_type,
                 "text": step.text,
             },
             ensure_ascii=False,
@@ -218,6 +232,16 @@ class ScriptedFakeTransport:
                 source_type=routed.source_type,
                 session_id=routed.session_id,
                 raw_json_redacted=routed.raw_json_redacted,
+                turn_token=turn_token,
+            )
+        )
+        await event_sink(
+            TextTurnCompleted(
+                at_ns=self.clock.now_ns(),
+                generation=generation,
+                turn_token=turn_token,
+                reason="scripted_reply_complete",
+                had_assistant_text=True,
             )
         )
 

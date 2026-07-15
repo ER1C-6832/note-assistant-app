@@ -13,6 +13,11 @@ from .events import (
 )
 from .message_builder import XiaozhiMessageBuilder
 from .message_router import XiaozhiMessageRouter, redact_json
+from .transcript import (
+    has_readable_transcript_text,
+    is_terminal_tts_state,
+    merge_assistant_transcript,
+)
 
 __all__ = [
     "AssistantText",
@@ -26,5 +31,8 @@ __all__ = [
     "UnknownJson",
     "XiaozhiMessageBuilder",
     "XiaozhiMessageRouter",
+    "has_readable_transcript_text",
+    "is_terminal_tts_state",
+    "merge_assistant_transcript",
     "redact_json",
 ]

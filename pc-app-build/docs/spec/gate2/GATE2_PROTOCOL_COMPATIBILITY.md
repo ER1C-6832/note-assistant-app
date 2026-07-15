@@ -152,3 +152,17 @@ Gate 5 才接 `NoteCommandService`。
 - Unknown/invalid JSON：typed event，连接保持；
 - Binary：typed route，Gate 4 前不播放；
 - Real 验收：`RUN_GATE2_3_REAL_WEBSOCKET_HELLO.ps1` 返回 0 才算 hello/session 通过。
+
+## 10. Gate 2.4 文本回合实施状态
+
+- Outgoing：共享 Builder 生成 `listen/detect`；
+- Concurrency：同一 session 单 active turn，快速连续发送 fail-closed；
+- Local correlation：本地 `turn_token` 不写入 wire JSON；
+- STT：独立记录，不覆盖文本输入；
+- LLM：纯表情/情绪标记不进入产品 transcript；
+- Text/TTS text：可读正文合并进入助手 transcript；
+- Gate 4 前：TTS 与二进制音频只记录，不播放；
+- Late events：无 active token、token/session 不匹配时归档；
+- Real 验收：`RUN_GATE2_4_REAL_TEXT.ps1` 返回 0 且 `real_text_verified=true`。
+
+服务端当前不回显 PC 本地 turn token，本地关联依赖“单 active turn + session + 发送屏障 + settle 窗口”，不等同于服务端强 turn-id 关联。

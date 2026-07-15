@@ -100,16 +100,15 @@ async def test_real_transport_has_one_sender_owner_for_concurrent_enqueues() -> 
 
     open_task = asyncio.create_task(transport.open(3, AssistantRuntimeMode.REAL, sink))
     await asyncio.wait_for(connected.wait(), timeout=1)
-    await asyncio.gather(
-        transport.send_text(3, "第一条", sink),
-        transport.send_text(3, "第二条", sink),
+    results = await asyncio.gather(
+        transport.send_text(3, 1, "第一条", sink),
+        transport.send_text(3, 2, "第二条", sink),
+        return_exceptions=True,
     )
 
     assert connection.max_concurrent_sends == 1
-    assert [json.loads(item)["text"] for item in connection.sent[1:]] == [
-        "第一条",
-        "第二条",
-    ]
+    assert [json.loads(item)["text"] for item in connection.sent[1:]] == ["第一条"]
+    assert sum(isinstance(result, RuntimeError) for result in results) == 1
 
     await transport.close(3, "done", sink)
     await asyncio.wait_for(open_task, timeout=1)

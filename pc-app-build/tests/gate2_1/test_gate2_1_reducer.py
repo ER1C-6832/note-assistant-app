@@ -11,6 +11,7 @@ from app.assistant.events import (
     PushToTalkStartRequested,
     ServerHelloReceived,
     TextSubmitted,
+    TextTurnCompleted,
     TransportOpened,
     UseFakeRuntimeRequested,
 )
@@ -89,7 +90,7 @@ def test_text_round_trip_and_stale_generation_are_deterministic() -> None:
     submitted = machine.reduce(connected, TextSubmitted(at_ns=22, text="  你好  "))
     assert submitted.state.phase is AssistantPhase.THINKING
     assert submitted.state.conversation.last_user_text == "你好"
-    assert submitted.effects == (SendText(generation=2, text="你好"),)
+    assert submitted.effects == (SendText(generation=2, turn_token=1, text="你好"),)
 
     stale = machine.reduce(
         submitted.state,
@@ -100,10 +101,29 @@ def test_text_round_trip_and_stale_generation_are_deterministic() -> None:
 
     completed = machine.reduce(
         submitted.state,
-        AssistantTextReceived(at_ns=24, generation=2, text="你好，我是小智"),
+        AssistantTextReceived(
+            at_ns=24,
+            generation=2,
+            text="你好，我是小智",
+            turn_token=1,
+            session_id="session-2",
+        ),
     )
     assert completed.state.phase is AssistantPhase.CONNECTED
     assert completed.state.conversation.last_assistant_text == "你好，我是小智"
+
+    finalized = machine.reduce(
+        completed.state,
+        TextTurnCompleted(
+            at_ns=25,
+            generation=2,
+            turn_token=1,
+            reason="test_complete",
+            had_assistant_text=True,
+        ),
+    )
+    assert finalized.state.conversation.active_text_turn_token is None
+    assert finalized.state.conversation.last_completed_text_turn_token == 1
 
 
 def test_disable_invalidates_old_connection_generation() -> None:

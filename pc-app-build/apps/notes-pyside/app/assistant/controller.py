@@ -1,4 +1,4 @@
-"""Single-writer AssistantController and Gate 2.3 transport effect runner."""
+"""Single-writer AssistantController and Gate 2.4 text-turn effect runner."""
 
 from __future__ import annotations
 
@@ -125,6 +125,7 @@ class EffectRunner:
         if isinstance(effect, SendText):
             await self._transport.send_text(
                 effect.generation,
+                effect.turn_token,
                 effect.text,
                 self._event_sink,
             )
@@ -140,7 +141,7 @@ class EffectRunner:
             return
         if isinstance(effect, CancelRuntimeEffects):
             return
-        raise NotImplementedError(f"effect is not active in Gate 2.3: {type(effect).__name__}")
+        raise NotImplementedError(f"effect is not active in Gate 2.4: {type(effect).__name__}")
 
     async def _ensure_identity(self) -> None:
         manager = self._identity_manager

@@ -11,13 +11,16 @@ from ..events import (
     AssistantTextReceived,
     BinaryAudioReceived,
     ClientHelloSent,
+    ClientTextSent,
     ProtocolInvalidMessageReceived,
     ProtocolMessageObserved,
     ProtocolUnknownMessageReceived,
     ServerHelloReceived,
+    TextTurnCompleted,
     TransportClosed,
     TransportFailed,
     TransportOpened,
+    TtsStateReceived,
 )
 from ..protocol import (
     AssistantText,
@@ -30,6 +33,8 @@ from ..protocol import (
     UnknownJson,
     XiaozhiMessageBuilder,
     XiaozhiMessageRouter,
+    has_readable_transcript_text,
+    is_terminal_tts_state,
 )
 from ..state import AssistantRuntimeMode
 from .transport import ConnectionConfigProvider, EventSink, WebSocketConnectionConfig
@@ -40,6 +45,9 @@ CLOSE_TIMEOUT_SECONDS = 10.0
 MAX_MESSAGE_BYTES = 10 * 1024 * 1024
 SEND_QUEUE_CAPACITY = 64
 MAX_CLOSE_REASON_LENGTH = 80
+TEXT_TURN_SETTLE_SECONDS = 1.5
+TEXT_TTS_FALLBACK_SECONDS = 6.0
+TEXT_TURN_RESPONSE_TIMEOUT_SECONDS = 30.0
 
 
 class WebSocketClosed(RuntimeError):
@@ -119,6 +127,11 @@ class _ActiveConnection:
     expected_close: bool = False
     close_started: bool = False
     close_emitted: bool = False
+    active_text_turn_token: int | None = None
+    text_turn_had_assistant_text: bool = False
+    text_turn_settle_task: asyncio.Task[None] | None = None
+    text_turn_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
+    text_sent_ready: asyncio.Event = field(default_factory=asyncio.Event)
 
 
 class RealWebSocketTransport:
@@ -265,6 +278,7 @@ class RealWebSocketTransport:
     async def send_text(
         self,
         generation: int,
+        turn_token: int,
         text: str,
         event_sink: EventSink,
     ) -> None:
@@ -278,8 +292,41 @@ class RealWebSocketTransport:
                 )
             )
             return
-        payload = self._builder.listen_detect(active.session_id, text)
-        await self._enqueue_and_wait(active, payload)
+        if turn_token <= 0:
+            raise ValueError("text turn token must be positive")
+
+        async with active.text_turn_lock:
+            if active.active_text_turn_token is not None:
+                raise RuntimeError("上一文本回合尚未完成，拒绝并行发送")
+            active.active_text_turn_token = turn_token
+            active.text_turn_had_assistant_text = False
+            active.text_sent_ready.clear()
+            self._cancel_text_turn_settle(active)
+            payload = self._builder.listen_detect(active.session_id, text)
+            try:
+                await self._enqueue_and_wait(active, payload)
+            except Exception:
+                active.active_text_turn_token = None
+                active.text_sent_ready.set()
+                raise
+
+        try:
+            await event_sink(
+                ClientTextSent(
+                    at_ns=self._clock.now_ns(),
+                    generation=generation,
+                    turn_token=turn_token,
+                    raw_json_redacted=payload,
+                )
+            )
+            if active.active_text_turn_token == turn_token:
+                self._schedule_text_turn_settle(
+                    active,
+                    delay_seconds=TEXT_TURN_RESPONSE_TIMEOUT_SECONDS,
+                    reason="response_timeout",
+                )
+        finally:
+            active.text_sent_ready.set()
 
     async def close(
         self,
@@ -290,6 +337,8 @@ class RealWebSocketTransport:
         active = await self._get_active(generation)
         if active is not None:
             active.expected_close = True
+            active.text_sent_ready.set()
+            self._cancel_text_turn_settle(active)
             await self._safe_close(active, reason=reason)
             await self._emit_close(active, code=1000, reason=reason, expected=True)
             return
@@ -367,6 +416,12 @@ class RealWebSocketTransport:
             active.hello_received.set()
             return
         if isinstance(event, AssistantText):
+            turn_token = active.active_text_turn_token
+            if turn_token is not None:
+                await active.text_sent_ready.wait()
+            readable = has_readable_transcript_text(event.text)
+            if readable and event.source_type != "stt":
+                active.text_turn_had_assistant_text = True
             await active.event_sink(
                 AssistantTextReceived(
                     at_ns=now,
@@ -375,8 +430,48 @@ class RealWebSocketTransport:
                     source_type=event.source_type,
                     session_id=event.session_id,
                     raw_json_redacted=event.raw_json_redacted,
+                    turn_token=turn_token,
                 )
             )
+            if readable and event.source_type != "stt":
+                self._schedule_text_turn_settle(
+                    active,
+                    delay_seconds=TEXT_TURN_SETTLE_SECONDS,
+                    reason="assistant_text_settled",
+                )
+            return
+        if isinstance(event, TtsState):
+            turn_token = active.active_text_turn_token
+            if turn_token is not None:
+                await active.text_sent_ready.wait()
+            readable = has_readable_transcript_text(event.text)
+            if readable:
+                active.text_turn_had_assistant_text = True
+            await active.event_sink(
+                TtsStateReceived(
+                    at_ns=now,
+                    generation=active.generation,
+                    state=event.state,
+                    turn_token=turn_token,
+                    text=event.text,
+                    session_id=event.session_id,
+                    raw_json_redacted=event.raw_json_redacted,
+                )
+            )
+            if is_terminal_tts_state(event.state):
+                await self._complete_text_turn(active, reason=f"tts_{event.state}")
+            elif readable:
+                self._schedule_text_turn_settle(
+                    active,
+                    delay_seconds=TEXT_TURN_SETTLE_SECONDS,
+                    reason="tts_text_settled",
+                )
+            elif turn_token is not None:
+                self._schedule_text_turn_settle(
+                    active,
+                    delay_seconds=TEXT_TTS_FALLBACK_SECONDS,
+                    reason="tts_state_fallback",
+                )
             return
         if isinstance(event, UnknownJson):
             await active.event_sink(
@@ -408,7 +503,7 @@ class RealWebSocketTransport:
                 )
             )
             return
-        if isinstance(event, (TtsState, ListenState, McpEnvelope)):
+        if isinstance(event, (ListenState, McpEnvelope)):
             await active.event_sink(
                 ProtocolMessageObserved(
                     at_ns=now,
@@ -421,6 +516,59 @@ class RealWebSocketTransport:
             )
             return
         raise TypeError(f"unsupported protocol event: {type(event).__name__}")
+
+    def _schedule_text_turn_settle(
+        self,
+        active: _ActiveConnection,
+        *,
+        delay_seconds: float,
+        reason: str,
+    ) -> None:
+        self._cancel_text_turn_settle(active)
+
+        async def settle() -> None:
+            try:
+                await asyncio.sleep(delay_seconds)
+                await self._complete_text_turn(active, reason=reason)
+            except asyncio.CancelledError:
+                raise
+
+        active.text_turn_settle_task = asyncio.create_task(
+            settle(),
+            name=f"assistant-text-turn-settle-{active.generation}",
+        )
+
+    def _cancel_text_turn_settle(self, active: _ActiveConnection) -> None:
+        task = active.text_turn_settle_task
+        if task is not None and not task.done() and task is not asyncio.current_task():
+            task.cancel()
+        active.text_turn_settle_task = None
+
+    async def _complete_text_turn(
+        self,
+        active: _ActiveConnection,
+        *,
+        reason: str,
+    ) -> None:
+        async with active.text_turn_lock:
+            turn_token = active.active_text_turn_token
+            if turn_token is None:
+                return
+            had_assistant_text = active.text_turn_had_assistant_text
+            active.active_text_turn_token = None
+            active.text_turn_had_assistant_text = False
+            active.text_sent_ready.set()
+            self._cancel_text_turn_settle(active)
+
+        await active.event_sink(
+            TextTurnCompleted(
+                at_ns=self._clock.now_ns(),
+                generation=active.generation,
+                turn_token=turn_token,
+                reason=reason,
+                had_assistant_text=had_assistant_text,
+            )
+        )
 
     async def _enqueue_and_wait(self, active: _ActiveConnection, payload: str | bytes) -> None:
         future = asyncio.get_running_loop().create_future()
