@@ -1,9 +1,8 @@
-"""Single-writer AssistantController and Gate 2.4 text-turn effect runner."""
+"""Single-writer AssistantController and Gate 2.5 recovery effect runner."""
 
 from __future__ import annotations
 
 import asyncio
-import re
 import time
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
@@ -11,12 +10,14 @@ from typing import Protocol
 
 from .effects import (
     AssistantEffect,
+    CancelReconnect,
     CancelRuntimeEffects,
     CloseTransport,
     EnsureIdentity,
     OpenTransport,
     ResetIdentity,
     RunActivation,
+    ScheduleReconnect,
     SendText,
 )
 from .events import (
@@ -43,6 +44,7 @@ from .events import (
     PushToTalkStopRequested,
     RealActivationRequested,
     ReconnectRequested,
+    ReconnectTimerFired,
     ResetIdentityRequested,
     ShutdownRequested,
     StreamingBargeInRequested,
@@ -57,6 +59,7 @@ from .events import (
     VoiceInteractionModeRequested,
 )
 from .activation.models import ActivationClient, ActivationOutcomeStatus
+from .errors import redact_error_text
 from .identity.models import DeviceIdentity
 from .network.transport import AssistantTransport
 from .state import AssistantEntrySource, AssistantState, VoiceInteractionMode
@@ -141,7 +144,7 @@ class EffectRunner:
             return
         if isinstance(effect, CancelRuntimeEffects):
             return
-        raise NotImplementedError(f"effect is not active in Gate 2.4: {type(effect).__name__}")
+        raise NotImplementedError(f"effect is not active in Gate 2.5: {type(effect).__name__}")
 
     async def _ensure_identity(self) -> None:
         manager = self._identity_manager
@@ -200,7 +203,7 @@ class EffectRunner:
             await self._event_sink(
                 ActivationFailed(
                     at_ns=self._clock.now_ns(),
-                    message=_redact_error_text(str(exc) or type(exc).__name__),
+                    message=redact_error_text(str(exc) or type(exc).__name__),
                 )
             )
             return
@@ -249,6 +252,8 @@ class AssistantController:
     """Public Runtime facade backed by one bounded event queue and one event pump."""
 
     EVENT_QUEUE_CAPACITY = 256
+    CLOSE_EFFECT_TIMEOUT_SECONDS = 3.0
+    SHUTDOWN_TIMEOUT_SECONDS = 6.0
 
     def __init__(
         self,
@@ -279,6 +284,7 @@ class AssistantController:
         self._listeners: set[StateListener] = set()
         self._state_condition = asyncio.Condition()
         self._pump_task: asyncio.Task[None] | None = None
+        self._reconnect_task: asyncio.Task[None] | None = None
         self._accepting_commands = True
         self._shutdown_started = False
         self._closed = False
@@ -298,6 +304,10 @@ class AssistantController:
     @property
     def event_pump_running(self) -> bool:
         return self._pump_task is not None and not self._pump_task.done()
+
+    @property
+    def reconnect_timer_running(self) -> bool:
+        return self._reconnect_task is not None and not self._reconnect_task.done()
 
     @property
     def closed(self) -> bool:
@@ -491,13 +501,13 @@ class AssistantController:
         if self._closed:
             return
         if self._shutdown_started:
-            if self._pump_task is not None:
-                await self._pump_task
+            await self._await_task_bounded(self._pump_task)
             return
 
         await self.start()
         self._shutdown_started = True
         self._accepting_commands = False
+        await self._cancel_reconnect_task()
         processed = asyncio.get_running_loop().create_future()
         await self._queue.put(
             _QueuedEvent(
@@ -505,9 +515,17 @@ class AssistantController:
                 processed=processed,
             )
         )
-        await processed
-        if self._pump_task is not None:
-            await self._pump_task
+        try:
+            await asyncio.wait_for(
+                asyncio.shield(processed),
+                timeout=self.SHUTDOWN_TIMEOUT_SECONDS,
+            )
+        except asyncio.TimeoutError:
+            if not processed.done():
+                processed.cancel()
+
+        await self._await_task_bounded(self._pump_task)
+        await self._cancel_reconnect_task()
         await self._cancel_effect_tasks()
         self._drain_unprocessed_events()
         self._closed = True
@@ -545,7 +563,7 @@ class AssistantController:
                         EffectExecutionFailed(
                             at_ns=self._clock.now_ns(),
                             effect_name="event_pump",
-                            message=_redact_error_text(str(exc) or type(exc).__name__),
+                            message=redact_error_text(str(exc) or type(exc).__name__),
                         )
                     )
             finally:
@@ -556,11 +574,18 @@ class AssistantController:
 
     async def _apply_effects(self, effects: tuple[AssistantEffect, ...]) -> None:
         for effect in effects:
+            if isinstance(effect, CancelReconnect):
+                await self._cancel_reconnect_task()
+                continue
             if isinstance(effect, CancelRuntimeEffects):
+                await self._cancel_reconnect_task()
                 await self._cancel_effect_tasks()
                 continue
+            if isinstance(effect, ScheduleReconnect):
+                await self._schedule_reconnect(effect)
+                continue
             if isinstance(effect, CloseTransport):
-                await self._execute_effect(effect)
+                await self._execute_close_effect(effect)
                 continue
             task = asyncio.create_task(
                 self._execute_effect(effect),
@@ -568,6 +593,80 @@ class AssistantController:
             )
             self._effect_tasks.add(task)
             task.add_done_callback(self._effect_tasks.discard)
+
+    async def _execute_close_effect(self, effect: CloseTransport) -> None:
+        try:
+            await asyncio.wait_for(
+                self._effect_runner.execute(effect),
+                timeout=self.CLOSE_EFFECT_TIMEOUT_SECONDS,
+            )
+        except asyncio.CancelledError:
+            raise
+        except asyncio.TimeoutError:
+            if not self._shutdown_started:
+                await self._emit_adapter_event(
+                    EffectExecutionFailed(
+                        at_ns=self._clock.now_ns(),
+                        effect_name=type(effect).__name__,
+                        message="Transport close exceeded the bounded timeout",
+                        generation=effect.generation,
+                    )
+                )
+        except Exception as exc:
+            if not self._shutdown_started:
+                await self._emit_adapter_event(
+                    EffectExecutionFailed(
+                        at_ns=self._clock.now_ns(),
+                        effect_name=type(effect).__name__,
+                        message=redact_error_text(str(exc) or type(exc).__name__),
+                        generation=effect.generation,
+                    )
+                )
+
+    async def _schedule_reconnect(self, effect: ScheduleReconnect) -> None:
+        await self._cancel_reconnect_task()
+
+        async def wait_and_fire() -> None:
+            await asyncio.sleep(effect.delay_seconds)
+            await self._emit_adapter_event(
+                ReconnectTimerFired(
+                    at_ns=self._clock.now_ns(),
+                    generation=effect.generation,
+                    attempt=effect.attempt,
+                )
+            )
+
+        task = asyncio.create_task(
+            wait_and_fire(),
+            name=f"assistant-reconnect-{effect.generation}-{effect.attempt}",
+        )
+        self._reconnect_task = task
+
+        def clear(done: asyncio.Task[None]) -> None:
+            if self._reconnect_task is done:
+                self._reconnect_task = None
+
+        task.add_done_callback(clear)
+
+    async def _cancel_reconnect_task(self) -> None:
+        task = self._reconnect_task
+        self._reconnect_task = None
+        if task is None or task.done():
+            return
+        task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
+
+    async def _await_task_bounded(self, task: asyncio.Task[None] | None) -> None:
+        if task is None or task.done():
+            return
+        try:
+            await asyncio.wait_for(
+                asyncio.shield(task),
+                timeout=self.SHUTDOWN_TIMEOUT_SECONDS,
+            )
+        except asyncio.TimeoutError:
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
 
     async def _execute_effect(self, effect: AssistantEffect) -> None:
         try:
@@ -580,7 +679,7 @@ class AssistantController:
                 EffectExecutionFailed(
                     at_ns=self._clock.now_ns(),
                     effect_name=type(effect).__name__,
-                    message=_redact_error_text(str(exc) or type(exc).__name__),
+                    message=redact_error_text(str(exc) or type(exc).__name__),
                     generation=generation,
                 )
             )
@@ -613,12 +712,3 @@ class AssistantController:
                     ControllerClosedError("event was discarded during shutdown")
                 )
             self._queue.task_done()
-
-
-_SENSITIVE_ERROR_PATTERN = re.compile(
-    r"(?i)(token|hmac|challenge|authorization|secret|key)\s*[:=]\s*[^\s,;]+"
-)
-
-
-def _redact_error_text(message: str) -> str:
-    return _SENSITIVE_ERROR_PATTERN.sub(lambda match: f"{match.group(1)}=***", message)[:300]

@@ -255,6 +255,7 @@ class TransportClosed(AssistantEvent):
 class TransportFailed(AssistantEvent):
     generation: int
     message: str
+    retryable: bool = True
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)

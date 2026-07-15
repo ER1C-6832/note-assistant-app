@@ -8,10 +8,13 @@ from .activation import (
     RealOtaActivationClient,
 )
 from .controller import AssistantController, ControllerClosedError
+from .errors import AssistantErrorCode, redact_error_text
 from .identity import DeviceIdentity, DeviceIdentityManager, DeviceIdentityStore
 from .network import (
     PersistedConnectionConfigProvider,
     RealWebSocketTransport,
+    ReconnectDecision,
+    ReconnectPolicy,
     RuntimeTransportRouter,
     WebSocketConnectionConfig,
 )
@@ -55,6 +58,7 @@ __all__ = [
     "AssistantController",
     "AssistantEntrySource",
     "AssistantError",
+    "AssistantErrorCode",
     "AssistantErrorCategory",
     "AssistantPhase",
     "AssistantRuntimeConfig",
@@ -71,6 +75,8 @@ __all__ = [
     "FakeRuntimeConfig",
     "PersistedConnectionConfigProvider",
     "RealWebSocketTransport",
+    "ReconnectDecision",
+    "ReconnectPolicy",
     "RuntimeTransportRouter",
     "WebSocketConnectionConfig",
     "XiaozhiMessageBuilder",
@@ -84,4 +90,5 @@ __all__ = [
     "StreamingConversationState",
     "VoiceActivityState",
     "VoiceInteractionMode",
+    "redact_error_text",
 ]

@@ -166,3 +166,18 @@ Gate 5 才接 `NoteCommandService`。
 - Real 验收：`RUN_GATE2_4_REAL_TEXT.ps1` 返回 0 且 `real_text_verified=true`。
 
 服务端当前不回显 PC 本地 turn token，本地关联依赖“单 active turn + session + 发送屏障 + settle 窗口”，不等同于服务端强 turn-id 关联。
+
+## 11. Gate 2.5 Recovery / Error / Shutdown 实施状态
+
+- Normal close `1000`、disabled、manual disconnect：不自动重连；
+- Abnormal close / retryable failure：最多三次；
+- Base backoff：`0.5s / 1.5s / 3.0s`；
+- Jitter：按 connection generation、attempt 与触发事件的 monotonic timestamp 计算确定性有界抖动，Reducer 对相同输入保持可复现；
+- Timer：Controller 只持有一个 `reconnect_timer_task`，timer 只发 `ReconnectTimerFired`，不直接写 State；
+- Generation：timer、socket 和 hello 事件均携带 generation，陈旧事件无副作用；
+- Manual reconnect：先取消自动 timer，再关闭旧 generation，再打开新 generation；
+- Non-retryable failures：缺凭据、配置错误、runtime mode mismatch 不进入无意义重试；
+- Shutdown：停止接收 command、取消 timer/effects、有界 close、停止 event pump；
+- Real 验收：`RUN_GATE2_5_REAL_RECOVERY.ps1` 在真实 socket 上强制一次 `1012` 异常关闭，并要求新 generation 完成真实 hello/session。
+
+Gate 2.5 的 Real Gate 不重新执行 OTA/activation，不修改设备身份，也不通过 Fake transport 代替第二次真实握手。

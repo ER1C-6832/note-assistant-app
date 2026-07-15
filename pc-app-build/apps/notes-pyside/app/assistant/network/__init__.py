@@ -1,6 +1,7 @@
 """Assistant Runtime transport adapters."""
 
 from .fake_transport import ScriptedFakeTransport
+from .reconnect_policy import ReconnectDecision, ReconnectPolicy
 from .transport import (
     AssistantTransport,
     ConnectionConfigProvider,
@@ -22,6 +23,8 @@ __all__ = [
     "ConnectionConfigProvider",
     "PersistedConnectionConfigProvider",
     "RealWebSocketTransport",
+    "ReconnectDecision",
+    "ReconnectPolicy",
     "RuntimeTransportRouter",
     "ScriptedFakeTransport",
     "WebSocketClosed",

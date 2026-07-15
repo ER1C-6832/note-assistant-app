@@ -104,6 +104,7 @@ class ScriptedFakeTransport:
                     at_ns=self.clock.now_ns(),
                     generation=generation,
                     message="ScriptedFakeTransport 只接受 fake runtime mode",
+                    retryable=False,
                 )
             )
             return

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from app.assistant.effects import CloseTransport, OpenTransport, SendText
+from app.assistant.effects import CancelReconnect, CloseTransport, OpenTransport, SendText
 from app.assistant.events import (
     AssistantTextReceived,
     ClientHelloSent,
@@ -39,7 +39,10 @@ def test_connect_requires_valid_hello_before_connected() -> None:
     assert opening.state.phase is AssistantPhase.CONNECTING
     assert opening.state.connection.status is AssistantConnectionStatus.CONNECTING
     assert opening.state.connection.session_id is None
-    assert opening.effects == (OpenTransport(generation=2, runtime_mode=AssistantRuntimeMode.FAKE),)
+    assert opening.effects == (
+        CancelReconnect(),
+        OpenTransport(generation=2, runtime_mode=AssistantRuntimeMode.FAKE),
+    )
 
     opened = machine.reduce(
         opening.state,

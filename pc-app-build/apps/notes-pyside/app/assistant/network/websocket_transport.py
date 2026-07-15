@@ -168,6 +168,7 @@ class RealWebSocketTransport:
                     at_ns=self._clock.now_ns(),
                     generation=generation,
                     message="RealWebSocketTransport 只接受 real runtime mode",
+                    retryable=False,
                 )
             )
             return
@@ -254,6 +255,18 @@ class RealWebSocketTransport:
                 active.expected_close = True
                 await self._safe_close(active, reason="cancelled")
             raise
+        except ValueError as exc:
+            await event_sink(
+                TransportFailed(
+                    at_ns=self._clock.now_ns(),
+                    generation=generation,
+                    message=_safe_error_text(exc),
+                    retryable=False,
+                )
+            )
+            if active is not None:
+                active.expected_close = True
+                await self._safe_close(active, reason="configuration_failed")
         except Exception as exc:
             await event_sink(
                 TransportFailed(
@@ -350,6 +363,25 @@ class RealWebSocketTransport:
                 reason=reason,
                 expected=True,
             )
+        )
+
+    async def force_abnormal_close_for_acceptance(
+        self,
+        generation: int,
+        *,
+        code: int = 1012,
+        reason: str = "gate2_5_real_recovery",
+    ) -> None:
+        """Close a live real socket abnormally for the explicit Gate 2.5 Real Gate."""
+
+        if code in {1000, 1001}:
+            raise ValueError("acceptance interruption must use an abnormal close code")
+        active = await self._get_active(generation)
+        if active is None or not active.session_id:
+            raise RuntimeError("真实 WebSocket 尚未建立有效 session")
+        await active.connection.close(
+            code=code,
+            reason=reason[:MAX_CLOSE_REASON_LENGTH],
         )
 
     async def _sender_loop(self, active: _ActiveConnection) -> None:

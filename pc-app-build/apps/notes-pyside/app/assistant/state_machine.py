@@ -6,12 +6,14 @@ from dataclasses import replace
 
 from .effects import (
     AssistantEffect,
+    CancelReconnect,
     CancelRuntimeEffects,
     CloseTransport,
     EnsureIdentity,
     OpenTransport,
     ResetIdentity,
     RunActivation,
+    ScheduleReconnect,
     SendText,
 )
 from .events import (
@@ -82,6 +84,8 @@ from .events import (
     UseRealRuntimeRequested,
     VoiceInteractionModeRequested,
 )
+from .errors import AssistantErrorCode
+from .network.reconnect_policy import ReconnectDecision, ReconnectPolicy
 from .protocol import has_readable_transcript_text, merge_assistant_transcript
 from .state import (
     AssistantActivationStatus,
@@ -108,6 +112,9 @@ from .transitions import Transition
 
 class ConversationStateMachine:
     """Reduce one event into one immutable state replacement plus effects."""
+
+    def __init__(self, reconnect_policy: ReconnectPolicy | None = None) -> None:
+        self._reconnect_policy = reconnect_policy or ReconnectPolicy()
 
     def reduce(self, current: AssistantState, event: AssistantEvent) -> Transition:
         if isinstance(event, EnableRequested):
@@ -191,7 +198,7 @@ class ConversationStateMachine:
         if isinstance(event, ActivationFailed):
             return self._activation_failed(current, event)
         if isinstance(event, ReconnectTimerFired):
-            return self._not_ready(current, event, AssistantCapability.AUTOMATIC_RECOVERY)
+            return self._reconnect_timer_fired(current, event)
         if isinstance(
             event,
             (AudioCaptureStarted, AudioCaptureStopped, AudioCountersUpdated),
@@ -221,7 +228,7 @@ class ConversationStateMachine:
             return self._error(
                 current,
                 event,
-                code="runtime_overloaded",
+                code=AssistantErrorCode.RUNTIME_OVERLOADED.value,
                 message=event.message,
                 category=AssistantErrorCategory.RUNTIME,
                 recoverable=True,
@@ -325,6 +332,7 @@ class ConversationStateMachine:
             error=None,
         )
         effects = (
+            CancelReconnect(),
             CancelRuntimeEffects(
                 reason=("shutdown" if isinstance(event, ShutdownRequested) else "disabled")
             ),
@@ -380,6 +388,7 @@ class ConversationStateMachine:
             error=None,
         )
         effects: tuple[AssistantEffect, ...] = (
+            CancelReconnect(),
             CancelRuntimeEffects(reason="runtime_mode_changed"),
         )
         if current.connection.status is not AssistantConnectionStatus.DISCONNECTED:
@@ -394,7 +403,7 @@ class ConversationStateMachine:
             return self._error(
                 current,
                 event,
-                code="assistant_disabled",
+                code=AssistantErrorCode.ASSISTANT_DISABLED.value,
                 message="助手未启用，不能连接",
                 category=AssistantErrorCategory.VALIDATION,
                 recoverable=True,
@@ -404,7 +413,8 @@ class ConversationStateMachine:
         if current.connection.status is AssistantConnectionStatus.CONNECTING:
             return self._transition(replace(current, status_text="助手正在连接"), event)
 
-        generation = current.connection.connection_generation + 1
+        old_generation = current.connection.connection_generation
+        generation = old_generation + 1
         connection = ConnectionState(
             status=AssistantConnectionStatus.CONNECTING,
             websocket_url_public=(
@@ -420,6 +430,8 @@ class ConversationStateMachine:
             connection=connection,
             recovery=replace(
                 current.recovery,
+                reconnect_attempt=0,
+                last_reconnect_decision="manual_connect",
                 next_reconnect_at_ns=None,
                 manual_disconnect_requested=False,
             ),
@@ -430,18 +442,26 @@ class ConversationStateMachine:
             ),
             error=None,
         )
-        return self._transition(
-            state,
-            event,
-            (OpenTransport(generation=generation, runtime_mode=current.runtime_mode),),
-        )
+        effects: list[AssistantEffect] = [CancelReconnect()]
+        if (
+            current.recovery.next_reconnect_at_ns is not None
+            or current.phase is AssistantPhase.RECONNECTING
+        ):
+            effects.extend(
+                (
+                    CancelRuntimeEffects(reason="manual_connect"),
+                    CloseTransport(generation=old_generation, reason="manual_connect"),
+                )
+            )
+        effects.append(OpenTransport(generation=generation, runtime_mode=current.runtime_mode))
+        return self._transition(state, event, tuple(effects))
 
     def _reconnect(self, current: AssistantState, event: ReconnectRequested) -> Transition:
         if not current.enabled:
             return self._error(
                 current,
                 event,
-                code="assistant_disabled",
+                code=AssistantErrorCode.ASSISTANT_DISABLED.value,
                 message="助手未启用，不能重连",
                 category=AssistantErrorCategory.VALIDATION,
                 recoverable=True,
@@ -464,7 +484,7 @@ class ConversationStateMachine:
             conversation=self._idle_conversation(current.conversation),
             recovery=replace(
                 current.recovery,
-                reconnect_attempt=current.recovery.reconnect_attempt + 1,
+                reconnect_attempt=0,
                 last_reconnect_decision="manual_reconnect",
                 next_reconnect_at_ns=None,
                 manual_disconnect_requested=False,
@@ -477,6 +497,7 @@ class ConversationStateMachine:
             error=None,
         )
         effects = (
+            CancelReconnect(),
             CancelRuntimeEffects(reason="manual_reconnect"),
             CloseTransport(generation=old_generation, reason="manual_reconnect"),
             OpenTransport(generation=generation, runtime_mode=current.runtime_mode),
@@ -489,11 +510,17 @@ class ConversationStateMachine:
             state = replace(
                 current,
                 phase=(AssistantPhase.IDLE if current.enabled else AssistantPhase.DISABLED),
-                recovery=replace(current.recovery, manual_disconnect_requested=True),
+                recovery=replace(
+                    current.recovery,
+                    reconnect_attempt=0,
+                    next_reconnect_at_ns=None,
+                    manual_disconnect_requested=True,
+                    last_reconnect_decision="manual_disconnect",
+                ),
                 status_text="助手连接已关闭",
                 error=None,
             )
-            return self._transition(state, event)
+            return self._transition(state, event, (CancelReconnect(),))
 
         state = replace(
             current,
@@ -508,6 +535,7 @@ class ConversationStateMachine:
             conversation=self._idle_conversation(current.conversation),
             recovery=replace(
                 current.recovery,
+                reconnect_attempt=0,
                 next_reconnect_at_ns=None,
                 manual_disconnect_requested=True,
                 last_reconnect_decision="manual_disconnect",
@@ -516,6 +544,7 @@ class ConversationStateMachine:
             error=None,
         )
         effects = (
+            CancelReconnect(),
             CancelRuntimeEffects(reason=event.reason),
             CloseTransport(generation=old_generation, reason=event.reason),
         )
@@ -527,7 +556,7 @@ class ConversationStateMachine:
             return self._error(
                 current,
                 event,
-                code="empty_text",
+                code=AssistantErrorCode.EMPTY_TEXT.value,
                 message="文本不能为空",
                 category=AssistantErrorCategory.VALIDATION,
                 recoverable=True,
@@ -537,7 +566,7 @@ class ConversationStateMachine:
             return self._error(
                 current,
                 event,
-                code="assistant_not_connected",
+                code=AssistantErrorCode.ASSISTANT_NOT_CONNECTED.value,
                 message="助手未连接，不能发送文本",
                 category=AssistantErrorCategory.TRANSPORT,
                 recoverable=True,
@@ -546,7 +575,7 @@ class ConversationStateMachine:
             return self._error(
                 current,
                 event,
-                code="text_turn_in_progress",
+                code=AssistantErrorCode.TEXT_TURN_IN_PROGRESS.value,
                 message="上一文本回合尚未完成",
                 category=AssistantErrorCategory.VALIDATION,
                 recoverable=True,
@@ -734,7 +763,7 @@ class ConversationStateMachine:
             ),
             error=None,
         )
-        return self._transition(state, event)
+        return self._transition(state, event, (CancelReconnect(),))
 
     def _client_text_sent(
         self,
@@ -1056,6 +1085,12 @@ class ConversationStateMachine:
         if self._is_stale_connection_event(current, event.generation):
             return Transition.unchanged(current)
 
+        # One generation owns at most one recovery decision. Duplicate close/failure
+        # callbacks (including cleanup closes) must not advance the retry counter or
+        # replace the already-owned reconnect timer.
+        if current.recovery.next_reconnect_at_ns is not None:
+            return Transition.unchanged(current)
+
         connection = replace(
             current.connection,
             status=AssistantConnectionStatus.DISCONNECTED,
@@ -1063,66 +1098,235 @@ class ConversationStateMachine:
             close_code=event.code,
             close_reason=event.reason,
         )
-        expected = (
-            event.expected
-            or event.code == 1000
-            or current.recovery.manual_disconnect_requested
-            or not current.enabled
+        decision = self._reconnect_policy.decide_close(
+            close_code=event.code,
+            reason=event.reason,
+            assistant_enabled=current.enabled,
+            manual_disconnect_requested=(
+                current.recovery.manual_disconnect_requested or event.expected
+            ),
+            current_attempt=current.recovery.reconnect_attempt,
+            generation=event.generation,
+            jitter_seed=event.at_ns,
         )
-        if expected:
-            state = replace(
+        if not decision.should_reconnect:
+            return self._no_recovery_after_transport_event(
                 current,
-                phase=(AssistantPhase.IDLE if current.enabled else AssistantPhase.DISABLED),
+                event,
                 connection=connection,
-                audio=self._idle_audio(current.audio),
-                conversation=self._idle_conversation(current.conversation),
-                recovery=replace(
-                    current.recovery,
-                    last_reconnect_decision="expected_close_no_reconnect",
-                    next_reconnect_at_ns=None,
-                ),
-                status_text=f"助手连接已关闭：{event.reason}",
-                error=None,
+                decision=decision,
             )
-            return self._transition(state, event)
-
-        disconnected = replace(current, connection=connection)
-        return self._error(
-            disconnected,
+        return self._schedule_recovery(
+            current,
             event,
-            code="transport_closed_abnormally",
-            message=f"助手连接异常关闭：{event.reason}",
-            category=AssistantErrorCategory.TRANSPORT,
-            recoverable=True,
-            details=f"close_code={event.code}",
+            connection=connection,
+            decision=decision,
+            error_code=AssistantErrorCode.TRANSPORT_CLOSED_ABNORMALLY.value,
+            error_message=f"助手连接异常关闭：{event.reason}",
+            error_details=f"close_code={event.code}",
+            cleanup_reason="transport_closed_abnormally",
         )
 
     def _transport_failed(self, current: AssistantState, event: TransportFailed) -> Transition:
         if self._is_stale_connection_event(current, event.generation):
             return Transition.unchanged(current)
-        disconnected = replace(
+        if current.recovery.next_reconnect_at_ns is not None:
+            return Transition.unchanged(current)
+        connection = replace(
+            current.connection,
+            status=AssistantConnectionStatus.DISCONNECTED,
+            session_id=None,
+            close_reason=event.message,
+        )
+        if not event.retryable:
+            disconnected = replace(
+                current,
+                connection=connection,
+                audio=self._idle_audio(current.audio),
+                conversation=self._idle_conversation(current.conversation),
+                recovery=replace(
+                    current.recovery,
+                    last_reconnect_decision="non_retryable_failure",
+                    next_reconnect_at_ns=None,
+                ),
+            )
+            return self._error(
+                disconnected,
+                event,
+                code=AssistantErrorCode.TRANSPORT_FAILURE.value,
+                message=event.message,
+                category=AssistantErrorCategory.TRANSPORT,
+                recoverable=True,
+            )
+        decision = self._reconnect_policy.decide_failure(
+            assistant_enabled=current.enabled,
+            manual_disconnect_requested=current.recovery.manual_disconnect_requested,
+            current_attempt=current.recovery.reconnect_attempt,
+            generation=event.generation,
+            jitter_seed=event.at_ns,
+        )
+        if not decision.should_reconnect:
+            return self._no_recovery_after_transport_event(
+                current,
+                event,
+                connection=connection,
+                decision=decision,
+                failure_message=event.message,
+            )
+        return self._schedule_recovery(
             current,
-            connection=replace(
-                current.connection,
-                status=AssistantConnectionStatus.DISCONNECTED,
-                session_id=None,
-                connection_generation=event.generation + 1,
-                close_reason=event.message,
-            ),
-            conversation=self._idle_conversation(current.conversation),
-        )
-        return self._error(
-            disconnected,
             event,
-            code="transport_failure",
-            message=event.message,
-            category=AssistantErrorCategory.TRANSPORT,
-            recoverable=True,
-            effects=(
-                CancelRuntimeEffects(reason="transport_failure"),
-                CloseTransport(generation=event.generation, reason="transport_failure"),
+            connection=connection,
+            decision=decision,
+            error_code=AssistantErrorCode.TRANSPORT_FAILURE.value,
+            error_message=event.message,
+            error_details=None,
+            cleanup_reason="transport_failure",
+        )
+
+    def _reconnect_timer_fired(
+        self,
+        current: AssistantState,
+        event: ReconnectTimerFired,
+    ) -> Transition:
+        if not current.enabled or current.recovery.manual_disconnect_requested:
+            return Transition.unchanged(current)
+        if self._is_stale_connection_event(current, event.generation):
+            return Transition.unchanged(current)
+        if event.attempt != current.recovery.reconnect_attempt:
+            return Transition.unchanged(current)
+        if current.recovery.next_reconnect_at_ns is None:
+            return Transition.unchanged(current)
+
+        old_generation = current.connection.connection_generation
+        generation = old_generation + 1
+        state = replace(
+            current,
+            phase=AssistantPhase.RECONNECTING,
+            connection=ConnectionState(
+                status=AssistantConnectionStatus.CONNECTING,
+                websocket_url_public=(
+                    "scripted://fake-runtime"
+                    if current.runtime_mode is AssistantRuntimeMode.FAKE
+                    else current.connection.websocket_url_public
+                ),
+                connection_generation=generation,
+            ),
+            recovery=replace(
+                current.recovery,
+                last_reconnect_decision=f"auto_reconnect_open_attempt_{event.attempt}",
+                next_reconnect_at_ns=None,
+                manual_disconnect_requested=False,
+            ),
+            status_text=f"正在执行第 {event.attempt} 次自动重连",
+            error=None,
+        )
+        return self._transition(
+            state,
+            event,
+            (
+                CancelReconnect(),
+                CloseTransport(generation=old_generation, reason="auto_reconnect"),
+                OpenTransport(generation=generation, runtime_mode=current.runtime_mode),
             ),
         )
+
+    def _schedule_recovery(
+        self,
+        current: AssistantState,
+        event: TransportClosed | TransportFailed,
+        *,
+        connection: ConnectionState,
+        decision: ReconnectDecision,
+        error_code: str,
+        error_message: str,
+        error_details: str | None,
+        cleanup_reason: str,
+    ) -> Transition:
+        assert decision.delay_seconds is not None
+        next_reconnect_at_ns = event.at_ns + int(decision.delay_seconds * 1_000_000_000)
+        state = replace(
+            current,
+            phase=AssistantPhase.RECONNECTING,
+            connection=connection,
+            audio=self._idle_audio(current.audio),
+            conversation=self._idle_conversation(current.conversation),
+            recovery=replace(
+                current.recovery,
+                reconnect_attempt=decision.next_attempt,
+                last_reconnect_decision=decision.decision_label,
+                next_reconnect_at_ns=next_reconnect_at_ns,
+                manual_disconnect_requested=False,
+                runtime_error_count=current.recovery.runtime_error_count + 1,
+            ),
+            status_text=decision.user_message,
+            error=AssistantError(
+                code=error_code,
+                message=error_message,
+                category=AssistantErrorCategory.TRANSPORT,
+                recoverable=True,
+                source_event=type(event).__name__,
+                occurred_at_ns=event.at_ns,
+                details_redacted=error_details,
+            ),
+        )
+        return self._transition(
+            state,
+            event,
+            (
+                CancelRuntimeEffects(reason=cleanup_reason),
+                CloseTransport(generation=event.generation, reason=cleanup_reason),
+                ScheduleReconnect(
+                    attempt=decision.next_attempt,
+                    delay_seconds=decision.delay_seconds,
+                    generation=event.generation,
+                ),
+            ),
+        )
+
+    def _no_recovery_after_transport_event(
+        self,
+        current: AssistantState,
+        event: TransportClosed | TransportFailed,
+        *,
+        connection: ConnectionState,
+        decision: ReconnectDecision,
+        failure_message: str | None = None,
+    ) -> Transition:
+        exhausted = "max_attempts_reached" in decision.decision_label
+        error = None
+        phase = AssistantPhase.IDLE if current.enabled else AssistantPhase.DISABLED
+        if exhausted:
+            phase = AssistantPhase.ERROR
+            error = AssistantError(
+                code=AssistantErrorCode.RECONNECT_EXHAUSTED.value,
+                message=failure_message or decision.user_message,
+                category=AssistantErrorCategory.TRANSPORT,
+                recoverable=True,
+                source_event=type(event).__name__,
+                occurred_at_ns=event.at_ns,
+            )
+        state = replace(
+            current,
+            phase=phase,
+            connection=connection,
+            audio=self._idle_audio(current.audio),
+            conversation=self._idle_conversation(current.conversation),
+            recovery=replace(
+                current.recovery,
+                reconnect_attempt=(current.recovery.reconnect_attempt if exhausted else 0),
+                last_reconnect_decision=decision.decision_label,
+                next_reconnect_at_ns=None,
+                runtime_error_count=(
+                    current.recovery.runtime_error_count + 1
+                    if exhausted
+                    else current.recovery.runtime_error_count
+                ),
+            ),
+            status_text=decision.user_message,
+            error=error,
+        )
+        return self._transition(state, event, (CancelReconnect(),))
 
     def _ensure_identity(
         self,
@@ -1159,7 +1363,10 @@ class ConversationStateMachine:
             status_text="正在重置设备身份并清除身份绑定凭据",
             error=None,
         )
-        effects: list[AssistantEffect] = [CancelRuntimeEffects(reason="identity_reset")]
+        effects: list[AssistantEffect] = [
+            CancelReconnect(),
+            CancelRuntimeEffects(reason="identity_reset"),
+        ]
         if current.connection.status is not AssistantConnectionStatus.DISCONNECTED:
             effects.append(CloseTransport(generation=old_generation, reason="identity_reset"))
         effects.append(ResetIdentity())
@@ -1419,6 +1626,15 @@ class ConversationStateMachine:
             event.generation,
         ):
             return Transition.unchanged(current)
+        if event.effect_name == "OpenTransport" and event.generation is not None:
+            return self._transport_failed(
+                current,
+                TransportFailed(
+                    at_ns=event.at_ns,
+                    generation=event.generation,
+                    message=event.message,
+                ),
+            )
         state = current
         if event.effect_name == "SendText":
             state = replace(
@@ -1433,7 +1649,7 @@ class ConversationStateMachine:
         return self._error(
             state,
             event,
-            code="effect_execution_failed",
+            code=AssistantErrorCode.EFFECT_EXECUTION_FAILED.value,
             message=f"{event.effect_name} 执行失败：{event.message}",
             category=AssistantErrorCategory.RUNTIME,
             recoverable=True,

@@ -346,7 +346,12 @@ def default_capabilities() -> tuple[CapabilityState, ...]:
             "Fake/Real listen-detect 文本回合与 transcript 规则",
         ),
         CapabilityState(AssistantCapability.MANUAL_RECOVERY, active, "2.1", "手工重连骨架"),
-        CapabilityState(AssistantCapability.AUTOMATIC_RECOVERY, not_ready, "2.5", "有界自动重连"),
+        CapabilityState(
+            AssistantCapability.AUTOMATIC_RECOVERY,
+            active,
+            "2.5",
+            "最多三次自动重连、确定性有界抖动和 generation 防陈旧回调",
+        ),
         CapabilityState(
             AssistantCapability.ABORT_CURRENT_TURN,
             not_ready,
