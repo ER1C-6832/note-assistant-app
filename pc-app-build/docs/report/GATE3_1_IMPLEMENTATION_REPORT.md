@@ -116,3 +116,14 @@ shutdown 后 Runtime task：0
 ```
 
 Windows 仓库根目录的 `VERIFY_GATE3_1.ps1` 仍是最终自动验收入口；它会额外执行现有 Gate 1.7 回归。
+
+## 验收修复与 UI 收口补充
+
+本次后续修复不改变 Gate 3.1 Runtime 边界：
+
+- Gate 2.7 历史测试不再要求根目录永久保留已经被当前 Gate runner 替换的脚本；
+- `verify_gate2_7_real_acceptance.py` 继续作为历史 Real Gate 的持久化验收资产；
+- 当前 `VERIFY_GATE3_1.ps1` 继续覆盖 Gate 2.7 自动/Fake 回归；
+- 语音模式与插话偏好从助手主面板移入独立设置页，通过齿轮按钮进入；
+- Aurora 按钮外圈向内收缩 5 px，保留 80 px 拖拽命中区；
+- 拖拽与未来“按住说话”手势冲突仍保持未决，Gate 3.1 不绑定真实 PTT 手势。

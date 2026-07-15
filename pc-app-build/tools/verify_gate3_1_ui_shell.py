@@ -51,6 +51,20 @@ def main() -> int:
                 floating = (
                     root.findChild(QObject, "assistantFloatingPanel") if root is not None else None
                 )
+                settings_button = (
+                    root.findChild(QObject, "assistantSettingsButton") if root is not None else None
+                )
+                settings_page = (
+                    root.findChild(QObject, "assistantSettingsPage") if root is not None else None
+                )
+                voice_settings = (
+                    root.findChild(QObject, "assistantVoiceModeSettings")
+                    if root is not None
+                    else None
+                )
+                outer_ring = (
+                    root.findChild(QObject, "assistantOuterRing") if root is not None else None
+                )
 
                 width_before = float(page_loader.property("width")) if page_loader else -1.0
                 collapsed_by_default = bool(overlay and not overlay.property("expanded"))
@@ -58,6 +72,24 @@ def main() -> int:
                     overlay.setProperty("expanded", True)
                 loop.run_until_complete(_settle())
                 width_after = float(page_loader.property("width")) if page_loader else -2.0
+                settings_dedicated = bool(
+                    floating
+                    and settings_button
+                    and settings_page
+                    and voice_settings
+                    and not floating.property("settingsOpen")
+                )
+                if floating is not None:
+                    floating.setProperty("settingsOpen", True)
+                loop.run_until_complete(_settle())
+                settings_page_opened = bool(
+                    floating
+                    and floating.property("settingsOpen")
+                    and settings_page
+                    and settings_page.property("visible")
+                    and voice_settings
+                    and voice_settings.property("visible")
+                )
 
                 context.assistant_view_model.requestLauncherPosition(0.31, 0.67)
                 loop.run_until_complete(_settle(0.45))
@@ -79,8 +111,14 @@ def main() -> int:
                         overlay is not None,
                         launcher is not None,
                         floating is not None,
+                        settings_button is not None,
+                        settings_page is not None,
+                        voice_settings is not None,
+                        outer_ring is not None,
                         page_loader is not None,
                         collapsed_by_default,
+                        settings_dedicated,
+                        settings_page_opened,
                         abs(width_before - width_after) < 0.5,
                         abs(saved.launcher_x_ratio - 0.31) < 0.001,
                         abs(saved.launcher_y_ratio - 0.67) < 0.001,
@@ -93,6 +131,10 @@ def main() -> int:
                     "collapsed_by_default": collapsed_by_default,
                     "floating_panel_present": floating is not None,
                     "launcher_present": launcher is not None,
+                    "outer_ring_inset": outer_ring is not None,
+                    "settings_button_present": settings_button is not None,
+                    "settings_dedicated_page": settings_dedicated,
+                    "settings_page_opened": settings_page_opened,
                     "launcher_position_persisted": (
                         abs(saved.launcher_x_ratio - 0.31) < 0.001
                         and abs(saved.launcher_y_ratio - 0.67) < 0.001

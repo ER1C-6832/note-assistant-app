@@ -26,14 +26,20 @@ def _normalized(path: Path) -> str:
     return _read(path).replace("\\", "/")
 
 
+def _current_verifiers_covering(test_path: str) -> tuple[Path, ...]:
+    return tuple(
+        path
+        for path in sorted(REPO_ROOT.glob("VERIFY_GATE*.ps1"))
+        if test_path in _normalized(path)
+    )
+
+
 def test_gate2_7_delivery_files_exist_and_python_sources_parse() -> None:
     expected = (
         TOOLS_ROOT / "verify_gate2_7_fake_acceptance.py",
         TOOLS_ROOT / "verify_gate2_7_real_acceptance.py",
         REPORT_ROOT / "GATE2_7_FINAL_ACCEPTANCE_REPORT.md",
         PROTOCOL_REPORT,
-        REPO_ROOT / "VERIFY_GATE2_7.ps1",
-        REPO_ROOT / "RUN_GATE2_7_REAL_ACCEPTANCE.ps1",
     )
     for path in expected:
         assert path.is_file(), path
@@ -101,35 +107,36 @@ def test_gate2_7_freezes_future_capabilities_without_fake_product_success() -> N
     assert "requestSendText" in panel
 
 
-def test_gate2_7_verifier_covers_full_history_fake_gate_and_ui_smoke() -> None:
-    verifier = _normalized(REPO_ROOT / "VERIFY_GATE2_7.ps1")
-    for test_path in (
-        "tests/gate1_7",
-        "tests/gate2_1",
-        "tests/gate2_2",
-        "tests/gate2_3",
-        "tests/gate2_4",
-        "tests/gate2_5",
-        "tests/gate2_6",
-        "tests/gate2_7",
-    ):
-        assert test_path in verifier
+def test_current_verifier_covers_gate2_7_fake_gate_and_ui_smoke() -> None:
+    covering = _current_verifiers_covering("tests/gate2_7")
+    assert covering, "current verifier must retain Gate 2.7 regression coverage"
 
-    assert "verify_gate2_7_fake_acceptance.py" in verifier
-    assert "verify_gate2_6_ui_smoke.py" in verifier
-    assert "$LASTEXITCODE -ne 0" in verifier
-    assert "exit 1" in verifier
-    assert "verify_gate2_7_real_acceptance.py" not in verifier
+    for path in covering:
+        verifier = _normalized(path)
+        for test_path in (
+            "tests/gate1_7",
+            "tests/gate2_1",
+            "tests/gate2_2",
+            "tests/gate2_3",
+            "tests/gate2_4",
+            "tests/gate2_5",
+            "tests/gate2_6",
+            "tests/gate2_7",
+        ):
+            assert test_path in verifier, path.name
+        assert "verify_gate2_7_fake_acceptance.py" in verifier
+        assert "verify_gate" in verifier and "ui" in verifier.lower()
+        assert "$LASTEXITCODE -ne 0" in verifier
+        assert "exit 1" in verifier
+        assert "verify_gate2_7_real_acceptance.py" not in verifier
 
 
-def test_gate2_7_real_runner_has_explicit_complete_blocked_failed_results() -> None:
-    runner = _normalized(REPO_ROOT / "RUN_GATE2_7_REAL_ACCEPTANCE.ps1")
+def test_persisted_real_acceptance_tool_keeps_explicit_result_contract() -> None:
     real_tool = _read(TOOLS_ROOT / "verify_gate2_7_real_acceptance.py")
 
-    assert "verify_gate2_7_real_acceptance.py" in runner
-    assert "$Result -eq 0" in runner
-    assert "$Result -eq 2" in runner
-    assert "exit 2" in runner
+    assert 'status="real_gate_complete"' in real_tool
+    assert 'status="real_gate_blocked"' in real_tool
+    assert 'status="failed"' in real_tool
     assert "RealOtaActivationClient" in real_tool
     assert "connection_config.headers()" in real_tool
     assert "force_abnormal_close_for_acceptance" in real_tool

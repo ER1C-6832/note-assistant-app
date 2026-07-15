@@ -24,6 +24,11 @@ def test_floating_shell_removes_fixed_assistant_column() -> None:
     assert 'objectName: "notesMainRow"' in main
     assert 'objectName: "pageLoader"' in main
     assert "AssistantPanel" in floating
+    assert "StackLayout" in floating
+    assert 'objectName: "assistantSettingsButton"' in floating
+    assert 'objectName: "assistantSettingsPage"' in floating
+    assert "AssistantVoiceModeSettings" in floating
+    assert "settingsOpen" in floating
     assert "anchors.fill: parent" in overlay
     assert "MouseArea" not in overlay
     assert "DragHandler" in overlay
@@ -48,6 +53,8 @@ def test_aurora_and_voice_settings_are_state_projections() -> None:
         assert token in button
         assert token in view_model
     assert "Canvas" in button
+    assert 'objectName: "assistantOuterRing"' in button
+    assert "anchors.margins: 5" in button
     assert "requestVoiceInteractionMode" in settings
     assert "requestStreamingBargeInEnabled" in settings
     assert "startStreamingConversation" not in settings

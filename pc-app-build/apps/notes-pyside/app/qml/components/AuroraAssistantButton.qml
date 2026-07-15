@@ -39,7 +39,9 @@ Item {
     onTargetAlphaChanged: animatedAlpha = targetAlpha
 
     Rectangle {
+        objectName: "assistantOuterRing"
         anchors.fill: parent
+        anchors.margins: 5
         radius: width / 2
         color: Qt.rgba(1, 1, 1, 0.10)
         border.width: 1
