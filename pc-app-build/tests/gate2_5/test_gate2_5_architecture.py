@@ -6,10 +6,30 @@ from pathlib import Path
 PC_BUILD_ROOT = Path(__file__).resolve().parents[2]
 ASSISTANT_ROOT = PC_BUILD_ROOT / "apps" / "notes-pyside" / "app" / "assistant"
 REPO_ROOT = PC_BUILD_ROOT.parent
+TOOLS_ROOT = PC_BUILD_ROOT / "tools"
 
 
 def _read(path: Path) -> str:
     return path.read_text(encoding="utf-8")
+
+
+def _normalized_source(path: Path) -> str:
+    return _read(path).replace("\\", "/")
+
+
+def _current_verifiers_covering(test_path: str) -> tuple[Path, ...]:
+    verifiers = tuple(sorted(REPO_ROOT.glob("VERIFY_GATE*.ps1")))
+    assert verifiers, "repository must contain a current Gate verifier"
+
+    covering = tuple(path for path in verifiers if test_path in _normalized_source(path))
+    assert covering, f"a current verifier must continue to run {test_path}"
+    return covering
+
+
+def _current_real_runners() -> tuple[Path, ...]:
+    runners = tuple(sorted(REPO_ROOT.glob("RUN_GATE2_*_REAL_*.ps1")))
+    assert runners, "repository must contain a current Gate 2 real acceptance runner"
+    return runners
 
 
 def test_recovery_files_exist_parse_and_keep_single_state_writer() -> None:
@@ -38,11 +58,14 @@ def test_recovery_files_exist_parse_and_keep_single_state_writer() -> None:
 
 
 def test_current_verifier_and_real_recovery_runner_are_present() -> None:
-    verifier = _read(REPO_ROOT / "VERIFY_GATE2_5.ps1")
-    runner = _read(REPO_ROOT / "RUN_GATE2_5_REAL_RECOVERY.ps1")
+    covering_verifiers = _current_verifiers_covering("tests/gate2_5")
+    real_runners = _current_real_runners()
 
-    assert "tests/gate2_5" in verifier
-    assert "$LASTEXITCODE -ne 0" in verifier
-    assert "exit 1" in verifier
-    assert "verify_gate2_5_real_recovery.py" in runner
+    for verifier in covering_verifiers:
+        source = _normalized_source(verifier)
+        assert "$LASTEXITCODE -ne 0" in source, verifier.name
+        assert "exit 1" in source, verifier.name
+
+    assert (TOOLS_ROOT / "verify_gate2_5_real_recovery.py").is_file()
+    assert any("verify_gate2_" in _normalized_source(runner) for runner in real_runners)
     assert (PC_BUILD_ROOT / "docs" / "report" / "GATE2_5_IMPLEMENTATION_REPORT.md").is_file()
