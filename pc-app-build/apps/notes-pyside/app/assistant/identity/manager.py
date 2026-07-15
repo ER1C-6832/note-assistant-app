@@ -1,20 +1,38 @@
-"""Generate, persist, mask, and reset the device-local Assistant identity."""
+"""Generate, persist, mask, migrate, and reset the device-local Assistant identity."""
 
 from __future__ import annotations
 
 import asyncio
 import secrets
 import uuid
+from collections.abc import Callable
 
 from .models import DeviceIdentity
 from .store import DeviceIdentityStore
 
+IdentityMigration = Callable[[], DeviceIdentity | None]
+
 
 class DeviceIdentityManager:
-    def __init__(self, store: DeviceIdentityStore) -> None:
+    def __init__(
+        self,
+        store: DeviceIdentityStore,
+        *,
+        legacy_identity: IdentityMigration | None = None,
+    ) -> None:
         self._store = store
+        self._legacy_identity = legacy_identity
 
     async def ensure_identity(self) -> DeviceIdentity:
+        existing = await asyncio.to_thread(self._store.load)
+        if existing is not None:
+            return existing
+
+        if self._legacy_identity is not None:
+            migrated = await asyncio.to_thread(self._legacy_identity)
+            if migrated is not None:
+                return await asyncio.to_thread(self._store.save, migrated)
+
         return await asyncio.to_thread(self._store.ensure, self._generate)
 
     async def reset_identity(self) -> DeviceIdentity:

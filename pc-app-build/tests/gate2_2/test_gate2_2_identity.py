@@ -69,3 +69,51 @@ async def test_reset_identity_increments_generation_and_clears_bound_credentials
     assert persisted.real.activated is False
     assert persisted.fake.websocket_url == ""
     assert persisted.fake.websocket_token == ""
+
+
+@pytest.mark.asyncio
+async def test_legacy_py_xiaozhi_identity_is_migrated_before_generating_new_identity(
+    tmp_path,
+) -> None:
+    from app.assistant.identity import LegacyPyXiaozhiIdentitySource
+
+    legacy_config_dir = tmp_path / "py-xiaozhi" / "config"
+    legacy_config_dir.mkdir(parents=True)
+    (legacy_config_dir / "efuse.json").write_text(
+        """
+        {
+          "mac_address": "AA-BB-CC-DD-EE-FF",
+          "serial_number": "SN-LEGACY",
+          "hmac_key": "legacy-hmac",
+          "activation_status": true
+        }
+        """,
+        encoding="utf-8",
+    )
+    (legacy_config_dir / "config.json").write_text(
+        """
+        {
+          "SYSTEM_OPTIONS": {
+            "CLIENT_ID": "legacy-client-id",
+            "DEVICE_ID": "aa:bb:cc:dd:ee:ff"
+          }
+        }
+        """,
+        encoding="utf-8",
+    )
+
+    config_store = RuntimeConfigStore(tmp_path / "assistant_runtime.json")
+    legacy_source = LegacyPyXiaozhiIdentitySource(legacy_config_dir)
+    manager = DeviceIdentityManager(
+        DeviceIdentityStore(config_store),
+        legacy_identity=legacy_source.load,
+    )
+
+    identity = await manager.ensure_identity()
+
+    assert identity.device_id == "aa:bb:cc:dd:ee:ff"
+    assert identity.client_id == "legacy-client-id"
+    assert identity.serial_number == "SN-LEGACY"
+    assert identity.hmac_key == "legacy-hmac"
+    assert legacy_source.local_activation_marked is True
+    assert config_store.load().identity is not None

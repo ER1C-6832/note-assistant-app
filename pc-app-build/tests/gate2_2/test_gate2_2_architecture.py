@@ -56,3 +56,14 @@ def test_real_activation_uses_pc_identity_and_never_logs_raw_secrets() -> None:
     assert '"Client-Id": identity.client_id' in client
     assert "websocket_token" not in state
     assert "hmac_key" not in state
+
+
+def test_real_activation_check_uses_defaults_and_legacy_identity_without_required_env() -> None:
+    pc_build_root = Path(__file__).resolve().parents[2]
+    tool = _read(pc_build_root / "tools" / "verify_gate2_2_real_activation.py")
+    runtime_config = _read(ASSISTANT_ROOT / "runtime_config.py")
+
+    assert "_required_env" not in tool
+    assert "LegacyPyXiaozhiIdentitySource" in tool
+    assert 'DEFAULT_ASSISTANT_OTA_URL = "https://api.tenclass.net/xiaozhi/ota/"' in runtime_config
+    assert 'DEFAULT_ASSISTANT_AUTHORIZATION_URL = "https://xiaozhi.me/"' in runtime_config

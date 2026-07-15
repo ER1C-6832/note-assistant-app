@@ -10,6 +10,9 @@ from pathlib import Path
 from typing import Callable, TypeVar
 
 RUNTIME_CONFIG_SCHEMA_VERSION = 1
+DEFAULT_ASSISTANT_OTA_URL = "https://api.tenclass.net/xiaozhi/ota/"
+DEFAULT_ASSISTANT_AUTHORIZATION_URL = "https://xiaozhi.me/"
+DEFAULT_ASSISTANT_ACTIVATION_VERSION = "v2"
 
 
 class RuntimeConfigError(ValueError):
@@ -27,9 +30,9 @@ class IdentityRecord:
 
 @dataclass(frozen=True, slots=True)
 class RealRuntimeConfig:
-    ota_url: str = ""
-    authorization_url: str = ""
-    activation_version: str = "v2"
+    ota_url: str = DEFAULT_ASSISTANT_OTA_URL
+    authorization_url: str = DEFAULT_ASSISTANT_AUTHORIZATION_URL
+    activation_version: str = DEFAULT_ASSISTANT_ACTIVATION_VERSION
     websocket_url: str = ""
     websocket_token: str = ""
     activated: bool = False
@@ -94,7 +97,7 @@ class RuntimeConfigStore:
     ) -> AssistantRuntimeConfig:
         clean_ota = ota_url.strip()
         clean_authorization = authorization_url.strip()
-        clean_version = activation_version.strip() or "v2"
+        clean_version = activation_version.strip() or DEFAULT_ASSISTANT_ACTIVATION_VERSION
 
         def mutate(current: AssistantRuntimeConfig) -> AssistantRuntimeConfig:
             return replace(
@@ -162,6 +165,14 @@ def _decode_config(payload: object) -> AssistantRuntimeConfig:
             raise RuntimeConfigError("identity 字段不完整") from exc
 
     real = _decode_dataclass(RealRuntimeConfig, payload.get("real"), "real")
+    real = replace(
+        real,
+        ota_url=real.ota_url.strip() or DEFAULT_ASSISTANT_OTA_URL,
+        authorization_url=(real.authorization_url.strip() or DEFAULT_ASSISTANT_AUTHORIZATION_URL),
+        activation_version=(
+            real.activation_version.strip() or DEFAULT_ASSISTANT_ACTIVATION_VERSION
+        ),
+    )
     fake = _decode_dataclass(FakeRuntimeConfig, payload.get("fake"), "fake")
     config = AssistantRuntimeConfig(
         schema_version=RUNTIME_CONFIG_SCHEMA_VERSION,

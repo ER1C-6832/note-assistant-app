@@ -69,12 +69,20 @@ def test_gate2_1_has_single_state_replacement_site() -> None:
 
 def test_gate2_1_delivery_files_and_fail_fast_verifier_exist() -> None:
     report = PC_BUILD_ROOT / "docs" / "report" / "GATE2_1_IMPLEMENTATION_REPORT.md"
-    verifier = PC_BUILD_ROOT.parent / "VERIFY_GATE2_1.ps1"
-
     assert report.is_file()
-    assert verifier.is_file()
-    verifier_source = _read(verifier)
-    assert "$LASTEXITCODE -ne 0" in verifier_source
-    assert "exit 1" in verifier_source
-    assert "tests/gate1_7" in verifier_source
-    assert "tests/gate2_1" in verifier_source
+
+    verifier_sources = {
+        path: _read(path).replace("\\", "/")
+        for path in sorted(PC_BUILD_ROOT.parent.glob("VERIFY_GATE*.ps1"))
+    }
+    assert verifier_sources, "repository must contain at least one Gate verifier"
+
+    covering_verifiers = {
+        path: source for path, source in verifier_sources.items() if "tests/gate2_1" in source
+    }
+    assert covering_verifiers, "the current verifier must continue to run Gate 2.1"
+
+    for verifier, source in covering_verifiers.items():
+        assert "$LASTEXITCODE -ne 0" in source, verifier.name
+        assert "exit 1" in source, verifier.name
+        assert "tests/gate1_7" in source, verifier.name
