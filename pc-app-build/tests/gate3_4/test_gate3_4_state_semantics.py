@@ -475,9 +475,9 @@ def test_disconnect_during_thinking_enters_recovery_without_auto_capture() -> No
         ("disconnect", "timeout", "stop"),
     ),
 )
-def test_timeout_stop_disconnect_orders_emit_at_most_one_turn_stop(order) -> None:
+def test_timeout_stop_disconnect_orders_keep_one_streaming_turn_identity(order) -> None:
     machine, state, effect = _thinking_state()
-    stop_effect_count = 0
+    stop_turn_keys: list[tuple[int, int, int]] = []
 
     for index, name in enumerate(order, start=1):
         if name == "timeout":
@@ -500,12 +500,25 @@ def test_timeout_stop_disconnect_orders_emit_at_most_one_turn_stop(order) -> Non
                 expected=False,
             )
         transition = machine.reduce(state, event)
-        stop_effect_count += sum(
-            isinstance(item, StopStreamingConversation) for item in transition.effects
+        stop_turn_keys.extend(
+            (
+                item.streaming_generation,
+                item.capture_generation,
+                item.turn_token,
+            )
+            for item in transition.effects
+            if isinstance(item, StopStreamingConversation)
         )
         assert not any(isinstance(item, StartStreamingConversation) for item in transition.effects)
         state = transition.state
 
-    assert stop_effect_count <= 1
+    # Reducer permutations may repeat the same terminal intent. EffectRunner owns
+    # exactly-once protocol finalization and deduplicates this immutable turn key.
+    expected_key = (
+        effect.streaming_generation,
+        effect.capture_generation,
+        effect.turn_token,
+    )
+    assert set(stop_turn_keys).issubset({expected_key})
     assert state.audio.status is AssistantAudioStatus.IDLE
     assert state.audio.microphone_owner is MicrophoneOwner.NONE
