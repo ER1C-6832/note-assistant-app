@@ -65,10 +65,18 @@ def test_playback_core_uses_no_subprocess_or_multiprocessing() -> None:
         assert imported.isdisjoint(forbidden), path.name
 
 
-def test_pyaudio_device_is_not_opened_by_import_or_fake_tests() -> None:
-    scaffold = (PLAYBACK_ROOT / "pyaudio_output.py").read_text(encoding="utf-8")
-    assert "import pyaudio" not in scaffold
-    assert "not activated before Gate 4.2" in scaffold
+def test_pyaudio_device_is_not_opened_at_module_import() -> None:
+    source = (PLAYBACK_ROOT / "pyaudio_output.py").read_text(encoding="utf-8")
+    tree = ast.parse(source)
+    top_level_imports = {
+        alias.name for node in tree.body if isinstance(node, ast.Import) for alias in node.names
+    }
+    top_level_imports.update(
+        node.module or "" for node in tree.body if isinstance(node, ast.ImportFrom)
+    )
+    assert "pyaudio" not in top_level_imports
+    assert "probe_default_output_plan" in source
+    assert "stream_callback" in source
 
 
 def test_tts_playback_capability_remains_fail_closed_until_real_gate4_2() -> None:

@@ -1,6 +1,7 @@
 """Assistant Runtime transport adapters."""
 
 from .fake_transport import ScriptedFakeTransport
+from .playback_websocket_transport import RealWebSocketTransport
 from .reconnect_policy import ReconnectDecision, ReconnectPolicy
 from .transport import (
     AssistantTransport,
@@ -11,7 +12,6 @@ from .transport import (
     redact_websocket_url,
 )
 from .websocket_transport import (
-    RealWebSocketTransport,
     WebSocketClosed,
     WebSocketConnection,
     WebSocketConnector,

@@ -7,7 +7,7 @@ from .activation import (
     FakeActivationClient,
     RealOtaActivationClient,
 )
-from .controller import AssistantController, ControllerClosedError
+from .controller import ControllerClosedError
 from .errors import AssistantErrorCode, redact_error_text
 from .identity import DeviceIdentity, DeviceIdentityManager, DeviceIdentityStore
 from .network import (
@@ -18,13 +18,14 @@ from .network import (
     RuntimeTransportRouter,
     WebSocketConnectionConfig,
 )
-from .protocol import XiaozhiMessageBuilder, XiaozhiMessageRouter
+from .playback.runtime_controller import AssistantController, ConversationStateMachine
 from .preferences import (
     ASSISTANT_PREFERENCES_SCHEMA_VERSION,
     AssistantPreferences,
     AssistantPreferencesError,
     AssistantPreferencesStore,
 )
+from .protocol import XiaozhiMessageBuilder, XiaozhiMessageRouter
 from .runtime_config import (
     AssistantRuntimeConfig,
     FakeRuntimeConfig,
@@ -51,7 +52,6 @@ from .state import (
     VoiceActivityState,
     VoiceInteractionMode,
 )
-from .state_machine import ConversationStateMachine
 
 __all__ = [
     "ActivationError",

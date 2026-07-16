@@ -1,7 +1,7 @@
 # Gate 4 Spec Index
 
-状态：Frozen for Gate 4.1 Foundation  
-冻结输入基线：`note-assistant-app@648cfb8801fefafc5a5d450eb1d98f841b0b0556`  
+状态：Frozen for Gate 4.2 Real Playback Candidate  
+实现输入基线：`note-assistant-app@bd6d688268b3ef4ec2ea1926ffc29df95b82b256`  
 目标分支：`rewrite/single-process-runtime`
 
 ## 1. 文档集合
@@ -97,3 +97,18 @@ real WebSocket binary downlink
 4. 才允许实现真实播放 Adapter；
 5. 每个子 Gate 通过累计回归后再进入下一阶段。
 
+
+
+## 8. Gate 4.2 实现冻结补充
+
+Gate 4.2 candidate 使用以下已记录决策：
+
+- wire format 仍为当前真实 endpoint 已验证的 Opus / 24 kHz / mono / 20 ms；
+- PyAV decoder 输出不得假定等于 wire format，进入 output 前显式重采样；
+- Windows 默认 output 优先探测 PCM16 48 kHz stereo，再按 48 kHz mono、24 kHz mono、44.1 kHz stereo/mono fail-closed 回退；
+- encoded 与 PCM buffer 均为 2,000 ms 预算，startup prebuffer 为 2 个 decoded chunk；
+- stream-start watchdog=6 s、decoder-progress watchdog=6 s、physical-drain watchdog=8 s、output close budget=2 s；
+- actual PlaybackEnded 仅在 PortAudio callback 已提交最后真实 PCM 且 output stream 转为 inactive 后产生；
+- Gate 4.2 完成一轮后停在 `WAITING_FOR_NEXT_TURN`，不自动申请第二轮 capture。自动续轮仍属于 Gate 4.3。
+
+该 candidate 需要 Windows real runner 与人工听感通过后才能标记 Gate 4.2 Accepted。

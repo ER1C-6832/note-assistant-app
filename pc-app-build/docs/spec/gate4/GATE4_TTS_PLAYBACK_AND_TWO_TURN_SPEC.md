@@ -1,7 +1,7 @@
 # Gate 4 TTS Playback 与真实两轮连续对话 Spec
 
-状态：Frozen for Gate 4.1 Foundation；Gate 4.2 Real Output 前允许补充设备适配事实  
-冻结输入基线：`648cfb8801fefafc5a5d450eb1d98f841b0b0556`
+状态：Frozen for Gate 4.2 Real Playback Candidate；等待 Windows audible acceptance  
+实现输入基线：`bd6d688268b3ef4ec2ea1926ffc29df95b82b256`
 
 ## 1. 目的
 
@@ -612,3 +612,18 @@ Gate 4 只有同时满足以下条件才完成：
 11. 单进程、单 event loop、单 sender、单 Controller state writer 保持；
 12. 文档不把 transcript、`tts/stop` 或 queue empty 描述成物理播放完成。
 
+
+
+## 20. Gate 4.2 concrete adapter freeze
+
+本阶段实现冻结以下 concrete 行为：
+
+1. `RealWebSocketTransport` 在同一 receiver owner 内按 wire 顺序处理 TTS JSON；原始 binary 仅同步投递给 `PlaybackCoordinator`，Runtime event queue 仍只收到 size/lifecycle metadata。
+2. `PlaybackCoordinator` 为当前 connection/stream/playback generation 的唯一 engine owner，并从 Controller state provider 取得 streaming generation correlation。
+3. `PyAvOpusDecoder` 解码当前真实 24 kHz mono Opus，并通过 PyAV resampler 转换为 output planner 已确认的 PCM16 device format。
+4. `PyAudioOutputAdapter` callback 只执行 bounded PCM consume、silence underflow padding 和真实 sample 计数；不 decode、不等待、不修改 AssistantState。
+5. callback 返回 `paComplete` 后，只有 output stream 实际 inactive 才上报 physical drain；`tts/stop`、queue empty、timer 和取消均不能伪造自然 `PlaybackEnded`。
+6. stop、mode switch、disconnect、disable 与 shutdown 会取消当前 playback；失败和取消不自动续轮。
+7. Gate 4.2 reducer 只激活 buffering/speaking/error/actual-ended 投影；`StartStreamingConversation` 不由 PlaybackEnded 产生。
+
+真实设备名称、最终选中的 output format、underflow/overflow、packet/sample counters 和单次 latency sample 由 `verify_gate4_2_real_playback.py` 输出。

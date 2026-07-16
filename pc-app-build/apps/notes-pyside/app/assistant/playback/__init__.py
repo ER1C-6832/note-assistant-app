@@ -1,5 +1,6 @@
 """Gate 4 playback foundation with bounded queues and deterministic Fake output."""
 
+from .coordinator import PlaybackCoordinator
 from .engine import AssistantPlaybackEngine
 from .fakes import DeterministicFakeOpusDecoder, GateControlledFakeAudioOutput
 from .format_planner import PlaybackFormatPlanner, PlaybackOutputPlan
@@ -20,11 +21,16 @@ from .models import (
 )
 from .opus_decoder import PyAvOpusDecoder
 from .ports import AudioOutputPort, OpusDecoderPort, PlaybackEventSink
-from .pyaudio_output import PyAudioOutputAdapter
+from .pyaudio_output import (
+    PyAudioOutputAdapter,
+    PyAudioOutputPlan,
+    probe_default_output_plan,
+)
 from .queues import BoundedEncodedDownlinkQueue, EncodedInputTerminal, PcmPlaybackBuffer
 
 __all__ = [
     "AssistantPlaybackEngine",
+    "PlaybackCoordinator",
     "AudioOutputPort",
     "BoundedEncodedDownlinkQueue",
     "DecodedPcmChunk",
@@ -49,6 +55,8 @@ __all__ = [
     "PlaybackStartedSignal",
     "PlaybackSummary",
     "PyAudioOutputAdapter",
+    "PyAudioOutputPlan",
     "PyAvOpusDecoder",
     "TtsStreamContext",
+    "probe_default_output_plan",
 ]

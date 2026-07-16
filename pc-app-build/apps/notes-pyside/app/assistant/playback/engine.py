@@ -41,11 +41,14 @@ class AssistantPlaybackEngine:
         encoded_budget_ms: int = 2_000,
         pcm_budget_ms: int = 2_000,
         startup_prebuffer_chunks: int = 2,
+        drain_timeout_seconds: float = 8.0,
     ) -> None:
         if encoded_budget_ms <= 0 or pcm_budget_ms <= 0:
             raise ValueError("playback budgets must be positive")
         if startup_prebuffer_chunks <= 0:
             raise ValueError("startup_prebuffer_chunks must be positive")
+        if drain_timeout_seconds <= 0:
+            raise ValueError("drain_timeout_seconds must be positive")
         self._decoder_factory = decoder_factory
         self._output_factory = output_factory
         self._event_sink = event_sink
@@ -53,6 +56,7 @@ class AssistantPlaybackEngine:
         self._encoded_budget_ms = encoded_budget_ms
         self._pcm_budget_ms = pcm_budget_ms
         self._startup_prebuffer_chunks = startup_prebuffer_chunks
+        self._drain_timeout_seconds = drain_timeout_seconds
 
         self._context: TtsStreamContext | None = None
         self._decoder: OpusDecoderPort | None = None
@@ -208,6 +212,20 @@ class AssistantPlaybackEngine:
             raise RuntimeError("playback stream is not armed")
         return await asyncio.wait_for(asyncio.shield(self._done), timeout=timeout_seconds)
 
+    async def fail(
+        self,
+        *,
+        code: str,
+        message: str,
+    ) -> PlaybackFailedSignal | None:
+        """Fail the current stream from an owning coordinator watchdog."""
+
+        return await self._fail(
+            code=code,
+            message=message,
+            cancel_worker=True,
+        )
+
     async def cancel(self, reason: str) -> PlaybackCancelledSignal | None:
         if self._context is None or self._terminal_state():
             return None
@@ -267,7 +285,18 @@ class AssistantPlaybackEngine:
                         )
                         return
                     assert self._drained is not None
-                    await self._drained
+                    try:
+                        await asyncio.wait_for(
+                            asyncio.shield(self._drained),
+                            timeout=self._drain_timeout_seconds,
+                        )
+                    except asyncio.TimeoutError:
+                        await self._fail(
+                            code="playback_drain_timeout",
+                            message="output did not physically drain within the watchdog budget",
+                            cancel_worker=False,
+                        )
+                        return
                     if self._cancelled or self._failed:
                         return
                     if not pcm.terminal_and_empty:
