@@ -1,7 +1,7 @@
 # Gate 4 TTS Playback 与真实两轮连续对话 Spec
 
-状态：Draft，等待 Gate 4.0 Real Protocol Probe 冻结  
-规划输入基线：`93f022fd22d77a059380410fc14e4cf990afc12a`
+状态：Frozen for Gate 4.1 Foundation；Gate 4.2 Real Output 前允许补充设备适配事实  
+冻结输入基线：`648cfb8801fefafc5a5d450eb1d98f841b0b0556`
 
 ## 1. 目的
 
@@ -83,30 +83,34 @@ AssistantPlaybackEngine 必须是独立播放组件，不把下行 decode/output
 
 ## 4. 下行格式与协议探测
 
-### 4.1 不能假设上下行参数相同
+### 4.1 Gate 4.0 已冻结的当前 endpoint 行为
 
-当前 client hello 请求：
+当前 client hello 上行仍请求 16 kHz/mono/20 ms；真实 ServerHello 下行明确返回：
 
 ```text
 format=opus
-sample_rate=16000
+sample_rate=24000
 channels=1
 frame_duration=20ms
 ```
 
-这只冻结当前上行契约，不足以证明官方云下行也是 16 kHz / 20 ms。Gate 4.0 必须在当前真实 endpoint 上采集：
+一轮真实 probe 观察到：
 
-- ServerHello 是否包含 `audio_params`；
-- codec；
-- sample rate；
-- channels；
-- frame duration；
-- `tts` state 顺序；
-- binary packet count、size 分布与到达间隔；
-- terminal TTS state 与最后一个 binary 的相对顺序；
-- 一次真实 payload 是否可被 PyAV Opus decoder 解码。
+```text
+binary_packet_count=130
+packet_size_min=48
+packet_size_max=107
+packet_size_median=68
+tts=start -> sentence_start -> sentence_end -> sentence_start -> stop
+first_binary_relative_to_terminal=before
+last_binary_relative_to_terminal=before
+queue_overflow=0
+unarmed_binary=0
+```
 
-探测默认只输出脱敏 metadata，不保存用户语音、TTS payload 或解码 PCM。
+PyAV 对至少一个真实 packet 解码成功，但 decoded frame 报告为 48 kHz / 2 channels / 960 sample frames。该结果证明 wire negotiation 与 decoder PCM output 是两个不同层级。Gate 4.1/4.2 必须根据实际 decoded frame 做显式 format planning/resample/remix，不得把 ServerHello 的 24 kHz/mono 静默当成 output PCM。
+
+探测未保存用户语音、TTS payload 或 PCM，未打开扬声器。
 
 ### 4.2 格式选择优先级
 
@@ -125,12 +129,14 @@ frame_duration=20ms
 
 ### 4.3 支持范围
 
-第一版接受：
+Gate 4.1 冻结接受：
 
 - codec：Opus；
-- channels：mono；
-- sample rate：Opus 合法值中的 Gate 4.0 已验证集合；
-- frame duration：Gate 4.0 已验证集合。
+- wire channels：mono；
+- wire sample rate：24,000 Hz；
+- wire frame duration：20 ms。
+
+其他 endpoint 参数必须 fail closed，直到新的真实 probe 证据更新本 Spec。
 
 收到 unsupported codec/channel/rate/duration 时终止当前 playback，产生可见错误，不自动进入下一轮。
 
@@ -247,12 +253,14 @@ Fake ingress/decoder/output 必须可替换真实实现，Controller/Reducer 测
 Gate 4.0 冻结 frame duration 后，将容量换算为时间而非只写 packet 数：
 
 ```text
-encoded buffered audio budget: <= 2000 ms
-PCM buffered audio budget: <= 2000 ms
-startup prebuffer: 1～2 个已验证 frame，目标 <= 120 ms
+encoded buffered audio budget: 2000 ms = 100 packets at 20 ms
+PCM buffered audio budget: 2000 ms
+Gate 4.1 Fake decoded format: PCM16 48 kHz stereo
+Gate 4.1 PCM capacity: 384000 bytes
+startup prebuffer: 2 decoded chunks = nominal 40 ms
 ```
 
-最终 packet capacity、PCM chunk capacity、startup prebuffer 和 watchdog 数值必须写入 Gate 4.0 报告及实现常量。改变这些值需要测试更新，不得藏在 magic number 中。
+这些是 Gate 4.1 Foundation 常量。Gate 4.2 必须用真实 decoder/output adapter 再确认设备格式和 watchdog；改变数值需要同步测试与报告，不得藏在 magic number 中。
 
 ## 8. Decode、resample 与 output
 

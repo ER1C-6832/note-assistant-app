@@ -1,7 +1,7 @@
 # Gate 4 Spec Index
 
-状态：Draft for Gate 4.0 Freeze  
-规划输入基线：`note-assistant-app@93f022fd22d77a059380410fc14e4cf990afc12a`  
+状态：Frozen for Gate 4.1 Foundation  
+冻结输入基线：`note-assistant-app@648cfb8801fefafc5a5d450eb1d98f841b0b0556`  
 目标分支：`rewrite/single-process-runtime`
 
 ## 1. 文档集合
@@ -48,7 +48,22 @@ Gate 4 继承以下 Gate 3 已冻结事实：
 
 根目录 PowerShell 文件是否加入 Git 不是 Runtime 架构契约。当前项目允许把本地 PowerShell 包装器写入 `.gitignore`；版本化验收资产应位于 `pc-app-build/tests`、`pc-app-build/tools` 和本目录。Architecture test 不得仅因根目录本地包装器未入库而失败。
 
-## 4. Gate 4 目标
+
+## 4. Gate 4.0 已冻结真实事实
+
+Windows 当前真实 endpoint 探测返回 `real_gate_complete`：
+
+- ServerHello 下行格式：Opus、24,000 Hz、mono、20 ms；
+- 一轮收到 130 个 binary packet，大小 48～107 bytes，中位数 68 bytes；
+- 观察到 TTS 顺序：`start -> sentence_start -> sentence_end -> sentence_start -> stop`；
+- 首个和最后一个 binary 均早于 terminal `tts/stop`；
+- probe queue overflow=0，unarmed binary=0，stale event=0；
+- PyAV 至少解码一个 packet 成功，首个 decoded frame 报告 48,000 Hz、2 channels、960 sample frames；
+- `payload_persisted=false`、`output_device_opened=false`，退出后 probe/assistant task 归零。
+
+因此 Gate 4.1 必须区分 wire format 与 decoded PCM format；不得把 24 kHz/mono 直接当成 decoder/output format。
+
+## 5. Gate 4 目标
 
 ```text
 real WebSocket binary downlink
@@ -62,7 +77,7 @@ real WebSocket binary downlink
 -> real two-turn conversation
 ```
 
-## 5. Gate 4 非目标
+## 6. Gate 4 非目标
 
 - 不实现 acoustic full-duplex barge-in；
 - 不实现 AEC/NS/AGC；
@@ -74,7 +89,7 @@ real WebSocket binary downlink
 - 不为 Gate 4 顺带重写整个 Controller/StateMachine；
 - 不用定时器估算值伪造 `PlaybackEnded`。
 
-## 6. 冻结流程
+## 7. 冻结流程
 
 1. 先完成 Gate 4.0 真实协议探测；
 2. 将采样率、frame duration、TTS 状态顺序和 binary 边界写回 Spec；

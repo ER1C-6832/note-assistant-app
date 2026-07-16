@@ -3,6 +3,7 @@
 from .events import (
     AssistantText,
     BinaryAudio,
+    DownlinkAudioFormat,
     ListenState,
     McpEnvelope,
     ProtocolError,
@@ -22,6 +23,7 @@ from .transcript import (
 __all__ = [
     "AssistantText",
     "BinaryAudio",
+    "DownlinkAudioFormat",
     "ListenState",
     "McpEnvelope",
     "ProtocolError",

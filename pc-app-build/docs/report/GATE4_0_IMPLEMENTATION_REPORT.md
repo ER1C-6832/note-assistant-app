@@ -1,8 +1,8 @@
 # Gate 4.0 增量实施报告
 
-状态：实现候选，等待 Windows 真实 endpoint 探测
+状态：通过；真实协议事实已冻结为 Gate 4.1 输入
 
-基线：`rewrite/single-process-runtime@bf81c4d299fd9e2cf7a8a73518038519ff3892cf`
+验收 HEAD：`rewrite/single-process-runtime@648cfb8801fefafc5a5d450eb1d98f841b0b0556`
 
 ## 本次完成
 
@@ -44,7 +44,21 @@
 - 最小依赖隔离回归：`17 passed`，覆盖新 protocol/probe/transport 以及既有 Gate 2.3 router 契约；
 - 完整累计 pytest：当前执行环境没有完整仓库与 Windows 音频环境，未执行。
 
-## 用户验收
+## Windows 真实验收结果
+
+用户执行 `python tools/verify_gate4_0_real_downlink_probe.py`，返回 `status=real_gate_complete`：
+
+- hello：Opus / 24,000 Hz / mono / 20 ms；
+- binary packets：130；size 48～107 bytes，median 68 bytes；
+- TTS：`start -> sentence_start -> sentence_end -> sentence_start -> stop`；
+- first/last binary 均在 terminal 前；
+- PyAV decode 成功，decoded 48,000 Hz / 2 channels / 960 sample frames；
+- overflow/unarmed/stale 均为 0；
+- 未落盘、未打开 output，最终 probe task 与 assistant task 均为空。
+
+注意：wire format 与 decoded PCM format 不同，已作为 Gate 4.1 format planner 的冻结输入。
+
+## 验收命令
 
 覆盖后在 `pc-app-build` 执行：
 
@@ -59,4 +73,4 @@ python tools/verify_gate4_0_real_downlink_probe.py
 - `1`：实现/协议验收失败；
 - `2`：激活、网络、设备或依赖环境阻塞。
 
-真实 runner 返回 0 后，再把实际 sample rate、channels、frame duration、TTS state 顺序和 buffer 容量写回 Gate 4 Spec，并冻结为 Gate 4.1 输入。
+真实 runner 已返回 0；实际协议参数已写回 Gate 4 Spec。此前完整 pytest 的 collection error 是 `DownlinkAudioFormat` 未从 `protocol.__init__` 导出，随 Gate 4.1 增量修复。
