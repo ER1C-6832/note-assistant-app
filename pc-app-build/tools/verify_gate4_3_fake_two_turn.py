@@ -90,13 +90,11 @@ async def _run() -> int:
             active_entry_source=AssistantEntrySource.STREAMING_BUTTON,
             voice_turn_counter=1,
             active_voice_turn_token=1,
-            last_completed_voice_turn_token=1,
             streaming_session_active=True,
             streaming_generation=1,
             streaming_session_id="fake-streaming",
             streaming_turn_index=1,
             active_streaming_turn_token=1,
-            last_completed_streaming_turn_token=1,
             streaming_state=StreamingConversationState.THINKING,
         ),
     )
@@ -195,8 +193,6 @@ async def _run() -> int:
             active_streaming_turn_token=2,
             streaming_turn_index=2,
             streaming_state=StreamingConversationState.THINKING,
-            last_completed_voice_turn_token=2,
-            last_completed_streaming_turn_token=2,
         ),
     )
     await play_turn(2, 2)
@@ -229,9 +225,13 @@ async def _run() -> int:
         "playback_ended_count": ended_count,
         "auto_next_turn_request_count": len(auto_next_effects),
         "next_turn_indices": [effect.turn_index for effect in auto_next_effects],
-        "capture_generations": [effect.capture_generation for effect in auto_next_effects],
+        "capture_generations": [
+            effect.capture_generation for effect in auto_next_effects
+        ],
         "turn_tokens": [effect.turn_token for effect in auto_next_effects],
-        "decoded_sample_frames": [summary.decoded_sample_frames for summary in summaries],
+        "decoded_sample_frames": [
+            summary.decoded_sample_frames for summary in summaries
+        ],
         "played_sample_frames": [summary.played_sample_frames for summary in summaries],
         "capture_playback_overlap_count": 0,
         "output_running_at_final": coordinator.output_running,
