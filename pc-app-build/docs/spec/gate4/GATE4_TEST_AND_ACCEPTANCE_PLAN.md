@@ -1,6 +1,6 @@
 # Gate 4 测试与验收计划
 
-状态：Draft，随 Gate 4.0 Probe 冻结  
+状态：Gate 4 Final Acceptance Matrix  
 范围：TTS binary downlink、decode/resample、output、actual PlaybackEnded、auto next turn、real two-turn
 
 ## 1. 测试分层
@@ -390,3 +390,32 @@ RUN_GATE4_REAL_TWO_TURN.ps1
 - shutdown/leak matrix 全通过；
 - 未实现 acoustic barge-in/AEC/KWS/MCP 不得写成已完成。
 
+
+
+## 12. Gate 4.4 资源终态与异常总矩阵
+
+| 入口 | natural PlaybackEnded | auto next | 最终资源 |
+|---|---:|---:|---|
+| 正常 terminal + physical drain | 1 | streaming 时 1 | output/worker/buffer 归零 |
+| 用户 stop during buffering/playing | 0 | 0 | playback/capture/session 归零 |
+| mode switch | 0 | 0 | playback 先取消，再持久化模式 |
+| disconnect | 0 | 0 | playback/transport generation 失效 |
+| disable | 0 | 0 | phase=disabled，所有音频资源归零 |
+| shutdown | 0 | 0 | 所有 assistant task 归零 |
+| decoder/output/watchdog failure | 0 | 0 | error 可见，资源有界关闭 |
+| duplicate/stale callback | 0 | 0 | state/effect no-op |
+| next capture start failure | 已完成上一播放 | 申请最多 1 次 | 进入现有 AudioCaptureFailed 回收 |
+
+Canonical 自动命令：
+
+```powershell
+python tools/verify_gate4_4_cumulative.py
+```
+
+Windows Real stop：
+
+```powershell
+python tools/verify_gate4_4_real_stop_during_playback.py
+```
+
+完整 Real 证据仍由 4.0 probe、4.2 one-turn、4.3 two-turn 和 4.4 stop runner 分别保存；Fake 不能替代设备听感或 physical drain。

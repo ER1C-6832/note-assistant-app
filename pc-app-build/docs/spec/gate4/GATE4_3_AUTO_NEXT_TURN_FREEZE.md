@@ -1,7 +1,7 @@
 # Gate 4.3 Actual PlaybackEnded Auto Next Turn Freeze
 
-状态：Candidate
-基线：`e66c30b550bd7959fb916431033053f3bac244ac`
+状态：Accepted；由 GATE4_FINAL_FREEZE.md 纳入 Gate 4 最终冻结
+实现基线：`077bbdcdbdb8855fa3f31ea429c9a33738b6a121`；日志修复：`9f37041cc5a955d0f943e552a465a8e9b02046a0`
 
 ## 唯一续轮规则
 

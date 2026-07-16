@@ -1,7 +1,7 @@
 # Gate 4 TTS Playback 与真实两轮连续对话 Spec
 
-状态：Frozen for Gate 4.2 Real Playback Candidate；等待 Windows audible acceptance  
-实现输入基线：`bd6d688268b3ef4ec2ea1926ffc29df95b82b256`
+状态：Gate 4 Final Frozen；实现完成，等待当前工作树 4.4 release verifier  
+最终收口基线：`9f37041cc5a955d0f943e552a465a8e9b02046a0`
 
 ## 1. 目的
 
@@ -627,3 +627,14 @@ Gate 4 只有同时满足以下条件才完成：
 7. Gate 4.2 reducer 只激活 buffering/speaking/error/actual-ended 投影；`StartStreamingConversation` 不由 PlaybackEnded 产生。
 
 真实设备名称、最终选中的 output format、underflow/overflow、packet/sample counters 和单次 latency sample 由 `verify_gate4_2_real_playback.py` 输出。
+
+
+## 21. Gate 4.3 / 4.4 final freeze
+
+1. `TwoTurnConversationStateMachine` 只从当前自然物理 `ActualPlaybackEnded` 分配下一轮；分配同时更新 turn token、capture generation 和 turn index。
+2. `TwoTurnController` 在 event-pump 顺序内同步准入 auto-next effect，并用有界 ledger 提供第二层 exactly-once 防线。
+3. `PlaybackEnded -> user stop` 表示已合法分配的 capture 先启动一次，再由后续 stop 立即取消；`user stop -> PlaybackEnded` 表示迟到 callback no-op。结果只由事件顺序决定。
+4. disable/disconnect 后迟到的 physical drain callback 直接 no-op，不得把 disabled/disconnected 状态重新投影为 connected。
+5. 用户在 buffering/playing 期间 stop 时，playback coordinator 必须先 cancel/close，再执行 streaming session stop；取消只产生 cancelled 语义，不产生 natural `PlaybackEnded`。
+6. Gate 4 完成后仍不实现全双工声学插话、AEC、KWS、MCP 或完整音频设备热插拔恢复。
+7. 最终发布证据由 `verify_gate4_4_cumulative.py` 与 `verify_gate4_4_real_stop_during_playback.py` 补齐；既有 4.0/4.2/4.3 Real runner 证据继续有效。

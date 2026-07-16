@@ -225,13 +225,9 @@ async def _run() -> int:
         "playback_ended_count": ended_count,
         "auto_next_turn_request_count": len(auto_next_effects),
         "next_turn_indices": [effect.turn_index for effect in auto_next_effects],
-        "capture_generations": [
-            effect.capture_generation for effect in auto_next_effects
-        ],
+        "capture_generations": [effect.capture_generation for effect in auto_next_effects],
         "turn_tokens": [effect.turn_token for effect in auto_next_effects],
-        "decoded_sample_frames": [
-            summary.decoded_sample_frames for summary in summaries
-        ],
+        "decoded_sample_frames": [summary.decoded_sample_frames for summary in summaries],
         "played_sample_frames": [summary.played_sample_frames for summary in summaries],
         "capture_playback_overlap_count": 0,
         "output_running_at_final": coordinator.output_running,

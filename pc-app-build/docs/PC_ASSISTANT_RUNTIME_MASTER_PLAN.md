@@ -1232,14 +1232,54 @@ Gate 7                  1 日
 | Gate 3.1 | 已完成 |
 | Gate 3.2 | 已完成 |
 | Gate 3.3 | 真实一轮链路通过；累计自动验收由 Gate 3.4 收口 |
-| Gate 3.4 | 收口交付完成；最终关闭以目标工作树累计 verifier 全部返回 0 为准 |
-| Gate 4 | 未开始 |
+| Gate 3.4 | 已完成 |
+| Gate 4 | 已完成（4.0～4.4，真实协议、真实播放、真实两轮与停止优先级） |
 | Gate 5 | 未开始 |
 | Gate 6 | 未开始 |
 | Gate 6.5 | 未开始 |
 | Gate 7 | 未开始 |
 
 Gate 3.3 只声明 VAD + Opus 上行 + readable transcript；不声明 TTS 播放、自动第二轮或 barge-in。
+
+---
+
+## 10.1 Gate 4 已冻结结果
+
+Gate 4 在单进程 Runtime 内完成：
+
+```text
+真实 WebSocket Opus binary downlink
+-> bounded encoded ingress
+-> PyAV decode/resample
+-> bounded PCM buffer
+-> PyAudio callback output
+-> actual physical PlaybackEnded
+-> exactly-once auto next turn
+-> 真实两轮连续对话
+```
+
+当前真实 endpoint 已验证为 Opus / 24 kHz / mono / 20 ms；实际 decoder/output 层使用显式格式规划，不能把 wire format 当成 PCM output format。
+
+冻结所有权：
+
+- 原始 Opus 和 PCM 不进入 Runtime event queue 或 AssistantState；
+- WebSocket receiver 不等待 decode、output 或 physical drain；
+- playback worker 是 decode/resample/queue 协调的唯一所有者；
+- PortAudio callback 只消费 PCM、补静音并报告真实 sample consumption；
+- 只有 terminal + encoded empty + decoder flush + PCM empty + 最后真实 sample consumed + output inactive 才能产生 natural `PlaybackEnded`；
+- 只有当前 generation/token 的 natural `PlaybackEnded` 可以分配下一轮 capture；
+- stop、mode switch、disconnect、disable、shutdown、失败、取消和陈旧 callback 均不续轮；
+- 默认不允许 capture 与 playback 重叠。
+
+Gate 4 不包含 MCP、KWS、AEC、声学全双工 barge-in 或完整设备热插拔恢复。这些能力继续属于后续 Gate。
+
+验收资产：
+
+- `tools/verify_gate4_0_real_downlink_probe.py`；
+- `tools/verify_gate4_2_real_playback.py`；
+- `tools/verify_gate4_3_real_two_turn.py`；
+- `tools/verify_gate4_4_real_stop_during_playback.py`；
+- `tools/verify_gate4_4_cumulative.py`。
 
 ---
 

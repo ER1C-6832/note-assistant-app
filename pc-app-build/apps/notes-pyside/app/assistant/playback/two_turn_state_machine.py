@@ -32,13 +32,14 @@ class TwoTurnConversationStateMachine(PlaybackConversationStateMachine):
         current: AssistantState,
         event: ActualPlaybackEnded,
     ) -> Transition:
-        # Disable/disconnect already owns terminal cleanup. A physical-drain callback
-        # that arrives afterwards is stale and must not re-enter the Gate 4.2 cleanup
-        # path, which would incorrectly project the disabled state back to CONNECTED.
+        # Disable/disconnect/cancel already owns terminal cleanup. A physical-drain
+        # callback that arrives afterwards is stale and must not re-enter either the
+        # Gate 4.2 cleanup path or the Gate 4.3 auto-next allocation path.
         if (
             not current.enabled
             or not current.is_connected
             or current.phase is AssistantPhase.DISABLED
+            or not self._playback_active(current)
         ):
             return Transition.unchanged(current)
 
@@ -52,9 +53,7 @@ class TwoTurnConversationStateMachine(PlaybackConversationStateMachine):
         next_turn_token = max(conversation.voice_turn_counter, summary.turn_token) + 1
         next_capture_generation = state.audio.capture_generation + 1
         next_turn_index = max(1, conversation.streaming_turn_index) + 1
-        source = (
-            conversation.active_entry_source or AssistantEntrySource.STREAMING_BUTTON
-        )
+        source = conversation.active_entry_source or AssistantEntrySource.STREAMING_BUTTON
 
         audio = replace(
             state.audio,
@@ -141,8 +140,7 @@ class TwoTurnConversationStateMachine(PlaybackConversationStateMachine):
             or not before.is_connected
             or before.error is not None
             or not conversation.streaming_session_active
-            or conversation.preferred_voice_mode
-            is not VoiceInteractionMode.STREAMING_CONVERSATION
+            or conversation.preferred_voice_mode is not VoiceInteractionMode.STREAMING_CONVERSATION
             or conversation.streaming_state
             in {
                 StreamingConversationState.STOPPING,

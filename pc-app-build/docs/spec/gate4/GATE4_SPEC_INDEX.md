@@ -1,125 +1,116 @@
 # Gate 4 Spec Index
 
-状态：Gate 4.2 Accepted；Gate 4.3 Auto Next Turn Candidate  
-实现输入基线：`note-assistant-app@e66c30b550bd7959fb916431033053f3bac244ac`  
+状态：Gate 4 实现完成；4.4 Final Acceptance Candidate  
+最终收口基线：`note-assistant-app@9f37041cc5a955d0f943e552a465a8e9b02046a0`  
 目标分支：`rewrite/single-process-runtime`
 
-## 1. 文档集合
+## 1. 权威文档集合
 
-Gate 4 由以下文件共同定义：
+1. `GATE4_FINAL_FREEZE.md`
+   - Gate 4 最终冻结入口，定义已完成能力、资源终态、证据和明确非目标。
+2. `GATE4_TTS_PLAYBACK_AND_TWO_TURN_SPEC.md`
+   - 下行协议、热路径、actual PlaybackEnded、自动续轮和恢复语义。
+3. `GATE4_3_AUTO_NEXT_TURN_FREEZE.md`
+   - actual PlaybackEnded 唯一续轮规则及事件排列语义。
+4. `GATE4_IMPLEMENTATION_PLAN.md`
+   - 4.0～4.4 分阶段范围和退出条件。
+5. `GATE4_TEST_AND_ACCEPTANCE_PLAN.md`
+   - 自动、Fake、Windows Real、异常和资源终态矩阵。
+6. `../../adr/ADR-008-gate4-playback-and-auto-next-turn.md`
+   - Gate 4 不可逆架构决策。
 
-1. `GATE4_TTS_PLAYBACK_AND_TWO_TURN_SPEC.md`
-   - 冻结下行协议、播放热路径、状态机、`actual PlaybackEnded`、自动续轮和非目标。
-2. `GATE4_IMPLEMENTATION_PLAN.md`
-   - 把 Gate 4 拆为 4.0～4.4，定义每阶段入口、交付物和退出条件。
-3. `GATE4_TEST_AND_ACCEPTANCE_PLAN.md`
-   - 定义自动、Fake、QML、Windows Real、两轮和泄漏验收矩阵。
+发生冲突时，按以下顺序解释：
 
-## 2. 规范优先级
+1. 当前 endpoint 的真实 Probe/Real runner 证据；
+2. `GATE4_FINAL_FREEZE.md`；
+3. 主 Spec；
+4. Accepted ADR；
+5. 测试与实施计划；
+6. Implementation/Delivery Report；
+7. 历史候选报告。
 
-发生冲突时，按以下优先级解释：
+## 2. 已冻结真实事实
 
-1. Gate 4.0 真实协议探测报告中已经确认的 wire 行为；
-2. 本目录已冻结的 Gate 4 Spec；
-3. `PC_ASSISTANT_RUNTIME_MASTER_PLAN.md` 中已并入的当前决策；
-4. Accepted 且未 superseded 的 ADR；
-5. Gate 4 实施计划；
-6. Delivery/Implementation Report；
-7. 旧 Gate 报告、旧 runner 名称和历史候选实现。
+### 2.1 Gate 4.0 协议
 
-若真实官方云行为与本 Draft 的假设冲突，必须先更新 Gate 4 Spec 和协议探测报告，再修改产品代码；不得在 Adapter 中静默加入未记录的兼容分支。
+- ServerHello：Opus / 24,000 Hz / mono / 20 ms；
+- 一轮 130 个 binary packet，48～107 bytes，中位数 68 bytes；
+- TTS：`start -> sentence_start -> sentence_end -> sentence_start -> stop`；
+- 首末 binary 均早于 terminal；
+- PyAV 可解码，首 frame 报告 48 kHz / stereo / 960 sample frames；
+- payload 未持久化，未打开 output，退出后无残留任务。
 
-## 3. Gate 3 输入条件
+wire negotiation 与 decoder/output PCM 是两个层级，必须显式 plan/resample。
 
-Gate 4 继承以下 Gate 3 已冻结事实：
+### 2.2 Gate 4.2 真实一轮
 
-- 单 Python Runtime 进程；
-- Qt 主线程 + 单 qasync event loop；
-- 单 Controller 状态写入者；
-- 单 bounded Runtime event queue；
-- 单 WebSocket sender/receiver owner；
-- PyAudio capture + PyAV Opus uplink；
-- PTT 与 streaming 共用 capture engine；
-- local VAD 自动提交；
-- Gate 3 回复停在 `WAITING_FOR_NEXT_TURN`，不自动开麦；
-- `AssistantTextReceived`、`TtsStateReceived` 和 `tts/stop` 不是续轮触发源；
-- stop、cancel、finalize、lease release 幂等；
-- generation/session/turn 的陈旧事件无害。
+Windows Real runner 已返回 `real_gate_complete`：
 
-根目录 PowerShell 文件是否加入 Git 不是 Runtime 架构契约。当前项目允许把本地 PowerShell 包装器写入 `.gitignore`；版本化验收资产应位于 `pc-app-build/tests`、`pc-app-build/tools` 和本目录。Architecture test 不得仅因根目录本地包装器未入库而失败。
+- 628 个 encoded packet；
+- decoded/played 均为 602,880 sample frames；
+- output device 为 Realtek 扬声器；
+- natural physical drain；
+- encoded/PCM overflow=0；
+- 人工确认非静音、速度和音调正常；
+- 退出后 output、worker、buffer、assistant task 归零。
 
+### 2.3 Gate 4.3 真实两轮
 
-## 4. Gate 4.0 已冻结真实事实
+Windows Real runner 已返回 `real_gate_complete`：
 
-Windows 当前真实 endpoint 探测返回 `real_gate_complete`：
+- turn 1：130 packets，124,800 decoded/played frames；
+- turn 2：249 packets，239,040 decoded/played frames；
+- auto-next request/start 均为 2；
+- capture generation `1 -> 2`，turn token `1 -> 2`；
+- capture/playback overlap=0；
+- 人工确认两轮听感正常；
+- 最终无 output、worker、buffer 或 assistant task 泄漏。
 
-- ServerHello 下行格式：Opus、24,000 Hz、mono、20 ms；
-- 一轮收到 130 个 binary packet，大小 48～107 bytes，中位数 68 bytes；
-- 观察到 TTS 顺序：`start -> sentence_start -> sentence_end -> sentence_start -> stop`；
-- 首个和最后一个 binary 均早于 terminal `tts/stop`；
-- probe queue overflow=0，unarmed binary=0，stale event=0；
-- PyAV 至少解码一个 packet 成功，首个 decoded frame 报告 48,000 Hz、2 channels、960 sample frames；
-- `payload_persisted=false`、`output_device_opened=false`，退出后 probe/assistant task 归零。
-
-因此 Gate 4.1 必须区分 wire format 与 decoded PCM format；不得把 24 kHz/mono 直接当成 decoder/output format。
-
-## 5. Gate 4 目标
+## 3. 最终架构
 
 ```text
-real WebSocket binary downlink
--> negotiated Opus format
--> bounded encoded ingress
+RealWebSocketTransport receiver
+-> private bounded Opus ingress
+-> AssistantPlaybackEngine worker
 -> PyAV decode/resample
--> bounded PCM playback buffer
--> PyAudio output
--> actual PlaybackStarted / PlaybackEnded
--> exactly one next streaming turn
--> real two-turn conversation
+-> bounded PCM buffer
+-> PyAudio callback consumption
+-> physical output inactive
+-> ActualPlaybackEnded
+-> exactly-once next streaming capture
 ```
 
-## 6. Gate 4 非目标
+- Runtime event queue 只承载小型生命周期/计数事件；
+- 原始 Opus、PCM、PyAV frame 和 PyAudio stream 不进入 state；
+- capture 与 playback 默认不重叠；
+- terminal JSON、transcript、queue empty 和 timer 均不能伪造 PlaybackEnded；
+- stop、mode switch、disconnect、disable、shutdown、失败和取消均不自动续轮。
 
-- 不实现 acoustic full-duplex barge-in；
-- 不实现 AEC/NS/AGC；
-- 不实现 KWS；
-- 不实现蓝牙/热插拔完整恢复；
-- 不实现 MCP；
-- 不建立第二 Runtime、第二 event loop 或 localhost bridge；
-- 不把 Opus/PCM payload 放入 Runtime event queue；
-- 不为 Gate 4 顺带重写整个 Controller/StateMachine；
-- 不用定时器估算值伪造 `PlaybackEnded`。
+## 4. Gate 4.4 最终验收入口
 
-## 7. 冻结流程
+自动累计：
 
-1. 先完成 Gate 4.0 真实协议探测；
-2. 将采样率、frame duration、TTS 状态顺序和 binary 边界写回 Spec；
-3. 标记本索引为 `Frozen for Gate 4.1`；
-4. 才允许实现真实播放 Adapter；
-5. 每个子 Gate 通过累计回归后再进入下一阶段。
+```powershell
+python tools/verify_gate4_4_cumulative.py
+```
 
+Windows 播放中 stop：
 
+```powershell
+python tools/verify_gate4_4_real_stop_during_playback.py
+```
 
-## 8. Gate 4.2 实现冻结补充
+4.4 Real stop 必须证明：取消不产生 natural PlaybackEnded、auto-next 计数不增加、session 和全部音频任务/队列归零。
 
-Gate 4.2 candidate 使用以下已记录决策：
+## 5. 明确非目标
 
-- wire format 仍为当前真实 endpoint 已验证的 Opus / 24 kHz / mono / 20 ms；
-- PyAV decoder 输出不得假定等于 wire format，进入 output 前显式重采样；
-- Windows 默认 output 优先探测 PCM16 48 kHz stereo，再按 48 kHz mono、24 kHz mono、44.1 kHz stereo/mono fail-closed 回退；
-- encoded 与 PCM buffer 均为 2,000 ms 预算，startup prebuffer 为 2 个 decoded chunk；
-- stream-start watchdog=6 s、decoder-progress watchdog=6 s、physical-drain watchdog=8 s、output close budget=2 s；
-- actual PlaybackEnded 仅在 PortAudio callback 已提交最后真实 PCM 且 output stream 转为 inactive 后产生；
-- Gate 4.2 完成一轮后停在 `WAITING_FOR_NEXT_TURN`，不自动申请第二轮 capture。自动续轮仍属于 Gate 4.3。
+Gate 4 不实现：
 
-Gate 4.2 已由 Windows real runner、人工听感、330 项累计测试和 58 项 Gate 4 定向测试验收通过。
+- MCP；
+- KWS；
+- AEC/NS/AGC；
+- acoustic/full-duplex barge-in；
+- 蓝牙或设备热插拔完整恢复；
+- 第二 Runtime、第二 event loop、Sidecar 或 localhost bridge。
 
-
-## 9. Gate 4.3 自动续轮候选补充
-
-- actual `PlaybackEnded` 是唯一自动续轮触发源；
-- Reducer 一次性分配新的 `turn_token`、`capture_generation` 和 `streaming_turn_index`；
-- 自动 `StartStreamingConversation` effect 在 Controller event 顺序内同步准入，并使用有界 key ledger 防重复执行；
-- stop、mode switch、disconnect、disable、shutdown 在先时禁止续轮；在后时先完成已分配 capture 的启动，再按下一事件立即取消，结果由事件顺序决定而非 task 调度；
-- playback failure/cancel、非自然结束、旧 connection/playback/streaming generation 均不续轮；
-- 下一轮 capture start failure 进入现有 `AudioCaptureFailed` 回收链路；
-- 默认禁止 capture/playback overlap；full-duplex barge-in 仍不属于 Gate 4.3。
+这些能力不得在 README、UI 或 capability detail 中被描述为 Gate 4 已完成。

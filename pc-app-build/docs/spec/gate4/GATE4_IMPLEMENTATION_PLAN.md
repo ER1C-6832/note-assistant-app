@@ -1,6 +1,6 @@
 # Gate 4 分阶段实施计划
 
-状态：Draft，Gate 3.4 后续实施输入  
+状态：Gate 4 实现完成；4.4 Final Acceptance Candidate  
 目标：真实 TTS Playback + actual PlaybackEnded + 真实两轮连续对话
 
 ## 1. 实施原则
@@ -338,3 +338,28 @@ user interrupt
 
 这是工程估算，不是完成承诺。Gate 4.0 结果可能改变 4.1/4.2 的实现细节。
 
+
+
+## 9. Gate 4.4 最终收口实现
+
+Gate 4.4 不新增全双工插话。现有 `StopStreamingConversation` effect 已在执行会话停止前同步取消 playback coordinator，本阶段将该顺序冻结为自动测试和 Windows Real stop runner。
+
+最终新增：
+
+```text
+pc-app-build/tests/gate4_4/
+pc-app-build/tools/verify_gate4_4_cumulative.py
+pc-app-build/tools/verify_gate4_4_real_stop_during_playback.py
+pc-app-build/docs/spec/gate4/GATE4_FINAL_FREEZE.md
+pc-app-build/docs/report/GATE4_FINAL_ACCEPTANCE_REPORT.md
+pc-app-build/docs/adr/ADR-008-gate4-playback-and-auto-next-turn.md
+```
+
+4.4 退出条件：
+
+- cumulative verifier 返回 0；
+- stop-during-playback Real runner 返回 0；
+- 用户 stop 不产生 natural PlaybackEnded，不增加 auto-next request；
+- output、playback worker、PCM buffer、capture、uplink、VAD 与 assistant task 终态归零；
+- README、Master Plan、ADR 和 Gate 4 文档只声明已验证能力；
+- MCP、KWS、AEC 与 full-duplex barge-in 明确留在后续 Gate。
