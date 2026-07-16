@@ -92,6 +92,7 @@ async def _run() -> dict[str, object]:
     completed = controller.state
     local_session_id = None
     pending: list[str] = []
+    checks: dict[str, bool] = {}
     try:
         await _connect(controller)
         await controller.start_streaming_conversation(permission_granted=True)
@@ -101,33 +102,60 @@ async def _run() -> dict[str, object]:
         )
         local_session_id = started.conversation.streaming_session_id
         emitted = capture.emit_all()
-        completed = await controller.wait_for_state(
+        waiting = await controller.wait_for_state(
             lambda state: state.conversation.streaming_state
             is StreamingConversationState.WAITING_FOR_NEXT_TURN
             and state.conversation.last_assistant_text == "好的",
             timeout_seconds=3.0,
         )
+        listen_starts_before_wait = len(transport.listen_start_calls)
+        await asyncio.sleep(0.05)
+        checks = {
+            "streaming_session_uuid": bool(local_session_id and len(local_session_id) >= 32),
+            "vad_speech_started": waiting.diagnostics.vad_speech_started_count == 1,
+            "vad_speech_ended": waiting.diagnostics.vad_speech_ended_count == 1,
+            "auto_listen_stop": len(transport.listen_stop_calls) == 1,
+            "single_listen_start": listen_starts_before_wait == 1,
+            "binary_audio_uploaded": len(transport.sent_audio_packets) == emitted == len(states),
+            "stt_received": waiting.conversation.last_stt_text == "记录客户报价",
+            "assistant_reply_received": waiting.conversation.last_assistant_text == "好的",
+            "waiting_for_next_turn": (
+                waiting.conversation.streaming_state
+                is StreamingConversationState.WAITING_FOR_NEXT_TURN
+            ),
+            "session_remains_active_while_waiting": waiting.conversation.streaming_session_active,
+            "waiting_audio_idle": waiting.audio.status is AssistantAudioStatus.IDLE,
+            "waiting_response_timer_stopped": not controller.streaming_response_timer_running,
+            "waiting_capture_released": (
+                not controller.audio_capture_active
+                and not controller.audio_uplink_running
+                and not controller.streaming_vad_running
+                and not controller.audio_worker_alive
+                and controller.microphone_lease_generation is None
+            ),
+            "no_automatic_next_turn": (
+                len(transport.listen_start_calls) == listen_starts_before_wait == 1
+                and not controller.audio_capture_active
+            ),
+        }
+
         await controller.stop_streaming_conversation("gate3_3_fake_acceptance")
         completed = await controller.wait_for_state(
             lambda state: not state.conversation.streaming_session_active
         )
-        checks = {
-            "streaming_session_uuid": bool(local_session_id and len(local_session_id) >= 32),
-            "vad_speech_started": completed.diagnostics.vad_speech_started_count == 1,
-            "vad_speech_ended": completed.diagnostics.vad_speech_ended_count == 1,
-            "auto_listen_stop": len(transport.listen_stop_calls) == 1,
-            "single_listen_start": len(transport.listen_start_calls) == 1,
-            "binary_audio_uploaded": len(transport.sent_audio_packets) == emitted == len(states),
-            "stt_received": completed.conversation.last_stt_text == "记录客户报价",
-            "assistant_reply_received": completed.conversation.last_assistant_text == "好的",
-            "manual_session_stop": not completed.conversation.streaming_session_active,
-            "capture_released": (
-                not controller.audio_capture_active
-                and not controller.audio_uplink_running
-                and not controller.audio_worker_alive
-                and controller.microphone_lease_generation is None
-            ),
-        }
+        checks.update(
+            {
+                "manual_session_stop": not completed.conversation.streaming_session_active,
+                "capture_released": (
+                    not controller.audio_capture_active
+                    and not controller.audio_uplink_running
+                    and not controller.streaming_vad_running
+                    and not controller.streaming_response_timer_running
+                    and not controller.audio_worker_alive
+                    and controller.microphone_lease_generation is None
+                ),
+            }
+        )
     finally:
         await controller.shutdown()
         await asyncio.sleep(0)
@@ -141,7 +169,7 @@ async def _run() -> dict[str, object]:
 
     checks["no_pending_runtime_tasks"] = pending == []
     return {
-        "status": "gate3_3_fake_streaming_verified" if all(checks.values()) else "failed",
+        "status": ("gate3_3_fake_streaming_verified" if all(checks.values()) else "failed"),
         **checks,
         "streaming_generation": completed.conversation.streaming_generation,
         "streaming_turn_index": completed.conversation.streaming_turn_index,

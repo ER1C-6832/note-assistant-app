@@ -1,7 +1,20 @@
 # PC 小智语音助手单进程重写总计划
 
 > 文档定位：本文件是 PC 端单进程 Runtime 重写的长期权威计划。  
-> 后续 Gate、Spec、ADR、代码实现和验收均以本文件为总纲；若局部文档与本文件冲突，先更新本文件并记录决策变更。
+> 当前整合基线：`9f204735e338ff7e87010ca58e628406673e13ae`。  
+> Gate 3 修正案的有效决策已在 Gate 3.4 并入本文件；修正案继续保留为历史记录。
+
+规范优先级（发生冲突时从高到低）：
+
+1. 当前代码已经实现、且由冻结测试证明的架构不可变量；
+2. 本总纲中已经并入的当前决策；
+3. 当前 Gate 的冻结 Spec 与测试/验收计划；
+4. 已接受且未被 superseded 的 ADR；
+5. 实施计划；
+6. Delivery Report；
+7. 历史基线、旧报告和旧 runner 名称。
+
+历史测试与当前能力冲突时，应修正历史测试契约，不得回退已经正确激活的 runtime 能力。
 
 ---
 
@@ -113,36 +126,58 @@ QGuiApplication
 
 ### 3.3 音频入口
 
-PC 音频入口改为：
+当前 PC 音频入口为：
 
 ```text
 PyAudio / PortAudio
 ```
 
-不再优先采用 sounddevice。
+当前编码实现为：
 
-目标结构：
+```text
+PyAV / FFmpeg libopus
+```
+
+正式 runtime dependencies 由 `pc-app-build/pyproject.toml` 管理：
+
+```text
+PyAudio >= 0.2.14, < 0.3
+PyAV >= 13, < 17
+```
+
+唯一安装契约为：
+
+```powershell
+python -m pip install -e ".[dev]"
+```
+
+不再优先采用 Gate 0 候选中的 `sounddevice + opuslib`，也不再强制要求历史 `INSTALL_GATE3_2_AUDIO_DEPS.ps1`。该替代决策由 ADR-007 固定，ADR-002 已被 superseded。
+
+当前 Gate 3 上行结构：
 
 ```text
 PyAudio Input Stream
--> PCM16 Ring Buffer
--> Audio Encoder Worker
--> Opus Packet Queue
--> WebSocket Binary Upload
+-> bounded PCM16 ingress queue
+-> one Audio Encoder Worker
+-> PyAV Opus Encoder
+-> bounded Opus Packet Queue
+-> qasync uplink owner
+-> existing single WebSocket sender
 ```
 
-下行：
+Gate 4 才实现下行：
 
 ```text
 WebSocket Binary
 -> Opus Decoder
 -> PCM Playback Buffer
 -> PyAudio Output Stream
+-> actual PlaybackEnded
 ```
 
 PyAudio 只负责平台音频设备和 PCM 流，不负责 AssistantState、WebSocket、VAD 状态、MCP、QML 或数据库。
 
-初始音频参数：
+冻结上行参数：
 
 ```text
 采样率：16,000 Hz
@@ -155,7 +190,7 @@ Opus application：VOIP
 上行码率：24 kbps
 ```
 
-下行播放采样率由服务端协议和设备适配决定，Decoder 与 Playback Adapter 必须分层。
+下行播放采样率属于 Gate 4 平台适配，Decoder 与 Playback Adapter 必须分层。
 
 ### 3.4 数据库路径
 
@@ -165,11 +200,15 @@ Opus application：VOIP
 %LOCALAPPDATA%\NoteAssistant\
 ├─ data\
 │  ├─ notes.db
-│  └─ custom_tags.json
+│  ├─ custom_tags.json
+│  ├─ assistant_runtime.json
+│  └─ assistant_preferences.json
 ├─ logs\
 ├─ metrics\
 └─ backups\
 ```
+
+`assistant_runtime.json` 保存 endpoint、激活和身份相关配置；`assistant_preferences.json` 保存语音模式、交互偏好与 launcher 位置。报告、测试输出和交付包不得包含 token、完整设备身份或密钥。
 
 不再以仓库目录作为默认运行时数据库路径。
 
@@ -632,156 +671,171 @@ Error
 
 ---
 
-## Gate 3：PTT 音频上行
+## Gate 3：全局悬浮入口、共用音频、PTT 与 Streaming 上行/VAD
 
-### 目标
-
-完成真实按住说话链路。
-
-### 链路
+### 当前状态
 
 ```text
-QML PTT Button
+Gate 3.1  完成
+Gate 3.2  完成
+Gate 3.3  真实一轮链路通过
+Gate 3.4  收口交付；最终关闭以累计自动 verifier 全部返回 0 为准
+```
+
+Gate 3 不实现 TTS 播放、自动第二轮、barge-in、MCP 或 KWS。
+
+### Gate 3.1：全局悬浮 Shell、Preferences、Audio Ports/Fake
+
+- `ApplicationWindow` 内全局单实例 AssistantOverlay；
+- 默认折叠、可拖动 Aurora launcher；
+- Assistant Preferences 与 RuntimeConfig 分离；
+- PTT/streaming 模式选择；
+- Audio models/ports/bounded queues/Fake；
+- Offscreen QML smoke；
+- 不打开真实麦克风。
+
+Gate 3.1 只冻结 `streamingCapabilityReady` 字段存在、类型为 bool 且由 `AssistantState.capabilities` 驱动。Gate 3.3 激活后该投影为 True，历史 Gate 3.1 测试不得永久断言 False。
+
+### Gate 3.2：共用真实采集管线与 PTT
+
+```text
+QML PTT
 -> AssistantViewModel
--> AssistantController
--> AudioCapture
--> PCM16 Frame
--> Opus Encoder
--> WebSocket Binary Upload
--> stop listen
-```
-
-### PyAudio 结构
-
-```text
-PyAudio Input Stream
--> callback / read loop
+-> AssistantController event pump
+-> one PyAudio input stream
 -> bounded PCM queue
--> Opus encoder worker
--> bounded packet queue
--> WebSocket send task
+-> one Audio worker / PyAV Opus encoder
+-> bounded Opus queue
+-> qasync uplink task
+-> existing single WebSocket sender
 ```
 
-### 第一版只做
+约束：
+
+- PTT 与 streaming 共用一个 `AssistantAudioEngine`；
+- 单一逻辑 microphone lease；
+- PCM ingress 容量 8，满时 drop-oldest 并计数；
+- encoded uplink 容量 16，满时失败当前 turn；
+- callback 不写日志、不写状态、不发网络；
+- capture generation 使旧 callback/packet/stop 失效；
+- stop/cancel/release 幂等。
+
+### Gate 3.3：Streaming Conversation Uplink + Local VAD
+
+真实一轮链路：
 
 ```text
-按住说话
-松开发送 stop listen
+manual streaming start
+-> microphone lease
+-> shared capture
+-> local VAD
+-> shared Opus uplink
+-> end of speech
+-> exactly one listen/stop
+-> readable STT
+-> readable assistant/TTS transcript
+-> WAITING_FOR_NEXT_TURN
+-> manual session stop
 ```
 
-不立即做：
+当前能力：
+
+- streaming session generation/UUID；
+- VAD warmup / speech start / end of speech / no-speech timeout；
+- 自动提交当前 turn；
+- response watchdog；
+- 断线 recovery；
+- mode switch / disable / shutdown cleanup；
+- `STREAMING_CONVERSATION` 与 `VAD` capability active。
+
+边界：
+
+- transcript 接收不等于 TTS 播放；
+- AssistantTextReceived/TtsStateReceived 不自动启动下一轮；
+- `TTS_PLAYBACK` 与 `BARGE_IN` 仍为 not_ready；
+- 单次 latency sample 不得描述为 p95；
+- 可读 STT 不等于识别准确率验收。
+
+### Gate 3.4：总验收、异常生命周期与文档收口
+
+收口内容：
+
+- 累计自动入口 `VERIFY_GATE3_3.ps1`；
+- 独立真实入口 `RUN_GATE3_3_REAL_STREAMING.ps1`；
+- Gate 3.1/3.2 历史测试契约修正；
+- WAITING_FOR_NEXT_TURN 状态语义；
+- turn/session protocol finalization 幂等；
+- response timeout / stop / disconnect / stale token 的确定性排列测试；
+- resource terminal matrix；
+- 总纲、修正案、ADR、Spec 与报告收口。
+
+同一 streaming generation + capture generation + turn token：
+
+- `listen/stop` 或 `abort` 最多发送一次；
+- turn submission/completion 最多一次；
+- session stop 最多一次；
+- timer/task cancellation、capture stop 和 lease release 可重复调用但结果相同；
+- 旧 connection/session/turn 事件为无害 no-op；
+- 陈旧 callback 不得恢复 capture。
+
+有效 assistant text/TTS transcript 后固定：
 
 ```text
-continuous conversation
-KWS
-AEC
-复杂打断
-Bluetooth recovery
+streaming_state = WAITING_FOR_NEXT_TURN
+streaming_session_active = true
+audio.status = idle
+capture/uplink/VAD/response timer/worker/lease = stopped
+next-turn capture = not started
 ```
 
-### 必须打点
+### Gate 3 资源终态
 
-```text
-ptt_down
-ptt_command_received
-capture_requested
-capture_started
-first_pcm
-first_opus
-first_packet_queued
-first_audio_sent
-ptt_up
-capture_stopped
-stop_listen_sent
-```
+正常 session stop、transport 仍 connected 时必须无：streaming response timer、audio uplink、VAD task、capture stream、audio worker、microphone lease。Transport sender/receiver 可以继续存在。
 
-### 队列建议
+自动恢复期间允许同一 generation 暂时存在一个 reconnect timer；恢复成功后 timer 消失，capture 最多恢复一次。
 
-PCM ingress：
-
-```text
-容量：8 帧
-约 160ms
-满时丢弃最旧帧
-```
-
-Opus packet queue：
-
-```text
-容量：16
-满时终止本轮并进入可见错误
-```
-
-### 验收
-
-- UI 不阻塞；
-- 音频 callback 不写日志、不写状态、不写网络；
-- PTT 不会启动两个麦克风实例；
-- stop 后旧 callback 通过 generation token 失效；
-- WebSocket 只有一个发送所有者；
-- 按键到首帧 PCM p95 < 150ms；
-- 按键到首个 Opus 上行 p95 < 220ms。
-
-### 预计
-
-```text
-2～3 个有效工作日
-```
+Disable/shutdown 完成后必须无：reconnect timer、streaming timer、uplink、VAD、capture、worker、lease、transport sender/receiver、pending `assistant-*` task 和第二 Python runtime。
 
 ---
 
-## Gate 4：TTS 下行播放
+## Gate 4：TTS 播放与真实两轮连续对话
 
-### 目标
+### 状态
 
-完成 Assistant 语音回复。
+未开始。
 
-### 链路
-
-```text
-WebSocket Binary
--> Audio Router
--> Opus Decoder
--> Playback Buffer
--> PyAudio Output Stream
-```
-
-### 完成
-
-- binary 下行；
-- Opus decode；
-- PCM playback；
-- TTS start；
-- Speaking State；
-- TTS stop；
-- playback ended；
-- abort；
-- playback generation；
-- 旧队列丢弃。
-
-### 验收
-
-- UI 不阻塞；
-- 新回合不播放旧音频；
-- abort 立刻清空旧 generation；
-- Speaking 状态开始/结束准确；
-- 首个 TTS 包到播放开始 p95 < 120ms；
-- 播放设备失败进入可见 Error；
-- 不在 WebSocket Router 中硬编码 PyAudio。
-
-### 预计
+### Gate 4.1：TTS Playback
 
 ```text
-1～2 个有效工作日
+WebSocket binary downlink
+-> Opus decode
+-> playback buffer
+-> PyAudio output
+-> PlaybackStarted / actual PlaybackEnded
 ```
+
+要求：playback generation、旧包丢弃、abort 清空、设备错误可见、播放资源有界关闭。
+
+### Gate 4.2：Auto Next Turn 与可选简单插话
+
+只有当前 playback generation 的真实 `PlaybackEnded` 才能触发下一轮 capture：
+
+```text
+turn_1 speech
+-> real TTS playback
+-> PlaybackEnded
+-> exactly one listening turn_2
+```
+
+AssistantTextReceived、TtsStateReceived 或 `tts/stop` 本身均不是自动开麦触发源。真实两轮未完成前不得声明完整连续对话通过。简单 barge-in 默认关闭，并继续共用同一 microphone ownership。
 
 ---
 
 ## Gate 5：MCP 便签闭环
 
-### 目标
+### 状态
 
-让服务端通过 MCP 调用本地便签能力。
+未开始；实施顺序位于完整语音闭环之后。
 
 ### 第一批工具
 
@@ -791,112 +845,23 @@ notes.search
 notes.delete
 ```
 
-### 删除确认
-
-```text
-tools/call notes.delete
--> NoteCommandService 检查风险
--> 创建 PendingConfirmation
--> 返回 requires_confirmation
--> 用户显式确认
--> 执行软删除
-```
-
-### 完整链路
-
-```text
-WebSocket MCP
--> MessageRouter
--> McpProtocolClient
--> McpToolExecutor
--> NoteCommandService
--> NoteRepository
--> SQLite
--> ToolResult
--> WebSocket MCP Response
-```
-
-### 协议支持
-
-```text
-initialize
-notifications/initialized
-tools/list
-tools/call
-```
-
-### 约束
-
-- 未注册工具 fail-closed；
-- request_id 去重；
-- 不直接调用 Repository；
-- 工具执行记录审计；
-- UI 与 MCP 共用 CommandService；
-- 删除默认只软删除；
-- 永久删除不进入第一版语音工具。
-
-### 验收
-
-- MCP create 后 UI 可刷新看到；
-- MCP search 与手动搜索语义一致；
-- delete 未确认时数据库不变；
-- 重复 request_id 不重复写；
-- ToolResult 结构固定；
-- 工具执行错误不导致 WebSocket 断开。
-
-### 预计
-
-```text
-1～2 个有效工作日
-```
+MCP 必须共用 `NoteCommandService`，未注册工具 fail-closed，request_id 去重，删除默认软删除且需要显式确认。不得建立第二套便签写入口或第二 Runtime。
 
 ---
 
-## Gate 6：连续对话
+## Gate 6：语音体验与设备增强
 
-### 目标
+Gate 6 不再首次实现连续对话，可用于：
 
-在 PTT、TTS、MCP 稳定后加入免按键对话。
-
-### 完成
-
-- VAD；
-- 无语音超时；
-- 自动开始监听；
-- 语音结束自动 stop listen；
-- Thinking；
-- TTS；
-- TTS 结束后继续监听；
-- 简单打断；
+- VAD 阈值与噪声适配；
+- AEC/NS/AGC 调研或增强；
+- 蓝牙/热插拔恢复；
+- 持续待命策略；
+- 更复杂 barge-in；
 - system audio interruption；
-- generation/cancellation。
+- 多设备选择。
 
-### 状态链路
-
-```text
-Connected
--> Listening
--> UploadingAudio
--> Thinking
--> Speaking
--> Listening
-```
-
-### 验收
-
-- VAD 不直接修改 AssistantState；
-- 自动 stop 不会重复；
-- TTS 后只恢复一个采集任务；
-- 用户关闭连续模式后旧任务全部失效；
-- 简单打断可停止播放并重新监听；
-- 无语音超时可返回 Connected；
-- 不影响 PTT 模式。
-
-### 预计
-
-```text
-1～2 个有效工作日
-```
+任何增强仍不得引入第二 Runtime、第二状态机、第二 sender 或第二麦克风 owner。
 
 ---
 
@@ -1095,26 +1060,28 @@ Android
 
 # 6. 连续对话与 KWS 的范围决策
 
-原始快速验证只要求文本、PTT、TTS、MCP 和基础连续对话。
+Gate 3 修正案已实施，当前顺序为：
 
-当前决策调整为：
+```text
+Gate 3  共用音频基础 + PTT + streaming 上行/VAD
+Gate 4  TTS 播放 + PlaybackEnded 自动续轮 + 真实两轮 + 可选简单插话
+Gate 5  MCP 便签闭环
+Gate 6  语音体验与设备增强
+Gate 6.5  可选 KWS
+Gate 7  延迟验证
+```
 
-- 连续对话纳入主线 Gate 6；
-- KWS 纳入可选 Gate 6.5；
-- 不因快速验证永久排除完整能力；
-- 每增加能力必须明确额外工作量和风险；
-- 不允许把 KWS 提前插入 PTT/TTS 尚未稳定的阶段。
+连续对话上行/VAD 不再等待 MCP；完整连续语音闭环仍必须等待 Gate 4 的真实播放与 PlaybackEnded。KWS 不得提前插入 Gate 4 稳定之前。
 
-## 增量估算
+## 增量估算（历史规划，非当前完成声明）
 
 | 能力 | 增量时间 |
 |---|---:|
-| 基础 VAD 连续对话 | 1～2 日 |
+| TTS playback + PlaybackEnded | 1～2 日 |
+| 真实两轮与自动续轮 | 0.5～1 日 |
 | 简单打断 | 0.5～1 日 |
-| TTS 后自动恢复监听 | 0.5 日 |
 | 基础 KWS | 1～2 日 |
 | KWS 设备兼容与误唤醒调优 | 1～2 日 |
-| KWS 模型打包与设置页 | 0.5～1 日 |
 | Windows 蓝牙/热插拔增强 | 1～2 日 |
 | AEC/NS/AGC 深度优化 | 2～5 日 |
 
@@ -1259,25 +1226,26 @@ Gate 7                  1 日
 | 阶段 | 状态 |
 |---|---|
 | 最终架构清理 | 已完成 |
-| Gate 0 | 已完成 |
-| Gate 1.1 | 已完成 |
-| Gate 1.2 | 已完成 |
-| Gate 1.3 | 修复后待最终全量确认 |
-| Gate 1.4 | 下一步 |
-| Gate 1.5 | 未开始 |
-| Gate 1.6 | 未开始 |
-| Gate 1.7 | 未开始 |
-| Gate 2 | 未开始 |
-| Gate 3 | 未开始 |
+| Gate 0 | 已完成（历史冻结基线保留） |
+| Gate 1.1～1.7 | 已完成 |
+| Gate 2.1～2.7 | 已完成，Automated/Fake/Real 证据已归档 |
+| Gate 3.1 | 已完成 |
+| Gate 3.2 | 已完成 |
+| Gate 3.3 | 真实一轮链路通过；累计自动验收由 Gate 3.4 收口 |
+| Gate 3.4 | 收口交付完成；最终关闭以目标工作树累计 verifier 全部返回 0 为准 |
 | Gate 4 | 未开始 |
 | Gate 5 | 未开始 |
 | Gate 6 | 未开始 |
 | Gate 6.5 | 未开始 |
 | Gate 7 | 未开始 |
 
+Gate 3.3 只声明 VAD + Opus 上行 + readable transcript；不声明 TTS 播放、自动第二轮或 barge-in。
+
 ---
 
-# 11. Gate 1.4 开始前检查
+# 11. 历史 Gate 1.4 开始前检查（保留）
+
+> 以下内容是 Gate 1 当时的历史 checkpoint，不代表当前进度，也不覆盖当前累计 Gate 3 verifier。
 
 必须满足：
 
@@ -1365,16 +1333,18 @@ DatabaseExecutor Lifecycle
 
 > 以 Android 已验证架构为参考，在 PC 上构建一个单进程、qasync 驱动、PyAudio 音频入口、LocalAppData 数据路径、统一 NoteCommandService、可测试且可量化延迟的完整语音助手 Runtime。
 
-执行顺序保持：
+当前执行顺序：
 
 ```text
 架构
 -> 本地便签业务边界
 -> 文本 Runtime
--> PTT
--> TTS
+-> 全局悬浮入口
+-> 共用音频 / PTT
+-> streaming 上行 / VAD
+-> TTS playback / PlaybackEnded / 真实两轮
 -> MCP
--> 连续对话
+-> 语音与设备增强
 -> KWS
 -> 延迟验证
 ```

@@ -1,17 +1,22 @@
 # ADR-002：PC 音频栈
 
-状态：Accepted for Gate 0
+状态：**Superseded by ADR-007-current-pc-audio-and-gate3-boundary**
 
-## 决策
+## 历史决策
 
-MVP 使用 `sounddevice RawInputStream / RawOutputStream + libopus/opuslib + PCM16 bytes`。
+Gate 0 候选使用 `sounddevice RawInputStream / RawOutputStream + libopus/opuslib + PCM16 bytes`，上行参数为 16 kHz、mono、20 ms、640 bytes/frame、Opus VOIP 24 kbps。
 
-上行固定为 16kHz、mono、20ms、640 bytes PCM/frame、Opus VOIP 24kbps。
+## 被取代原因
 
-## 原因
+Gate 3.2 实施和真实验收采用 PyAudio/PortAudio capture 与 PyAV/FFmpeg Opus，并由 `pyproject.toml` 管理正式 runtime dependencies。当前 PTT/streaming 共用 AudioEngine、bounded queues、one worker、one uplink owner 和 one microphone lease。
 
-协议参数与 Android 一致；Raw Stream 避免热路径 float32 转换；py-xiaozhi 只作为设备和 libopus 经验来源，不复用其 Runtime 生命周期。
+## 替代记录
 
-## 后果
+完整当前决策见：
 
-Windows 设备差异需要真机测试；输出采样率留在 Playback Adapter；AEC、NS、AGC 和 KWS 不属于 MVP。
+- `ADR-007-current-pc-audio-and-gate3-boundary.md`；
+- `PC_ASSISTANT_RUNTIME_MASTER_PLAN_GATE3_AMENDMENT.md` 第 2～3 节；
+- `GATE3_IMPLEMENTATION_PLAN.md` Gate 3.2～4.2；
+- `GATE3_STREAMING_CONVERSATION_SPEC.md`。
+
+本 ADR 保留用于解释 Gate 0 历史，不再约束当前实现。

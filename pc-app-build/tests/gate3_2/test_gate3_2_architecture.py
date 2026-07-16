@@ -13,11 +13,17 @@ def _read(path: Path) -> str:
 
 def test_real_audio_pipeline_files_and_dependencies_exist() -> None:
     audio_root = APP_ROOT / "assistant" / "audio"
-    for name in ("engine.py", "pyaudio_adapter.py", "opus_codec.py", "models.py", "queues.py"):
+    for name in (
+        "engine.py",
+        "pyaudio_adapter.py",
+        "opus_codec.py",
+        "models.py",
+        "queues.py",
+    ):
         assert (audio_root / name).is_file(), name
 
     pyproject = _read(PC_BUILD_ROOT / "pyproject.toml")
-    assert "PyAudio" in pyproject
+    assert '"PyAudio>=0.2.14,<0.3"' in pyproject
     assert '"av>=13,<17"' in pyproject
     assert "websockets" in pyproject
 
@@ -52,14 +58,19 @@ def test_product_ptt_control_is_separate_from_draggable_launcher() -> None:
     assert "requestPushToTalkStart" in view_model
 
 
-def test_gate3_2_persistent_assets_and_current_verifier_exist() -> None:
-    installer = REPO_ROOT / "INSTALL_GATE3_2_AUDIO_DEPS.ps1"
+def test_gate3_2_persistent_assets_and_project_install_contract_exist() -> None:
     fake_tool = PC_BUILD_ROOT / "tools" / "verify_gate3_2_fake_ptt.py"
     real_tool = PC_BUILD_ROOT / "tools" / "verify_gate3_2_real_ptt.py"
     report = PC_BUILD_ROOT / "docs" / "report" / "GATE3_2_IMPLEMENTATION_REPORT.md"
-    for path in (installer, fake_tool, real_tool, report):
+    for path in (fake_tool, real_tool, report):
         assert path.is_file(), path
-    assert 'pip install -e ".[dev]"' in _read(installer)
+
+    # pyproject.toml is the one authoritative dependency contract. The historical
+    # INSTALL_GATE3_2_AUDIO_DEPS.ps1 wrapper is no longer required.
+    pyproject = _read(PC_BUILD_ROOT / "pyproject.toml")
+    assert '"PyAudio>=0.2.14,<0.3"' in pyproject
+    assert '"av>=13,<17"' in pyproject
+    assert 'pip install -e ".[dev]"' in _read(report)
 
     covering = tuple(
         path
@@ -73,7 +84,8 @@ def test_gate3_2_persistent_assets_and_current_verifier_exist() -> None:
         assert "$LASTEXITCODE -ne 0" in source
         assert "exit 1" in source
 
-    assert "start_push_to_talk" in _read(real_tool)
-    assert 'status="real_gate_complete"' not in _read(real_tool) or "real_gate_complete" in _read(
-        real_tool
-    )
+    real_source = _read(real_tool)
+    assert "start_push_to_talk" in real_source
+    assert 'status = "real_gate_complete" if verified else "failed"' in real_source
+    assert "return 0 if verified else 1" in real_source
+    assert "return 2" in real_source

@@ -25,7 +25,9 @@ async def _wait_until(predicate, timeout: float = 2.0) -> None:
 
 
 @pytest.mark.asyncio
-async def test_view_model_persists_launcher_position_with_debounce(tmp_path: Path) -> None:
+async def test_view_model_persists_launcher_position_with_debounce(
+    tmp_path: Path,
+) -> None:
     store = AssistantPreferencesStore(tmp_path / "assistant_preferences.json")
     transport = ScriptedFakeTransport()
     controller = AssistantController(
@@ -57,7 +59,9 @@ async def test_view_model_persists_launcher_position_with_debounce(tmp_path: Pat
 
 
 @pytest.mark.asyncio
-async def test_view_model_exposes_state_driven_aurora_and_mode_selector(tmp_path: Path) -> None:
+async def test_view_model_exposes_state_driven_aurora_and_mode_selector(
+    tmp_path: Path,
+) -> None:
     store = AssistantPreferencesStore(tmp_path / "assistant_preferences.json")
     transport = ScriptedFakeTransport()
     controller = AssistantController(
@@ -70,7 +74,10 @@ async def test_view_model_exposes_state_driven_aurora_and_mode_selector(tmp_path
     try:
         assert view_model.auroraVisualState == "idle"
         assert view_model.compactStatusLabel == "关闭"
-        assert view_model.streamingCapabilityReady is False
+        # Gate 3.1 freezes the presence, type and state-driven projection of this
+        # property. Capability activation belongs to Gate 3.3 and must not be pinned
+        # forever to the Gate 3.1 value.
+        assert isinstance(view_model.streamingCapabilityReady, bool)
 
         view_model.requestVoiceInteractionMode("streaming_conversation")
         await _wait_until(

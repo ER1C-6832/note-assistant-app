@@ -1,216 +1,92 @@
 # PC Assistant Runtime Rewrite Spec
 
-状态：Gate 0 冻结候选  
-版本：1.0  
+状态：Gate 0 历史冻结基线；Gate 3.4 增补当前实现。  
+版本：1.1  
 Android 参考：`note-assistant-android@974a477ce1803efa130cc8b51a493b39796e0ca7`
 
-## 1. 目标
+## 1. 历史基线
 
-在现有 PySide6/QML 便签 App 内实现一个单进程、低延迟、可测试的 PC Assistant Runtime。
+Gate 0 冻结目标是：在现有 PySide6/QML 便签 App 内实现单进程、低延迟、可测试的 Assistant Runtime，禁止 Sidecar、本地 HTTP 和外部 py-xiaozhi Runtime。
 
-当前目标只验证：
+当时的候选音频栈和 Gate 顺序属于历史设计输入，不表示 Gate 0 当时已经拥有当前 PyAudio/PyAV、PTT 或 streaming 能力。当前实现由总纲、Gate 3 修正案和 ADR-007 更新。
 
-- 远端激活和 WebSocket；
-- 文本对话；
-- PTT 上行；
-- TTS 下行；
-- MCP 便签工具；
-- 基础自动重连；
-- 完整延迟打点。
-
-不包含：双端同步、设备管理、跨设备命令、KWS、最终商用桌面 UI、云数据库、Sidecar、外部 py-xiaozhi 进程。
-
-## 2. Android 参考原则
-
-PC 复制 Android 的职责边界和行为，不复制平台 API。主要参考：
-
-- `AssistantController.kt`
-- `LocalAssistantController.kt`
-- `AssistantState.kt`
-- `ConversationStateMachine.kt`
-- `XiaozhiWebSocketClient.kt`
-- `XiaozhiMessageBuilder.kt`
-- `RealAudioEngine.kt`
-- `McpProtocolClient.kt`
-- `NoteCommandService.kt`
-
-## 3. 强制架构
+## 2. 强制架构
 
 ```text
 main.py
 └─ app/bootstrap.py
-   ├─ Qt Application
-   ├─ qasync event loop
+   ├─ QGuiApplication + qasync
    ├─ AppPaths
-   ├─ NoteRepository
-   ├─ NoteCommandService
+   ├─ NoteRepository / NoteCommandService
    ├─ AssistantController
-   ├─ NotesViewModel
-   ├─ AssistantViewModel
+   ├─ NotesViewModel / AssistantViewModel
    └─ QML context registration
 
 app/
-├─ assistant/      # 不依赖 PySide6
-├─ notes/          # 不依赖 PySide6
-├─ ui/             # 允许依赖 PySide6
-├─ qml/
-└─ data/
+├─ assistant/  # no PySide6
+├─ notes/      # no PySide6
+├─ ui/         # PySide6 allowed
+└─ qml/
 ```
 
-依赖方向：
+依赖方向：QML -> ViewModel -> Controller/Application Service -> protocol/audio/repository adapters -> OS/WebSocket/SQLite。
 
-```text
-QML
-  -> UI ViewModel
-      -> AssistantController / NoteCommandService
-          -> Protocol / Audio / MCP / Repository
-              -> OS、WebSocket、SQLite
-```
+## 3. 单进程定义
 
-禁止 `assistant -> ui`、`notes -> ui`、`audio callback -> QML`、`repository -> QML`。
+产品只运行一个 Python 应用/runtime 进程，允许：Qt 主线程、同一 qasync loop、PortAudio native callback、one audio worker、one DB executor。不得使用 multiprocessing、subprocess Sidecar 或 localhost HTTP 作为 Runtime 架构。
 
-## 4. 单进程定义
+## 4. Composition Root
 
-产品只运行一个 Python 进程，但允许多个线程和异步任务：
+只有 bootstrap 创建具体实现、读取配置、创建数据库/transport/audio adapter、注册 QML 并管理关闭。领域模块不得创建第二全局 runtime 或读取 QML 对象。
 
-- Qt 主线程；
-- 同一主线程上的 qasync/asyncio loop；
-- PortAudio callback 线程；
-- 音频编码/播放工作任务；
-- 单线程数据库 Executor。
+## 5. 当前 Runtime 能力边界
 
-单进程不是单线程，也不要求所有工作串行。
+Gate 3 结束时：
 
-## 5. Composition Root
+- identity、activation、text WebSocket、recovery；
+- global floating assistant shell；
+- PyAudio capture + PyAV Opus uplink；
+- PTT；
+- streaming session + local VAD + one-turn transcript；
+- WAITING_FOR_NEXT_TURN 手动等待。
 
-只有 `app/bootstrap.py` 可以创建具体实现、读取配置、创建数据库和音频设备、注册 QML Context Property，并管理启动和关闭顺序。
+未实现：TTS decode/playback、actual PlaybackEnded、auto next turn、two-turn continuous、barge-in、MCP、KWS。
 
-领域模块不得自行创建全局单例或读取 UI 对象。
-
-## 6. Runtime Controller 接口
-
-```python
-class AssistantController(Protocol):
-    @property
-    def state(self) -> AssistantState: ...
-
-    def subscribe(self, listener: StateListener) -> Callable[[], None]: ...
-
-    async def enable(self) -> None: ...
-    async def disable(self) -> None: ...
-    async def connect(self) -> None: ...
-    async def reconnect(self) -> None: ...
-    async def disconnect(self, reason: str = "user_close") -> None: ...
-    async def send_text(self, text: str) -> None: ...
-    async def start_push_to_talk(self) -> None: ...
-    async def stop_push_to_talk(self) -> None: ...
-    async def abort(self, reason: str = "user_interruption") -> None: ...
-    async def shutdown(self) -> None: ...
-```
-
-Gate 6 才增加连续对话接口。
-
-## 7. 启动顺序
-
-```text
-1. 创建 AppPaths
-2. 初始化日志和 Metrics
-3. 初始化 SQLite
-4. 创建 NoteRepository / NoteCommandService
-5. 创建 StateMachine
-6. 创建 WebSocketClient
-7. 创建 AudioEngine，但不启动采集
-8. 创建 McpProtocolClient
-9. 创建 AssistantController
-10. 创建 QML ViewModel
-11. 加载 QML
-12. UI 首帧后异步恢复连接
-```
-
-加载 QML 前禁止枚举全部音频设备、连接远端、全量扫描数据库、导入旧 py-xiaozhi 或启动外部进程。
-
-## 8. 关闭顺序
-
-```text
-1. 禁止新命令
-2. 取消重连任务
-3. 停止录音
-4. 清空播放 generation
-5. 关闭 WebSocket
-6. 刷新 Metrics
-7. 关闭 DB Executor
-8. 退出 Qt
-```
-
-关闭总等待上限 2 秒。超时后记录错误并退出，不扫描系统进程。
-
-## 9. WebSocket 协议
-
-请求头：
-
-```text
-Authorization: Bearer <token>
-Protocol-Version: 1
-Device-Id: <device_id>
-Client-Id: <client_id>
-```
-
-Hello 与 Android 保持一致：
-
-```json
-{"type":"hello","version":1,"features":{"mcp":true},"transport":"websocket","audio_params":{"format":"opus","sample_rate":16000,"channels":1,"frame_duration":20}}
-```
-
-只有收到包含非空 `session_id` 的服务端 hello，连接才进入 `Connected`。
-
-热路径必须是 `AudioEngine -> binary WebSocket frame`，禁止经过 localhost HTTP、Sidecar、日志文件、轮询或第二进程。
-
-## 10. 音频参数
-
-上行：PCM16 little-endian、16kHz、单声道、20ms/帧、320 samples/帧、640 bytes PCM/帧、Opus VOIP、24kbps。
-
-下行：Opus Decoder 与 Playback Adapter 分离。Python MVP 默认解码到 24kHz 单声道 PCM16；播放采样率属于平台适配参数，不写入协议 Router。真实验证要求 48kHz 时，只修改音频适配层。
-
-## 11. 技术栈冻结
-
-Gate 1/2 允许加入：`qasync`、`websockets`、`sounddevice`、`numpy`、`opuslib`。
-
-保留：`PySide6`、`SQLAlchemy`、`Pydantic`、`pytest`、`pytest-asyncio`。
-
-不使用：FastAPI、Uvicorn、HTTPX 作为本地业务桥、`multiprocessing` 作为默认架构。
-
-## 12. 数据路径
-
-开发和打包均使用：
+## 6. 当前配置与数据路径
 
 ```text
 %LOCALAPPDATA%\NoteAssistant\
 ├─ data\notes.db
-├─ config\settings.json
+├─ data\custom_tags.json
+├─ data\assistant_runtime.json
+├─ data\assistant_preferences.json
 ├─ logs\
-└─ metrics\
+├─ metrics\
+└─ backups\
 ```
 
-仓库内不得存放运行时数据库作为默认生产路径。Gate 1 首次启动允许从旧路径执行一次显式迁移或复制，必须先备份。
+测试通过 AppPaths 注入临时目录。仓库目录不是生产数据路径。
 
-## 13. 错误策略
+## 7. 当前音频协议与依赖
 
-- 状态机非法转换：拒绝并记录；
-- WebSocket 失败：进入 Error 或 Reconnecting；
-- 音频队列溢出：记录指标并优先保持实时性；
-- MCP 未注册工具：fail-closed；
-- 数据库失败：返回统一 StorageError；
-- UI 不得吞掉 Runtime Error；
-- 所有异常带 `operation_id` 或 `turn_id`。
+上行：PCM16 little-endian、16 kHz、mono、20 ms、320 samples、640 bytes/frame、Opus VOIP 24 kbps。
 
-## 14. 测试边界
+依赖：PyAudio + PyAV，由 pyproject 管理。安装命令：`python -m pip install -e ".[dev]"`。
 
-必须可替换：Fake WebSocket、Fake Audio Engine、In-memory Repository、Fake Clock、Fake Metrics Sink。
+热路径：AudioEngine -> binary WebSocket frame；不得经过日志文件、轮询、本地 HTTP 或第二进程。
 
-Controller 和 StateMachine 测试不启动 Qt。
+## 8. 启动与关闭
 
-## 15. Gate 0 结束条件
+启动时创建 AudioEngine 但不打开 capture；用户明确 PTT/streaming start 后才申请 lease 和设备。
 
-- 本 Spec 被接受；
-- 状态契约、并发所有权、延迟事件命名、MCP MVP 工具和 ADR 被接受；
-- 没有 Runtime 源码提前绕开这些边界。
+关闭顺序：禁止新命令、取消 timers、停止 capture/VAD/uplink、释放 lease、关闭 transport、flush preferences/metrics、关闭 DB executor、退出 Qt。所有操作有界且幂等。
+
+## 9. Gate 3 / Gate 4 分界
+
+Gate 3 的 assistant text/TTS transcript 只更新 transcript 并进入 WAITING_FOR_NEXT_TURN，不播放、不自动开麦。
+
+Gate 4 才激活 binary downlink、decoder、output stream 和 actual PlaybackEnded；PlaybackEnded 是自动 next-turn 的唯一合法触发源。
+
+## 10. 测试边界
+
+必须可替换 Fake transport、Fake capture/encoder/VAD、Fake clock、temporary repository。Controller/Reducer 测试不启动 Qt；QML 通过独立 offscreen smoke；真实 microphone/WebSocket 通过独立人工 runner。

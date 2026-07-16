@@ -162,6 +162,10 @@ class EffectRunner:
         self._audio_uplink_task: asyncio.Task[None] | None = None
         self._streaming_vad_task: asyncio.Task[None] | None = None
         self._streaming_response_task: asyncio.Task[None] | None = None
+        # Normal effects are separate tasks. These bounded ledgers make competing
+        # stop/timeout/disconnect finalizers idempotent after they leave the event pump.
+        self._finalized_streaming_turns: dict[tuple[int, int, int], None] = {}
+        self._stopped_streaming_sessions: dict[int, None] = {}
 
     @property
     def audio_uplink_running(self) -> bool:
@@ -188,6 +192,36 @@ class EffectRunner:
     @property
     def microphone_lease_generation(self) -> int | None:
         return self._microphone_coordinator.generation
+
+    @staticmethod
+    def _streaming_turn_key(
+        effect: StartStreamingConversation | StopStreamingConversation,
+    ) -> tuple[int, int, int]:
+        return (
+            effect.streaming_generation,
+            effect.capture_generation,
+            effect.turn_token,
+        )
+
+    def _claim_streaming_turn_finalize(
+        self,
+        effect: StartStreamingConversation | StopStreamingConversation,
+    ) -> bool:
+        key = self._streaming_turn_key(effect)
+        if key in self._finalized_streaming_turns:
+            return False
+        self._finalized_streaming_turns[key] = None
+        if len(self._finalized_streaming_turns) > 256:
+            self._finalized_streaming_turns.pop(next(iter(self._finalized_streaming_turns)))
+        return True
+
+    def _claim_streaming_session_stop(self, streaming_generation: int) -> bool:
+        if streaming_generation in self._stopped_streaming_sessions:
+            return False
+        self._stopped_streaming_sessions[streaming_generation] = None
+        if len(self._stopped_streaming_sessions) > 64:
+            self._stopped_streaming_sessions.pop(next(iter(self._stopped_streaming_sessions)))
+        return True
 
     async def execute(self, effect: AssistantEffect) -> None:
         if isinstance(effect, OpenTransport):
@@ -594,24 +628,26 @@ class EffectRunner:
             active = self._active_audio_effect
             if not isinstance(active, StartStreamingConversation):
                 if effect.end_session:
-                    try:
-                        await self._transport.abort(
-                            effect.connection_generation,
-                            effect.turn_token,
-                            effect.capture_generation,
-                            effect.reason,
-                            self._event_sink,
+                    if self._claim_streaming_turn_finalize(effect):
+                        try:
+                            await self._transport.abort(
+                                effect.connection_generation,
+                                effect.turn_token,
+                                effect.capture_generation,
+                                effect.reason,
+                                self._event_sink,
+                            )
+                        except Exception:
+                            pass
+                    if self._claim_streaming_session_stop(effect.streaming_generation):
+                        await self._event_sink(
+                            StreamingSessionStopped(
+                                at_ns=self._clock.now_ns(),
+                                generation=effect.streaming_generation,
+                                turn_token=effect.turn_token,
+                                reason=effect.reason,
+                            )
                         )
-                    except Exception:
-                        pass
-                    await self._event_sink(
-                        StreamingSessionStopped(
-                            at_ns=self._clock.now_ns(),
-                            generation=effect.streaming_generation,
-                            turn_token=effect.turn_token,
-                            reason=effect.reason,
-                        )
-                    )
                 return
             if (
                 active.streaming_generation != effect.streaming_generation
@@ -639,27 +675,29 @@ class EffectRunner:
                 stop_failure is None and summary.speech_seen and summary.uploaded_frames > 0
             )
             submitted = bool(effect.submit_audio and useful_audio)
+            finalize_claimed = self._claim_streaming_turn_finalize(effect)
             stop_listen_latency_ms: int | None = None
             try:
-                if submitted:
-                    await self._transport.stop_listening(
-                        effect.connection_generation,
-                        effect.turn_token,
-                        effect.capture_generation,
-                        self._event_sink,
+                if finalize_claimed:
+                    if submitted:
+                        await self._transport.stop_listening(
+                            effect.connection_generation,
+                            effect.turn_token,
+                            effect.capture_generation,
+                            self._event_sink,
+                        )
+                    else:
+                        await self._transport.abort(
+                            effect.connection_generation,
+                            effect.turn_token,
+                            effect.capture_generation,
+                            effect.reason,
+                            self._event_sink,
+                        )
+                    stop_listen_latency_ms = max(
+                        0,
+                        int((self._clock.now_ns() - effect.requested_at_ns) / 1_000_000),
                     )
-                else:
-                    await self._transport.abort(
-                        effect.connection_generation,
-                        effect.turn_token,
-                        effect.capture_generation,
-                        effect.reason,
-                        self._event_sink,
-                    )
-                stop_listen_latency_ms = max(
-                    0,
-                    int((self._clock.now_ns() - effect.requested_at_ns) / 1_000_000),
-                )
             finally:
                 await self._microphone_coordinator.release(effect.capture_generation)
                 await engine.finish_generation(effect.capture_generation)
@@ -689,10 +727,10 @@ class EffectRunner:
                     first_opus_upload_latency_ms=summary.first_opus_upload_latency_ms,
                     stop_listen_latency_ms=stop_listen_latency_ms,
                     useful_audio=useful_audio,
-                    stop_sent=submitted,
+                    stop_sent=submitted and finalize_claimed,
                 )
             )
-            if submitted:
+            if submitted and finalize_claimed:
                 await self._event_sink(
                     StreamingTurnSubmitted(
                         at_ns=self._clock.now_ns(),
@@ -708,7 +746,9 @@ class EffectRunner:
                         stop_listen_latency_ms=stop_listen_latency_ms,
                     )
                 )
-            if effect.end_session or not submitted:
+            if (effect.end_session or not submitted) and self._claim_streaming_session_stop(
+                effect.streaming_generation
+            ):
                 await self._event_sink(
                     StreamingSessionStopped(
                         at_ns=self._clock.now_ns(),
@@ -778,16 +818,20 @@ class EffectRunner:
                     await engine.cancel_capture(capture_generation, reason=reason)
                 except Exception:
                     pass
-                try:
-                    await self._transport.abort(
-                        active.connection_generation,
-                        active.turn_token,
-                        capture_generation,
-                        reason,
-                        self._event_sink,
-                    )
-                except Exception:
-                    pass
+                should_abort = not isinstance(
+                    active, StartStreamingConversation
+                ) or self._claim_streaming_turn_finalize(active)
+                if should_abort:
+                    try:
+                        await self._transport.abort(
+                            active.connection_generation,
+                            active.turn_token,
+                            capture_generation,
+                            reason,
+                            self._event_sink,
+                        )
+                    except Exception:
+                        pass
                 await engine.finish_generation(capture_generation)
                 await self._microphone_coordinator.release(capture_generation)
             else:
@@ -813,16 +857,20 @@ class EffectRunner:
             except Exception:
                 pass
             await engine.finish_generation(capture_generation)
-        try:
-            await self._transport.abort(
-                effect.connection_generation,
-                effect.turn_token,
-                capture_generation,
-                reason,
-                self._event_sink,
-            )
-        except Exception:
-            pass
+        should_abort = not isinstance(
+            effect, StartStreamingConversation
+        ) or self._claim_streaming_turn_finalize(effect)
+        if should_abort:
+            try:
+                await self._transport.abort(
+                    effect.connection_generation,
+                    effect.turn_token,
+                    capture_generation,
+                    reason,
+                    self._event_sink,
+                )
+            except Exception:
+                pass
         await self._microphone_coordinator.release(capture_generation)
         self._active_audio_effect = None
 

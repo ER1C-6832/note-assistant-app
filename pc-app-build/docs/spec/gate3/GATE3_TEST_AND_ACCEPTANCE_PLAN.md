@@ -1,209 +1,160 @@
 # Gate 3 测试与验收计划
 
+状态：Gate 3.4 冻结
+
 ## 1. 分层
 
 ```text
 Static architecture
 Unit
-Reducer/Event/Effect
+Reducer/Event/Effect deterministic ordering
 Fake Audio/Transport integration
 Offscreen QML
 Windows manual UI
 Real microphone/WebSocket
-Performance
 Shutdown/leak
+Performance samples
 ```
 
-## 2. Gate 3.1 UI 验收
+真实线程竞争不作为确定性自动测试手段。并发终止通过不同事件排列验证。
 
-### 自动架构
+## 2. Gate 3.1
 
-- `Main.qml` 主 `RowLayout` 不包含 `AssistantPanel`；
-- `AssistantOverlay` 是 ApplicationWindow 全局单实例；
-- Overlay 不创建 Controller；
-- QML 不引用 Transport/Audio/Repository；
-- Developer 诊断仍绑定同一 `assistantViewModel`；
-- `pageLoader` 不因 panel expanded 改变宽度；
-- launcher position 不进入 AssistantState；
-- 无 `Window {}`/第二顶层助手窗口。
+- global single AssistantOverlay；
+- panel 不占主 RowLayout；
+- Preferences schema/debounce/shutdown flush；
+- `streamingCapabilityReady` 字段存在、bool、由 state capability 驱动；
+- 不永久断言 False；
+- offscreen QML smoke。
 
-### Offscreen smoke
+## 3. Gate 3.2
 
-输出至少：
+- PyAudio/PyAV files and pyproject dependencies；
+- callback non-blocking；
+- PCM capacity 8 drop-oldest；
+- encoded capacity 16 fail-turn；
+- one audio worker/uplink；
+- one microphone lease；
+- PTT start/stop/no speech/overflow/stale/double press/disable/shutdown/disconnect；
+- Fake PTT；
+- Real PTT independent manual entry。
 
-```json
-{
-  "qml_root_count": 1,
-  "assistant_overlay_count": 1,
-  "assistant_panel_in_layout": false,
-  "notes_loader_width_stable": true,
-  "assistant_event_pump_running": true,
-  "status": "gate3_1_ui_smoke_verified"
-}
-```
+依赖契约是 `python -m pip install -e ".[dev]"`；不要求旧安装脚本。
 
-### 手工 Windows UI
+## 4. Gate 3.3 状态语义
 
-在 1280x760、1520x960、不同 DPI：
+有效 assistant text/TTS transcript 后检查：
 
-- 默认只有按钮；
-- 点击可展开；
-- 面板可拖动；
-- 拖到四边后仍可关闭/拖回；
-- resize 后仍在窗口内；
-- 主页、搜索、创建、编辑、已删除页面都只有一个入口；
-- Overlay 空白区域可点击下面便签；
-- 展开面板不改变列表和详情宽度；
-- Developer 诊断可展开；
-- Esc 只收起 panel。
+- WAITING_FOR_NEXT_TURN；
+- session active；
+- audio idle；
+- no capture/uplink/VAD/response timer/worker/lease；
+- one listen/start；
+- one listen/stop；
+- no StartStreamingConversation effect；
+- 等待后仍无自动第二轮；
+- manual stop 后 session inactive。
 
-## 3. Preferences
+Gate 3.3 测试明确验证 STREAMING_CONVERSATION 与 VAD capability active、ViewModel projection True；TTS playback/barge-in not_ready。
 
-- missing file defaults；
-- schema round-trip；
-- corrupt JSON recovery；
-- enum validation；
-- timeout clamp；
-- position clamp；
-- debounce only writes on drag end/settle；
-- shutdown flush；
-- voice mode change uses Controller event；
-- RuntimeConfig 未被 UI position 污染。
+## 5. 确定性异常矩阵
 
-## 4. Audio Unit/Fake
+至少覆盖：
 
-- callback try_put non-blocking；
-- PCM capacity 8 / drop oldest；
-- packet capacity 16 / fail turn；
-- frame format validation；
-- encoder failure；
-- VAD sequence；
-- stale capture generation dropped；
-- stop timeout；
-- device open failure；
-- microphone lease rejected；
-- no duplicate worker/uplink task。
+| 场景 | 关键断言 |
+|---|---|
+| repeated start | one capture/start/uplink/VAD/lease |
+| stop waiting speech | one abort, inactive, no leak |
+| stop speaking | one abort, inactive, no leak |
+| end then stop | at most one turn finalize; no duplicate protocol |
+| stop then end | late VAD no-op |
+| no speech | one abort, session ends |
+| short speech | no listen/stop, one abort |
+| overflow | visible error, resources released |
+| disconnect listening | recovering, one reconnect timer |
+| disconnect thinking | timer/capture cleared, recovering |
+| reconnect | timer disappears, one resumed capture |
+| streaming -> PTT | session stops before preference effect |
+| disable | all runtime resources zero |
+| shutdown | transport and assistant tasks also zero |
+| timeout/stop/disconnect permutations | one finalization path |
+| stale generation/session/turn | state/effects unchanged; no capture resume |
 
-## 5. Reducer
+每个场景检查状态终点、finalize 次数、协议调用次数、自动续轮为零、无未处理 asyncio exception、无后台任务泄漏。
 
-覆盖：
+## 6. 资源终态
+
+### A. session 正常结束、连接保留
 
 ```text
-voice mode change idle
-voice mode change during PTT
-voice mode change during streaming
-PTT start/stop/no speech
-streaming start/stop
-speech detected/end
-no speech timeout
-response timeout
-abnormal close/recovery
-reconnect exhausted
-disable/shutdown
-stale generation/token
+no streaming response timer
+no audio uplink task
+no VAD task
+no capture stream
+no audio worker
+no microphone lease
+transport sender/receiver may remain
 ```
 
-纯 Reducer 不打开设备、不 sleep、不访问文件。
-
-## 6. Gate 3.2 Real PTT
-
-Runner 不打印原始 PCM、token 或完整 identity/session。
-
-结果字段建议：
+### B. 自动恢复
 
 ```text
-status
-input_device_public
-sample_rate
-pcm_frames
-opus_frames
-uploaded_frames
-speech_seen
-first_pcm_latency_ms
-first_opus_upload_latency_ms
-stop_listen_latency_ms
-real_audio_upload_verified
-real_text_or_tts_state_verified
-no_pending_audio_tasks
+at most one reconnect timer per generation
+timer may exist while waiting
+no timer after successful reconnect
+at most one resumed capture
 ```
 
-通过条件：
-
-- uploaded_frames > 0；
-- real server 接受当前 session 的音频；
-- stop/abort 正确；
-- capture/playback 均已关闭；
-- 无异常 traceback。
-
-## 7. Gate 3.3 Real Streaming Uplink
-
-结果字段建议：
-
-```text
-voice_mode=streaming_conversation
-streaming_session_id_masked
-streaming_generation
-turn_index=1
-vad_speech_started
-vad_speech_ended
-auto_stop_sent
-uploaded_frames
-server_response_observed
-session_stopped
-no_pending_audio_tasks
-```
-
-通过条件：一轮真实语音由 VAD 自动提交，不能要求用户松开按钮。
-
-## 8. Gate 4.2 Real Continuous
-
-必须两轮：
-
-```text
-turn_1_speech -> playback_1_ended
--> auto_listening_2
--> turn_2_speech -> playback_2_ended
-```
-
-输出：
-
-```text
-turn_count >= 2
-playback_ended_count >= 2
-auto_resume_count >= 1
-single_capture_owner=true
-stale_event_count=0 or explicitly archived
-```
-
-## 9. UI/Aurora
-
-- State 到 AuroraTarget 的 mapping unit；
-- 颜色字符串合法；
-- error 不快速闪烁；
-- minimized/hidden 时动画暂停或降频；
-- QML 帧动画不调用 Python Slot；
-- click/drag threshold；
-- PTT press/release 各只发一个 command；
-- streaming click start/stop 各只发一个 command。
-
-## 10. Shutdown 与泄漏
-
-关闭窗口后：
+### C. disable/shutdown
 
 ```text
 no reconnect timer
 no streaming timer
-no next-turn timer
 no audio uplink task
+no VAD task
 no capture stream
 no audio worker
 no microphone lease
-no transport sender/receiver
-no second python process
+no transport sender
+no transport receiver
+no pending assistant-* task
+no second Python runtime process
 ```
 
-Windows runner 需要等待并检查 `asyncio.all_tasks()` 的 Runtime 任务名称。
+不引入 psutil。静态检查应用/runtime 不导入 subprocess/multiprocessing；验收 runner 的短生命周期 Python 子命令不计为第二 Runtime。
 
-## 11. 回归
+## 7. 自动入口
 
-每个 Gate 3 verifier 必须继续执行 Gate 1.7、Gate 2.1～2.7 全量测试和 Gate 2 Real 不变量静态检查。历史 Real 脚本不要求每次自动执行，但不能被删除或失去可追溯工具。
+```powershell
+powershell -ExecutionPolicy Bypass -File .\VERIFY_GATE3_3.ps1
+```
+
+顺序且 fail-fast：
+
+1. PySide6/qasync/sqlalchemy/websockets/pyaudio/av import；
+2. compileall；
+3. Black --check；
+4. Ruff check；
+5. pytest -W error Gate 1.7、2.1～2.7、3.1～3.4；
+6. Gate 2.7 Fake；
+7. Gate 3.1 offscreen QML；
+8. Gate 3.2 Fake PTT；
+9. Gate 3.3 Fake streaming/VAD。
+
+失败立即停止并传播非零 exit code。失败后不得打印 passed。
+
+## 8. Real streaming
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\RUN_GATE3_3_REAL_STREAMING.ps1
+```
+
+0=pass，1=implementation/acceptance failure，2=environment/device/network/activation blocked。输出必须脱敏。
+
+Real Gate 一轮通过条件：真实 WebSocket、真实麦克风、VAD start/end、Opus uploaded>0、readable STT、readable assistant/TTS transcript、WAITING 不自动开麦、manual stop、无 audio/runtime task 残留。
+
+单次 latency 只写 sample，不写 p95。识别文本可读不等于识别准确率达标。
+
+## 9. Gate 4 边界
+
+真实 PlaybackEnded 后自动 Listening 和真实两轮只在 Gate 4 验收。Gate 3 自动/Real runner 不得模拟或宣称该能力。

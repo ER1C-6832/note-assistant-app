@@ -12,6 +12,5 @@ if str(APP_ROOT) not in sys.path:
 
 from app import run_app  # noqa: E402
 
-
 if __name__ == "__main__":
     raise SystemExit(run_app())
