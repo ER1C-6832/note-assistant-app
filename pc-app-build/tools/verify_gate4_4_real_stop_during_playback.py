@@ -7,6 +7,7 @@ import json
 import os
 import sys
 import time
+from dataclasses import replace
 from pathlib import Path
 
 APP_ROOT = Path(__file__).resolve().parents[1] / "apps" / "notes-pyside"
@@ -18,6 +19,7 @@ from app.assistant import (  # noqa: E402
     AssistantActivationStatus,
     AssistantAudioStatus,
     AssistantController,
+    AssistantState,
     ConversationStateMachine,
     DeviceIdentityManager,
     DeviceIdentityStore,
@@ -47,7 +49,6 @@ from app.assistant.runtime_config import (  # noqa: E402
 ACTIVATION_TIMEOUT_SECONDS = 25.0
 CONNECT_TIMEOUT_SECONDS = 20.0
 CAPTURE_START_TIMEOUT_SECONDS = 10.0
-PLAYBACK_START_TIMEOUT_SECONDS = 75.0
 STOP_TIMEOUT_SECONDS = 12.0
 
 
@@ -68,6 +69,15 @@ def _interrupt_delay_seconds() -> float:
     except ValueError:
         value = 0.35
     return min(3.0, max(0.05, value))
+
+
+def _response_timeout_seconds() -> float:
+    raw = _optional_env("GATE4_4_RESPONSE_TIMEOUT_SECONDS")
+    try:
+        value = float(raw) if raw is not None else 90.0
+    except ValueError:
+        value = 90.0
+    return min(180.0, max(30.0, value))
 
 
 def _environment_blocked(message: str) -> bool:
@@ -163,6 +173,15 @@ async def _run() -> int:
         identity_manager=identity_manager,
     )
     clock = MonotonicClock()
+    response_timeout_seconds = _response_timeout_seconds()
+    initial_state = AssistantState.disabled(now_ns=clock.now_ns())
+    initial_state = replace(
+        initial_state,
+        conversation=replace(
+            initial_state.conversation,
+            streaming_response_timeout_ms=int(response_timeout_seconds * 1_000),
+        ),
+    )
     real_transport = RealWebSocketTransport(config_provider=provider, clock=clock)
     audio_engine = AssistantAudioEngine(
         capture=PyAudioCaptureAdapter(),
@@ -182,6 +201,7 @@ async def _run() -> int:
         ),
         audio_engine=audio_engine,
         microphone_coordinator=MicrophoneLeaseCoordinator(),
+        initial_state=initial_state,
     )
     failure_stage: str | None = None
     final_state = controller.state
@@ -252,7 +272,8 @@ async def _run() -> int:
 
         await controller.set_voice_interaction_mode(VoiceInteractionMode.STREAMING_CONVERSATION)
         print(
-            "请说一句会产生较长回复的真实命令。回复开始播放后，runner 会自动执行用户 stop。",
+            "请清楚说一句会产生较长回复的命令，例如：请用十句话介绍北京。"
+            "说完后保持安静；回复开始播放后，runner 会自动执行用户 stop。",
             flush=True,
         )
         failure_stage = "capture_start"
@@ -278,16 +299,23 @@ async def _run() -> int:
         playing = await controller.wait_for_state(
             lambda state: state.audio.status is AssistantAudioStatus.PLAYING
             or state.error is not None,
-            timeout_seconds=PLAYBACK_START_TIMEOUT_SECONDS,
+            timeout_seconds=response_timeout_seconds + 30.0,
         )
         if playing.audio.status is not AssistantAudioStatus.PLAYING:
             message = playing.error.message if playing.error else "playback did not start"
-            blocked = _environment_blocked(message)
+            response_timeout = bool(
+                playing.error is not None and playing.error.code == "streaming_response_timeout"
+            )
+            blocked = response_timeout or _environment_blocked(message)
             _print(
                 {
                     "status": "real_gate_blocked" if blocked else "failed",
                     "failure_stage": failure_stage,
                     "message": message,
+                    "response_timeout_seconds": response_timeout_seconds,
+                    "retry_hint": (
+                        "请确认已清楚说完命令并保持安静后重试" if response_timeout else None
+                    ),
                 }
             )
             return 2 if blocked else 1
