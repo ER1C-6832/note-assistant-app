@@ -8,6 +8,7 @@ from collections.abc import Mapping, Sequence
 from .events import (
     AssistantText,
     BinaryAudio,
+    DownlinkAudioFormat,
     ListenState,
     McpEnvelope,
     ProtocolError,
@@ -28,6 +29,8 @@ _SENSITIVE_KEYS = {
     "secret",
     "password",
 }
+_SUPPORTED_OPUS_SAMPLE_RATES = {8_000, 12_000, 16_000, 24_000, 48_000}
+_SUPPORTED_OPUS_FRAME_DURATIONS_MS = {2.5, 5.0, 10.0, 20.0, 40.0, 60.0}
 
 
 class XiaozhiMessageRouter:
@@ -61,9 +64,12 @@ class XiaozhiMessageRouter:
 
         session_id = _optional_text(payload.get("session_id"))
         if message_type == "hello":
+            audio_format, audio_params_error = _parse_audio_params(payload.get("audio_params"))
             return ServerHello(
                 session_id=session_id or "",
                 transport=_optional_text(payload.get("transport")),
+                audio_format=audio_format,
+                audio_params_error=audio_params_error,
                 raw_json_redacted=redacted,
             )
         if message_type in {"stt", "llm", "text"}:
@@ -120,6 +126,48 @@ class XiaozhiMessageRouter:
 
     def route_binary(self, data: bytes) -> BinaryAudio:
         return BinaryAudio(size_bytes=len(data))
+
+
+def _parse_audio_params(value: object) -> tuple[DownlinkAudioFormat | None, str | None]:
+    if value is None:
+        return None, "missing_audio_params"
+    if not isinstance(value, Mapping):
+        return None, "audio_params_not_object"
+
+    codec = (_text(value.get("format")) or _text(value.get("codec"))).lower()
+    if not codec:
+        return None, "audio_params_missing_format"
+    if codec != "opus":
+        return None, f"unsupported_downlink_codec:{codec}"
+
+    sample_rate = value.get("sample_rate")
+    if isinstance(sample_rate, bool) or not isinstance(sample_rate, int) or sample_rate <= 0:
+        return None, "invalid_downlink_sample_rate"
+    if sample_rate not in _SUPPORTED_OPUS_SAMPLE_RATES:
+        return None, f"unsupported_downlink_sample_rate:{sample_rate}"
+
+    channels = value.get("channels")
+    if isinstance(channels, bool) or not isinstance(channels, int) or channels <= 0:
+        return None, "invalid_downlink_channels"
+    if channels != 1:
+        return None, f"unsupported_downlink_channels:{channels}"
+
+    frame_duration = value.get("frame_duration")
+    if isinstance(frame_duration, bool) or not isinstance(frame_duration, (int, float)):
+        return None, "invalid_downlink_frame_duration"
+    normalized_duration = float(frame_duration)
+    if normalized_duration not in _SUPPORTED_OPUS_FRAME_DURATIONS_MS:
+        return None, f"unsupported_downlink_frame_duration:{normalized_duration:g}"
+
+    return (
+        DownlinkAudioFormat(
+            codec=codec,
+            sample_rate_hz=sample_rate,
+            channels=channels,
+            frame_duration_ms=normalized_duration,
+        ),
+        None,
+    )
 
 
 def redact_json(payload: Mapping[str, object]) -> str:
