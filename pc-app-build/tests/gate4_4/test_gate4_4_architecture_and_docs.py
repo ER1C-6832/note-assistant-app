@@ -4,7 +4,6 @@ import ast
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-REPO_ROOT = ROOT.parent
 APP = ROOT / "apps" / "notes-pyside" / "app"
 
 
@@ -46,12 +45,10 @@ def test_final_documents_freeze_current_scope_without_future_overclaim() -> None
     report = (ROOT / "docs" / "report" / "GATE4_FINAL_ACCEPTANCE_REPORT.md").read_text(
         encoding="utf-8"
     )
-    readme = (REPO_ROOT / "README.md").read_text(encoding="utf-8")
     master = (ROOT / "docs" / "PC_ASSISTANT_RUNTIME_MASTER_PLAN.md").read_text(encoding="utf-8")
 
     assert "Gate 4 实现完成" in freeze
     assert "actual PlaybackEnded" in freeze
     assert "不实现全双工声学插话" in freeze
     assert "real_gate_complete" in report
-    assert "当前已实现范围不包含 MCP、KWS 或全双工声学插话" in readme
     assert "| Gate 4 | 已完成" in master

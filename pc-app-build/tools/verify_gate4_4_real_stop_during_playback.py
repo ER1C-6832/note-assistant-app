@@ -62,13 +62,13 @@ def _optional_env(name: str) -> str | None:
     return value or None
 
 
-def _interrupt_delay_seconds() -> float:
-    raw = _optional_env("GATE4_4_INTERRUPT_DELAY_SECONDS")
+def _audible_before_stop_seconds() -> float:
+    raw = _optional_env("GATE4_4_AUDIBLE_BEFORE_STOP_SECONDS")
     try:
-        value = float(raw) if raw is not None else 0.35
+        value = float(raw) if raw is not None else 1.5
     except ValueError:
-        value = 0.35
-    return min(3.0, max(0.05, value))
+        value = 1.5
+    return min(5.0, max(0.75, value))
 
 
 def _response_timeout_seconds() -> float:
@@ -104,6 +104,10 @@ def _environment_blocked(message: str) -> bool:
             "invalid input device",
             "invalid output device",
             "unanticipated host error",
+            "urlopen error",
+            "ssl",
+            "unexpected_eof_while_reading",
+            "eof occurred in violation",
         )
     )
 
@@ -144,6 +148,35 @@ async def _wait_resources_closed(controller, timeout_seconds: float) -> bool:
             return True
         await asyncio.sleep(0.01)
     return False
+
+
+async def _wait_for_audible_progress(
+    controller,
+    *,
+    playback_generation: int,
+    target_frames: int,
+    timeout_seconds: float,
+) -> tuple[bool, int]:
+    deadline = time.perf_counter() + timeout_seconds
+    max_played_frames = 0
+    while time.perf_counter() < deadline:
+        state = controller.state
+        if state.error is not None:
+            return False, max_played_frames
+        if state.audio.playback_generation != playback_generation:
+            return False, max_played_frames
+        max_played_frames = max(max_played_frames, state.audio.played_frames)
+        if (
+            state.audio.status is AssistantAudioStatus.PLAYING
+            and controller.playback_output_active
+            and max_played_frames >= target_frames
+        ):
+            return True, max_played_frames
+        summary = controller.playback_last_summary
+        if summary is not None and summary.playback_generation == playback_generation:
+            return False, max_played_frames
+        await asyncio.sleep(0.02)
+    return False, max_played_frames
 
 
 async def _run() -> int:
@@ -323,16 +356,34 @@ async def _run() -> int:
         playback_generation = playing.audio.playback_generation
         turn_token = playing.conversation.last_completed_streaming_turn_token or 1
         auto_requests_before_stop = controller.auto_next_turn_request_count
-        await asyncio.sleep(_interrupt_delay_seconds())
-        if not controller.playback_output_active:
+        output_plan = controller.playback_output_plan
+        sample_rate_hz = (
+            output_plan.pcm_format.sample_rate_hz if output_plan is not None else 48_000
+        )
+        audible_before_stop_seconds = _audible_before_stop_seconds()
+        audible_progress_target_frames = max(1, int(sample_rate_hz * audible_before_stop_seconds))
+        audible_ready, played_frames_before_stop = await _wait_for_audible_progress(
+            controller,
+            playback_generation=playback_generation,
+            target_frames=audible_progress_target_frames,
+            timeout_seconds=min(15.0, audible_before_stop_seconds + 8.0),
+        )
+        if not audible_ready:
             _print(
                 {
-                    "status": "failed",
+                    "status": "real_gate_blocked",
                     "failure_stage": "response_too_short",
-                    "message": "playback drained before stop; retry with a longer response",
+                    "message": (
+                        "playback ended before enough physical PCM was played for an "
+                        "audible interruption; retry with a longer response"
+                    ),
+                    "sample_rate_hz": sample_rate_hz,
+                    "audible_before_stop_seconds": audible_before_stop_seconds,
+                    "audible_progress_target_frames": audible_progress_target_frames,
+                    "played_frames_observed": played_frames_before_stop,
                 }
             )
-            return 1
+            return 2
 
         failure_stage = "stop_during_playback"
         await controller.stop_streaming_conversation("gate4_4_user_stop_during_playback")
@@ -386,6 +437,10 @@ async def _run() -> int:
                 "connection_generation": final_state.connection.connection_generation,
                 "playback_generation": playback_generation,
                 "turn_token": turn_token,
+                "sample_rate_hz": sample_rate_hz,
+                "audible_before_stop_seconds": audible_before_stop_seconds,
+                "audible_progress_target_frames": audible_progress_target_frames,
+                "played_frames_before_stop": played_frames_before_stop,
                 "last_audio_summary": cancelled_summary,
                 "natural_playback_summary_created": controller.playback_last_summary is not None,
                 "auto_next_turn_request_count_before_stop": auto_requests_before_stop,

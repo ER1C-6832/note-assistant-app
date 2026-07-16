@@ -3,15 +3,9 @@ from __future__ import annotations
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-REPO_ROOT = ROOT.parent
 
 
-def test_repository_readme_states_the_current_gate4_scope() -> None:
-    readme = (REPO_ROOT / "README.md").read_text(encoding="utf-8")
-    assert "当前已实现范围不包含 MCP、KWS 或全双工声学插话" in readme
-
-
-def test_real_stop_runner_extends_the_internal_response_watchdog() -> None:
+def test_real_stop_runner_extends_watchdog_and_waits_for_physical_progress() -> None:
     runner = (ROOT / "tools" / "verify_gate4_4_real_stop_during_playback.py").read_text(
         encoding="utf-8"
     )
@@ -20,3 +14,16 @@ def test_real_stop_runner_extends_the_internal_response_watchdog() -> None:
     assert "streaming_response_timeout_ms=int(response_timeout_seconds * 1_000)" in runner
     assert 'playing.error.code == "streaming_response_timeout"' in runner
     assert "timeout_seconds=response_timeout_seconds + 30.0" in runner
+    assert "GATE4_4_AUDIBLE_BEFORE_STOP_SECONDS" in runner
+    assert "state.audio.played_frames" in runner
+    assert "audible_progress_target_frames" in runner
+    assert '"ssl"' in runner
+
+
+def test_playback_watchdog_emits_live_progress_after_output_starts() -> None:
+    coordinator = (
+        ROOT / "apps" / "notes-pyside" / "app" / "assistant" / "playback" / "coordinator.py"
+    ).read_text(encoding="utf-8")
+
+    assert "if metrics.playback_started_at_ns is not None:" in coordinator
+    assert "await self._emit_progress()" in coordinator

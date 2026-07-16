@@ -402,6 +402,8 @@ class PlaybackCoordinator:
                         message="Opus decoder produced no PCM before watchdog timeout",
                     )
                     return
+                if metrics.playback_started_at_ns is not None:
+                    await self._emit_progress()
         except asyncio.CancelledError:
             raise
 
