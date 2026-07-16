@@ -1,7 +1,7 @@
 # Gate 4 Spec Index
 
-状态：Frozen for Gate 4.2 Real Playback Candidate  
-实现输入基线：`note-assistant-app@bd6d688268b3ef4ec2ea1926ffc29df95b82b256`  
+状态：Gate 4.2 Accepted；Gate 4.3 Auto Next Turn Candidate  
+实现输入基线：`note-assistant-app@e66c30b550bd7959fb916431033053f3bac244ac`  
 目标分支：`rewrite/single-process-runtime`
 
 ## 1. 文档集合
@@ -111,4 +111,15 @@ Gate 4.2 candidate 使用以下已记录决策：
 - actual PlaybackEnded 仅在 PortAudio callback 已提交最后真实 PCM 且 output stream 转为 inactive 后产生；
 - Gate 4.2 完成一轮后停在 `WAITING_FOR_NEXT_TURN`，不自动申请第二轮 capture。自动续轮仍属于 Gate 4.3。
 
-该 candidate 需要 Windows real runner 与人工听感通过后才能标记 Gate 4.2 Accepted。
+Gate 4.2 已由 Windows real runner、人工听感、330 项累计测试和 58 项 Gate 4 定向测试验收通过。
+
+
+## 9. Gate 4.3 自动续轮候选补充
+
+- actual `PlaybackEnded` 是唯一自动续轮触发源；
+- Reducer 一次性分配新的 `turn_token`、`capture_generation` 和 `streaming_turn_index`；
+- 自动 `StartStreamingConversation` effect 在 Controller event 顺序内同步准入，并使用有界 key ledger 防重复执行；
+- stop、mode switch、disconnect、disable、shutdown 在先时禁止续轮；在后时先完成已分配 capture 的启动，再按下一事件立即取消，结果由事件顺序决定而非 task 调度；
+- playback failure/cancel、非自然结束、旧 connection/playback/streaming generation 均不续轮；
+- 下一轮 capture start failure 进入现有 `AudioCaptureFailed` 回收链路；
+- 默认禁止 capture/playback overlap；full-duplex barge-in 仍不属于 Gate 4.3。

@@ -18,7 +18,7 @@ from .network import (
     RuntimeTransportRouter,
     WebSocketConnectionConfig,
 )
-from .playback.runtime_controller import AssistantController, ConversationStateMachine
+from .playback.two_turn_controller import AssistantController, ConversationStateMachine
 from .preferences import (
     ASSISTANT_PREFERENCES_SCHEMA_VERSION,
     AssistantPreferences,
