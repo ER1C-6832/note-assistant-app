@@ -1,4 +1,4 @@
-"""Shared Gate 3 audio contracts and adapters."""
+"""Shared Gate 3 audio runtime and Gate 6 framework-neutral contracts."""
 
 from .engine import (
     AssistantAudioEngine,
@@ -15,6 +15,34 @@ from .fake_audio import (
     ScriptedFakeAudioCapture,
     ScriptedVoiceActivityDetector,
 )
+from .gate6_contracts import (
+    AudioDeviceDescriptor,
+    AudioDeviceRegistryPort,
+    AudioDeviceSnapshot,
+    AudioPlatform,
+    AudioProcessingMetrics,
+    AudioProcessingPort,
+    AudioRouteEvent,
+    AudioRouteObserverPort,
+    AudioRouteState,
+    CaptureActivity,
+    DeviceDirection,
+    DevicePreference,
+    DevicePreferenceMode,
+    DuplexAudioPlan,
+    DuplexAudioSessionPort,
+    DuplexCallbacks,
+    KeywordSpotResult,
+    KeywordSpotterPort,
+    MicrophoneOwner,
+    PlaybackActivity,
+    ProcessedPcmFrame,
+    ProcessingState,
+    PublicAudioFormat,
+    ResolvedAudioRoute,
+    RouteEventKind,
+    TimedPcmFrame,
+)
 from .models import (
     DEFAULT_BYTES_PER_FRAME,
     DEFAULT_CHANNELS,
@@ -30,9 +58,13 @@ from .models import (
     VoiceActivitySnapshot,
 )
 from .opus_codec import OpusUnavailableError, PyAvOpusEncoder
-from .ports import AudioCapturePort, AudioClock, OpusEncoderPort, VoiceActivityDetectorPort
+from .ports import (
+    AudioCapturePort,
+    AudioClock,
+    OpusEncoderPort,
+    VoiceActivityDetectorPort,
+)
 from .pyaudio_adapter import PyAudioCaptureAdapter, PyAudioUnavailableError
-from .vad import EnergyVadConfig, EnergyVoiceActivityDetector
 from .queues import (
     AudioQueueClosed,
     AudioQueueOverflow,
@@ -40,6 +72,7 @@ from .queues import (
     DropOldestAudioQueue,
     FailOnOverflowAudioQueue,
 )
+from .vad import EnergyVadConfig, EnergyVoiceActivityDetector
 
 __all__ = [
     "AssistantAudioEngine",
@@ -48,36 +81,62 @@ __all__ = [
     "AudioCapturePort",
     "AudioCaptureSummary",
     "AudioClock",
+    "AudioDeviceDescriptor",
+    "AudioDeviceRegistryPort",
+    "AudioDeviceSnapshot",
     "AudioEngineBusyError",
     "AudioEngineFailure",
     "AudioEngineGenerationError",
+    "AudioPlatform",
+    "AudioProcessingMetrics",
+    "AudioProcessingPort",
     "AudioQueueClosed",
     "AudioQueueOverflow",
     "AudioQueueStats",
+    "AudioRouteEvent",
+    "AudioRouteObserverPort",
+    "AudioRouteState",
+    "CaptureActivity",
     "DEFAULT_BYTES_PER_FRAME",
     "DEFAULT_CHANNELS",
     "DEFAULT_FRAME_DURATION_MS",
     "DEFAULT_OPUS_BITRATE_BPS",
     "DEFAULT_SAMPLE_RATE_HZ",
     "DEFAULT_SAMPLES_PER_FRAME",
+    "DeviceDirection",
+    "DevicePreference",
+    "DevicePreferenceMode",
     "DropOldestAudioQueue",
-    "EnergyVadConfig",
-    "EnergyVoiceActivityDetector",
+    "DuplexAudioPlan",
+    "DuplexAudioSessionPort",
+    "DuplexCallbacks",
     "ENCODED_PACKET_CAPACITY",
     "EncodedAudioPacket",
+    "EnergyVadConfig",
+    "EnergyVoiceActivityDetector",
     "FailOnOverflowAudioQueue",
     "FakeCaptureScript",
     "FakeOpusEncoder",
+    "KeywordSpotResult",
+    "KeywordSpotterPort",
     "MicrophoneLeaseCoordinator",
+    "MicrophoneOwner",
     "OpusEncoderPort",
     "OpusUnavailableError",
     "PCM_INGRESS_CAPACITY",
     "PcmFrame",
+    "PlaybackActivity",
+    "ProcessedPcmFrame",
+    "ProcessingState",
+    "PublicAudioFormat",
     "PyAudioCaptureAdapter",
     "PyAudioUnavailableError",
     "PyAvOpusEncoder",
+    "ResolvedAudioRoute",
+    "RouteEventKind",
     "ScriptedFakeAudioCapture",
     "ScriptedVoiceActivityDetector",
+    "TimedPcmFrame",
     "VoiceActivityDetectorPort",
     "VoiceActivitySnapshot",
 ]

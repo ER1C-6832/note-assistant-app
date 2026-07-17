@@ -1,0 +1,36 @@
+Gate 6.0 Overlay Manifest
+
+Baseline commit: 19953b12d15ad5e76dfd4da0ca3dfa9aa353dec8
+Product topology changed: no
+Windows Real status: pending
+macOS Real status: pending_real_macos
+
+Validation in packaging environment:
+- compileall: passed
+- Black: passed
+- Ruff: passed
+- Gate 6.0 framework-neutral tests: 16 passed
+- Gate 6.0 Fake verifier: gate6_0_fake_probe_complete
+- Real device/duplex/AEC/KWS: not run
+
+Files:
+d1982b9169746e62a63f7c986d620a8fa563115388439b99db13f7952379712c  pc-app-build/VERIFY_GATE6_0.ps1
+9d408e15c479323cacd20d46d7b098413a5df92b8da5efc8f229ef68883d7706  pc-app-build/apps/notes-pyside/app/assistant/audio/__init__.py
+b2b9009076b97ad0cb8e009dfc91207e43aeb842c35425dd0dbb8ceb781fe570  pc-app-build/apps/notes-pyside/app/assistant/audio/gate6_backend_probe.py
+9ae9b6160430e021db54171ea33999574c2399ec6dc2dd723beec3909650d2c0  pc-app-build/apps/notes-pyside/app/assistant/audio/gate6_contracts.py
+b396c178eb2bffb8ec559ae0766632d6c3990391a1faca725022e8b28099272a  pc-app-build/apps/notes-pyside/app/assistant/audio/gate6_probe.py
+c8a42bf90a12f525e8d424500d303a5cadd0b7e0d094b7c2f01c1139c4dfaa97  pc-app-build/apps/notes-pyside/app/assistant/audio/gate6_pyaudio_probe.py
+d4cd082757126b6cca1e2a3a16a8f725d653461439076a0de263d9440a5486a2  pc-app-build/docs/adr/ADR-010-gate6-cross-platform-audio-session-addendum-6.0.md
+f436c41e38a26c45c9c1a016f7affbb925fd506bcd8f4c35f3103cd2811a20d2  pc-app-build/docs/report/GATE6_0_IMPLEMENTATION_REPORT.md
+b38c0601581cf0b887d78ea4fe1e013ce0ea1b9f0675f34eebe9d1e7ef345196  pc-app-build/docs/spec/gate6/GATE6_0_PROBE_CONTRACT_FREEZE.md
+8d8d59ee2901cd008d65c8d28442ba8e39e9c460b5c3efcbfa908d76df338a97  pc-app-build/tests/gate6_0/test_gate6_0_architecture.py
+084285e5d0d8d0860904b08fd7eb9f23d64d4eabfba33dc7bc6a4dc7d4a036b6  pc-app-build/tests/gate6_0/test_gate6_0_contracts.py
+9ad075c647c5a8f7a4d53ff3499540a057b21a608c2657a82de35ecb7fa6a7da  pc-app-build/tests/gate6_0/test_gate6_0_fake_probe.py
+a2a190c3ca5e7f0f94650d9a72b4275b4aa7593d2a75e9d9d385970d5a6596f7  pc-app-build/tests/gate6_0/test_gate6_0_probe_privacy.py
+dc52f2a2e66e25bb12a6f94e9689b99b97e5f485e79c977748f07888a8b70539  pc-app-build/tools/_gate6_probe_cli.py
+b2b84c5748b6294428fff8eab2c3fbc94df276dcb9175342fe113e987fe11b04  pc-app-build/tools/probe_gate6_aec.py
+da954db5f4e8a087f30e22ba0d8da1744aedb09fa14a10dcbb2d6c632a5f2ca0  pc-app-build/tools/probe_gate6_audio_devices.py
+1e18e187d0f938e5d6f28d482109ad47aa4ac916377cdc4374b53ba4097a4c76  pc-app-build/tools/probe_gate6_duplex.py
+b2efec52124b396e397f1365e95a510bf4cf112550e8cff31c3e6c98ad741323  pc-app-build/tools/probe_gate6_kws.py
+1b1560f1b9ae0a86648dc068c2648bdd945b4b4451039bc351469a7ff2159731  pc-app-build/tools/verify_gate6_0_cumulative.py
+ddd9a26cfacdf5f3a089a7e4a9581b3c55dff8ee15c8d91f9f93ac0e06183b8e  pc-app-build/tools/verify_gate6_0_fake_probe.py
