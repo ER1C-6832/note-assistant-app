@@ -39,7 +39,8 @@ def _prompt(scenario: str, speech_start_delay: float) -> None:
     else:
         print(
             "[Gate 6.0] Double-talk: 测试开始后先保持安静 "
-            f"{speech_start_delay:g} 秒，然后持续重复说：小智音频双讲测试。不会保存音频。",
+            f"{speech_start_delay:g} 秒，然后自然说两到三句短命令，例如：小智，停一下。"
+            "无需持续说满窗口；不会保存音频。",
             file=sys.stderr,
             flush=True,
         )
@@ -65,7 +66,7 @@ def main() -> int:
     parser.add_argument(
         "--processing-mode",
         choices=("aec_only", "aec_ns", "ns_only"),
-        default="aec_ns",
+        default="aec_only",
     )
     parser.add_argument("--speech-start-delay", type=float, default=1.5)
     args = parser.parse_args()

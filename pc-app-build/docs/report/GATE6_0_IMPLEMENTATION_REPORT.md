@@ -173,3 +173,42 @@ python tools/probe_gate6_aec.py `
 ```
 
 For diagnosis only, if `aec_ns` does not preserve near-end speech, repeat double-talk with `--processing-mode aec_only`. Do not select a production backend until the corrected runner returns `probe_complete`, `acceptance.accepted = true`, and exit code zero.
+
+## 7. Windows AEC-only/AEC+NS comparison and short-utterance correction
+
+Subsequent real Windows evidence on the same Realtek route:
+
+```text
+AEC-only double-talk
+  duration                         8 s
+  stream delay                     120 ms auto
+  echo attenuation                 11.881 dB
+  raw baseline/speech RMS          100.464 / 181.707
+  processed baseline/speech RMS     29.082 / 46.274
+  near-end retention ratio           0.2116
+  acceptance                       passed
+
+AEC-only far-end-only
+  echo attenuation                  6.547 dB
+  minimum budget                    6.000 dB
+  acceptance                       passed with limited margin
+
+AEC+NS continuous double-talk
+  raw baseline/speech peak          334 / 1215
+  processed baseline/speech RMS     5.002 / 6.180
+  near-end retention ratio          0.0471
+  v1 acceptance                    inconclusive
+```
+
+The raw peak increase in the AEC+NS run proves that `aec_user_speech_not_observed` was a misleading v1 classification. The v1 median/absolute-threshold method is superseded by `aligned_short_utterance_activity_v2`:
+
+- bounded per-frame RMS statistics only; no PCM persistence;
+- p75/p90/p95 summaries;
+- baseline-derived raw and processed activity thresholds;
+- minimum raw active frames and consecutive run;
+- processed activity evaluated at the same raw-active frame indices;
+- aligned active-frame retention ratio;
+- no fixed processed RMS floor of 12;
+- intermittent short utterances may pass without occupying half the speech window.
+
+The provisional Windows default is now `aec_only`, AEC on, NS off, AGC off, 10 ms internal block and auto delay (120 ms on this route). `aec_ns` remains an explicit diagnostic mode until normal short-utterance evidence proves that its stronger suppression does not damage ASR/barge-in.

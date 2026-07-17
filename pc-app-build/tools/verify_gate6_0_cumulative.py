@@ -190,7 +190,7 @@ def main() -> int:
     parser.add_argument(
         "--aec-processing-mode",
         choices=("aec_only", "aec_ns", "ns_only"),
-        default="aec_ns",
+        default="aec_only",
     )
     parser.add_argument("--aec-speech-start-delay", type=float, default=1.5)
     parser.add_argument("--kws-duration", type=float, default=12.0)

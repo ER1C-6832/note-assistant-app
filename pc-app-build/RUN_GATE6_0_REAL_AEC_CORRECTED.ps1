@@ -1,7 +1,7 @@
 param(
     [string]$StreamDelayMs = "auto",
     [ValidateSet("aec_only", "aec_ns", "ns_only")]
-    [string]$ProcessingMode = "aec_ns",
+    [string]$ProcessingMode = "aec_only",
     [double]$SpeechStartDelay = 1.5
 )
 

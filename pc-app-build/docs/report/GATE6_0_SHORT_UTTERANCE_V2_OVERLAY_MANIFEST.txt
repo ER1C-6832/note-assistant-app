@@ -1,0 +1,28 @@
+Gate 6.0 Short-Utterance Verifier v2 Overlay Manifest
+
+Overlay baseline commit: 0afb861a63f0fdc25a015cc67e90f47aa19ba01c
+Product audio topology changed: no
+Windows provisional profile: AEC-only, NS off, AGC off, 10 ms, delay auto
+Windows short-utterance rerun: required
+KWS live model evidence: pending
+macOS real evidence: pending_real_macos
+
+Local validation:
+- compileall: passed
+- Black: passed
+- Ruff: passed
+- framework-neutral semantic tests: 5 passed
+- updated architecture semantic test: 1 passed
+- Windows native rerun: not available in packaging environment
+
+Files:
+2cc3bf20c1c913dd2bdd6e08f6499eca8676a13e43f813cfe15c21c3dfbc0b0a  pc-app-build/RUN_GATE6_0_REAL_AEC_CORRECTED.ps1
+3952d0ac61c8083212550be2d12b6c574df40a9d8bb402229ce030678a729cd6  pc-app-build/apps/notes-pyside/app/assistant/audio/gate6_backend_probe.py
+b221f77aca12e7ddbb7c6641ee8f56071009db4ba1b1e071d45cf774869faa20  pc-app-build/tools/probe_gate6_aec.py
+3669a457084aed35c0f6b503f0842e1688bc6be6694a7599ff0348add156668c  pc-app-build/tools/verify_gate6_0_cumulative.py
+06b4c74f35f8ad368f4df807dc2b7ef092cd9aafb15575c3053f70ef332aeb2d  pc-app-build/tests/gate6_0/test_gate6_0_architecture.py
+f63b506633d93d81bb91f61b5003398fb99fc01392f08170c7cca9e8a700920b  pc-app-build/tests/gate6_0/test_gate6_0_real_probe_semantics.py
+d8ae8e6f76472ef23e2568b049c4aedaf012f61c68dbf8fb8e1dda7108158718  pc-app-build/docs/report/GATE6_0_IMPLEMENTATION_REPORT.md
+bb0054dc15b97c225ffbc5595f82de9fbd1a3191b8e7b5890f18cf15e726a9f6  pc-app-build/docs/report/GATE6_0_EVIDENCE_CORRECTION_REPORT.md
+f4880df239eba9916ce41838194b981c1a68603f2da9413926d4d857019c4e05  pc-app-build/docs/report/GATE6_0_SHORT_UTTERANCE_VERIFIER_V2_REPORT.md
+0da75f9903c7eda6c74d84e6db979a5e680247cb8cb8478bc2828b423fe3eca3  pc-app-build/docs/spec/gate6/GATE6_0_PROBE_CONTRACT_FREEZE.md

@@ -7,9 +7,12 @@ raw audio is persisted.
 from __future__ import annotations
 
 import math
+import statistics
 import struct
 import threading
 import time
+from collections import deque
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
@@ -187,6 +190,129 @@ def _attenuation_db(raw_rms: float, processed_rms: float) -> float | None:
     return round(20.0 * math.log10(raw_rms / max(processed_rms, 1.0)), 3)
 
 
+def _percentile(values: Sequence[float], percentile: float) -> float:
+    if not values:
+        return 0.0
+    ordered = sorted(float(item) for item in values)
+    position = (len(ordered) - 1) * percentile / 100.0
+    lower = math.floor(position)
+    upper = math.ceil(position)
+    if lower == upper:
+        return round(ordered[lower], 3)
+    weight = position - lower
+    return round(ordered[lower] * (1.0 - weight) + ordered[upper] * weight, 3)
+
+
+def _longest_active_run(flags: Sequence[bool]) -> int:
+    longest = 0
+    current = 0
+    for active in flags:
+        current = current + 1 if active else 0
+        longest = max(longest, current)
+    return longest
+
+
+def _summary_with_percentiles(
+    summary: dict[str, object], rms_values: Sequence[float]
+) -> dict[str, object]:
+    return {
+        **summary,
+        "rms_p75": _percentile(rms_values, 75.0),
+        "rms_p90": _percentile(rms_values, 90.0),
+        "rms_p95": _percentile(rms_values, 95.0),
+    }
+
+
+def analyze_double_talk_activity(
+    *,
+    raw_baseline_rms: Sequence[float],
+    processed_baseline_rms: Sequence[float],
+    raw_speech_rms: Sequence[float],
+    processed_speech_rms: Sequence[float],
+) -> dict[str, object]:
+    """Detect short near-end bursts and compare aligned processed frames."""
+
+    aligned_count = min(len(raw_speech_rms), len(processed_speech_rms))
+    raw_speech = [float(item) for item in list(raw_speech_rms)[:aligned_count]]
+    processed_speech = [float(item) for item in list(processed_speech_rms)[:aligned_count]]
+    raw_baseline_median = _percentile(raw_baseline_rms, 50.0)
+    raw_baseline_p95 = _percentile(raw_baseline_rms, 95.0)
+    processed_baseline_median = _percentile(processed_baseline_rms, 50.0)
+    processed_baseline_p95 = _percentile(processed_baseline_rms, 95.0)
+    raw_activity_threshold = max(
+        raw_baseline_p95 * 1.10,
+        raw_baseline_median * 1.25,
+        raw_baseline_median + 8.0,
+    )
+    processed_activity_threshold = max(
+        processed_baseline_p95 * 1.05,
+        processed_baseline_median * 1.20,
+        processed_baseline_median + 0.75,
+    )
+    raw_flags = [item >= raw_activity_threshold for item in raw_speech]
+    raw_active_indices = [index for index, active in enumerate(raw_flags) if active]
+    raw_active_frames = len(raw_active_indices)
+    raw_longest_run = _longest_active_run(raw_flags)
+    raw_near_speech_observed = raw_active_frames >= 5 and raw_longest_run >= 3
+
+    processed_on_raw_flags = [
+        raw_flags[index] and processed_speech[index] >= processed_activity_threshold
+        for index in range(aligned_count)
+    ]
+    processed_active_on_raw_frames = sum(processed_on_raw_flags)
+    processed_on_raw_active_ratio = round(
+        processed_active_on_raw_frames / max(raw_active_frames, 1), 4
+    )
+    processed_longest_aligned_run = _longest_active_run(processed_on_raw_flags)
+
+    raw_active_lifts = [
+        max(0.0, raw_speech[index] - raw_baseline_median) for index in raw_active_indices
+    ]
+    processed_active_lifts = [
+        max(0.0, processed_speech[index] - processed_baseline_median)
+        for index in raw_active_indices
+    ]
+    raw_active_lift_median = float(statistics.median(raw_active_lifts)) if raw_active_lifts else 0.0
+    processed_active_lift_median = (
+        float(statistics.median(processed_active_lifts)) if processed_active_lifts else 0.0
+    )
+    retention_ratio = round(processed_active_lift_median / max(raw_active_lift_median, 1.0), 4)
+    processed_near_speech_observed = (
+        raw_near_speech_observed
+        and processed_active_on_raw_frames >= 3
+        and processed_longest_aligned_run >= 2
+        and processed_on_raw_active_ratio >= 0.10
+    )
+    near_end_preserved = processed_near_speech_observed and retention_ratio >= 0.03
+    return {
+        "analysis_method": "aligned_short_utterance_activity_v2",
+        "aligned_speech_frames": aligned_count,
+        "raw_baseline_rms_median": raw_baseline_median,
+        "raw_baseline_rms_p95": raw_baseline_p95,
+        "raw_speech_rms_p90": _percentile(raw_speech, 90.0),
+        "raw_speech_rms_p95": _percentile(raw_speech, 95.0),
+        "raw_activity_threshold": round(raw_activity_threshold, 3),
+        "raw_active_frames": raw_active_frames,
+        "raw_active_frame_ratio": round(raw_active_frames / max(aligned_count, 1), 4),
+        "raw_longest_active_run_frames": raw_longest_run,
+        "raw_near_speech_observed": raw_near_speech_observed,
+        "processed_baseline_rms_median": processed_baseline_median,
+        "processed_baseline_rms_p95": processed_baseline_p95,
+        "processed_speech_rms_p90": _percentile(processed_speech, 90.0),
+        "processed_speech_rms_p95": _percentile(processed_speech, 95.0),
+        "processed_activity_threshold": round(processed_activity_threshold, 3),
+        "processed_active_on_raw_frames": processed_active_on_raw_frames,
+        "processed_on_raw_active_ratio": processed_on_raw_active_ratio,
+        "processed_longest_aligned_run_frames": processed_longest_aligned_run,
+        "processed_near_speech_observed": processed_near_speech_observed,
+        "raw_active_lift_median": round(raw_active_lift_median, 3),
+        "processed_active_lift_median": round(processed_active_lift_median, 3),
+        "near_end_retention_ratio": retention_ratio,
+        "minimum_near_end_retention_ratio": 0.03,
+        "near_end_preserved": near_end_preserved,
+    }
+
+
 def _speech_like_reference_frame(audio_format: PublicAudioFormat, sequence: int) -> bytes:
     """Generate a bounded speech-like render reference without persisting a fixture."""
 
@@ -218,6 +344,7 @@ def evaluate_aec_probe(
     processed_baseline_summary: dict[str, object] | None,
     raw_speech_summary: dict[str, object] | None,
     processed_speech_summary: dict[str, object] | None,
+    double_talk_activity: dict[str, object] | None,
     errors: list[str],
     terminal_zero: bool,
 ) -> dict[str, object]:
@@ -259,32 +386,23 @@ def evaluate_aec_probe(
         if not echo_suppressed:
             reasons.append("echo_attenuation_below_budget")
     else:
-        raw_baseline = _level(raw_baseline_summary or {}, "rms_median")
-        processed_baseline = _level(processed_baseline_summary or {}, "rms_median")
-        raw_speech = _level(raw_speech_summary or {}, "rms_median")
-        processed_speech = _level(processed_speech_summary or {}, "rms_median")
-        raw_lift = max(0.0, raw_speech - raw_baseline)
-        processed_lift = max(0.0, processed_speech - processed_baseline)
-        retention_ratio = round(processed_lift / max(raw_lift, 1.0), 4)
-        raw_near_speech_observed = raw_speech >= max(80.0, raw_baseline * 1.5, raw_baseline + 30.0)
-        processed_near_speech_observed = processed_speech >= max(
-            12.0, processed_baseline * 1.5, processed_baseline + 5.0
-        )
-        near_end_preserved = processed_near_speech_observed and retention_ratio >= 0.03
+        activity = double_talk_activity or {}
+        raw_near_speech_observed = activity.get("raw_near_speech_observed") is True
+        processed_near_speech_observed = activity.get("processed_near_speech_observed") is True
+        near_end_preserved = activity.get("near_end_preserved") is True
         criteria.update(
             {
-                "raw_baseline_rms": raw_baseline,
-                "raw_speech_rms": raw_speech,
-                "processed_baseline_rms": processed_baseline,
-                "processed_speech_rms": processed_speech,
                 "raw_near_speech_observed": raw_near_speech_observed,
                 "processed_near_speech_observed": processed_near_speech_observed,
-                "near_end_retention_ratio": retention_ratio,
+                "near_end_retention_ratio": activity.get("near_end_retention_ratio", 0.0),
                 "minimum_near_end_retention_ratio": 0.03,
                 "near_end_preserved": near_end_preserved,
+                "short_utterance_activity": activity,
             }
         )
-        if not raw_near_speech_observed:
+        if not activity:
+            reasons.append("double_talk_activity_missing")
+        elif not raw_near_speech_observed:
             reasons.append("user_speech_not_observed")
         elif not near_end_preserved:
             reasons.append("near_end_speech_not_preserved")
@@ -320,7 +438,7 @@ def run_live_aec_probe(
     sample_rate_hz: int = 16_000,
     channels: int = 1,
     stream_delay_ms: int | None = None,
-    processing_mode: str = "aec_ns",
+    processing_mode: str = "aec_only",
     speech_start_delay_seconds: float = 1.5,
 ) -> dict[str, object]:
     if scenario not in {"far_end_only", "double_talk"}:
@@ -348,6 +466,10 @@ def run_live_aec_probe(
     processed_baseline_levels = _LevelAccumulator()
     raw_speech_levels = _LevelAccumulator()
     processed_speech_levels = _LevelAccumulator()
+    raw_baseline_rms_values: deque[float] = deque(maxlen=2_048)
+    processed_baseline_rms_values: deque[float] = deque(maxlen=2_048)
+    raw_speech_rms_values: deque[float] = deque(maxlen=2_048)
+    processed_speech_rms_values: deque[float] = deque(maxlen=2_048)
     render_frames = 0
     processed_vad_trigger_count = 0
     errors: list[str] = []
@@ -447,9 +569,13 @@ def run_live_aec_probe(
                         if elapsed_seconds < speech_start_delay_seconds:
                             raw_baseline_levels.accept(raw, stamp)
                             processed_baseline_levels.accept(processed, stamp)
+                            raw_baseline_rms_values.append(raw_levels.rms_values[-1])
+                            processed_baseline_rms_values.append(processed_levels.rms_values[-1])
                         else:
                             raw_speech_levels.accept(raw, stamp)
                             processed_speech_levels.accept(processed, stamp)
+                            raw_speech_rms_values.append(raw_levels.rms_values[-1])
+                            processed_speech_rms_values.append(processed_levels.rms_values[-1])
                     processed_vad_trigger_count += int(has_voice is True)
             except Exception as exc:
                 errors.append(f"capture_failed:{type(exc).__name__}")
@@ -497,12 +623,32 @@ def run_live_aec_probe(
         audio.terminate()
 
     terminal = tracker.terminal_dict()
-    raw_summary = raw_levels.public_dict()
-    processed_summary = processed_levels.public_dict()
-    raw_baseline_summary = raw_baseline_levels.public_dict()
-    processed_baseline_summary = processed_baseline_levels.public_dict()
-    raw_speech_summary = raw_speech_levels.public_dict()
-    processed_speech_summary = processed_speech_levels.public_dict()
+    raw_summary = _summary_with_percentiles(raw_levels.public_dict(), raw_levels.rms_values)
+    processed_summary = _summary_with_percentiles(
+        processed_levels.public_dict(), processed_levels.rms_values
+    )
+    raw_baseline_summary = _summary_with_percentiles(
+        raw_baseline_levels.public_dict(), raw_baseline_rms_values
+    )
+    processed_baseline_summary = _summary_with_percentiles(
+        processed_baseline_levels.public_dict(), processed_baseline_rms_values
+    )
+    raw_speech_summary = _summary_with_percentiles(
+        raw_speech_levels.public_dict(), raw_speech_rms_values
+    )
+    processed_speech_summary = _summary_with_percentiles(
+        processed_speech_levels.public_dict(), processed_speech_rms_values
+    )
+    double_talk_activity = (
+        analyze_double_talk_activity(
+            raw_baseline_rms=raw_baseline_rms_values,
+            processed_baseline_rms=processed_baseline_rms_values,
+            raw_speech_rms=raw_speech_rms_values,
+            processed_speech_rms=processed_speech_rms_values,
+        )
+        if scenario == "double_talk"
+        else None
+    )
     acceptance = evaluate_aec_probe(
         scenario=scenario,
         duration_seconds=duration_seconds,
@@ -513,16 +659,21 @@ def run_live_aec_probe(
         processed_baseline_summary=processed_baseline_summary,
         raw_speech_summary=raw_speech_summary,
         processed_speech_summary=processed_speech_summary,
+        double_talk_activity=double_talk_activity,
         errors=errors,
         terminal_zero=tracker.is_terminal_zero(),
     )
     return {
-        "status": "probe_complete" if acceptance["accepted"] else "probe_inconclusive",
+        "status": (
+            "probe_failed"
+            if errors or not tracker.is_terminal_zero()
+            else ("probe_complete" if acceptance["accepted"] else "probe_inconclusive")
+        ),
         "scenario": scenario,
         "instruction": (
             "keep quiet while the test tone plays"
             if scenario == "far_end_only"
-            else "keep quiet during lead-in, then repeat the prompted phrase"
+            else "keep quiet during lead-in, then say several natural short phrases"
         ),
         "input_public_name": (
             str(input_info.get("name", "input"))[:120] if "input_info" in locals() else None

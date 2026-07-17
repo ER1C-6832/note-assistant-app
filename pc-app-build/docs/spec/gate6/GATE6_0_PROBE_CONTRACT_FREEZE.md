@@ -90,11 +90,13 @@ bypass baseline
 真实声学 runner 的退出码必须包含功能语义，不能只依据“进程未报错”和“资源归零”：
 
 - `far_end_only` 必须在麦克风侧观察到 far-end，并达到至少 6 dB 的处理前后 RMS 衰减；
-- `double_talk` 必须先取得安静基线，再同时证明 raw 侧观察到近端人声、processed 侧保留近端人声；
+- `double_talk` 必须先取得安静基线，再以短时 p90/p95、活跃帧比例和连续帧证明 raw 侧观察到近端人声，并在相同帧索引证明 processed 侧保留近端人声；
 - raw 有明显人声而 processed 未保留时，必须返回 `aec_near_end_not_preserved` 和非零退出码；
 - backend 自带的 `has_voice()` 只作为诊断字段，不是唯一验收源；
 - stream delay 默认由已打开的 input/output stream reported latency 合成，允许显式 `0..500 ms` 覆盖，不冻结单机 50 ms 猜值；
 - real render reference 使用内存生成的确定性 speech-like fixture，不写入 PCM 文件。
+- 禁止使用整个说话窗口的 RMS median 或固定 processed RMS 绝对下限作为唯一人声判定；正常短句不需要占据窗口一半以上。
+- Windows 当前 provisional profile 为 AEC on、NS off、AGC off、10 ms、delay auto；AEC+NS 为显式诊断模式，不能因 far-end 抑制更强而自动成为默认值。
 
 KWS 首选候选为 sherpa-onnx `KeywordSpotter`。工具不会下载模型；必须显式传入本地 tokens、encoder、decoder、joiner 和 keywords 文件。
 

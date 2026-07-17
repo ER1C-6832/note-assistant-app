@@ -86,6 +86,9 @@ def test_gate6_0_real_acceptance_is_semantic_and_kws_prompts_only_when_ready() -
     assert "near_end_speech_not_preserved" in backend
     assert '"probe_inconclusive"' in backend
     assert "resolve_stream_delay_ms" in backend
+    assert "aligned_short_utterance_activity_v2" in backend
+    assert '"rms_p95"' in backend
+    assert 'default="aec_only"' in aec_cli
     assert 'acceptance.get("accepted") is True' in aec_cli
     assert '"required_distinct_hits": 2' in backend
     assert 'acceptance.get("accepted") is True' in kws_cli
