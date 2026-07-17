@@ -1,6 +1,9 @@
-"""Asynchronous note query boundary shared by UI and future MCP tools."""
+"""Asynchronous note query boundary shared by UI and MCP tools."""
 
 from __future__ import annotations
+
+import asyncio
+from collections.abc import Iterable
 
 from .database_executor import DatabaseExecutor
 from .domain import Note
@@ -24,6 +27,15 @@ class NoteQueryService:
             self._repository.list_active,
         )
 
+    async def list_recent(self, limit: int = 5) -> tuple[Note, ...]:
+        safe_limit = _bounded_limit(limit, maximum=20)
+        return await run_repository_call(
+            self._executor,
+            "list_recent",
+            self._repository.list_recent,
+            safe_limit,
+        )
+
     async def list_pinned(self) -> tuple[Note, ...]:
         return await run_repository_call(
             self._executor,
@@ -31,12 +43,20 @@ class NoteQueryService:
             self._repository.list_pinned,
         )
 
+    async def list_pinned_bounded(self, limit: int = 20) -> tuple[Note, ...]:
+        notes = await self.list_pinned()
+        return notes[: _bounded_limit(limit, maximum=20)]
+
     async def list_deleted(self) -> tuple[Note, ...]:
         return await run_repository_call(
             self._executor,
             "list_deleted",
             self._repository.list_deleted,
         )
+
+    async def list_deleted_bounded(self, limit: int = 20) -> tuple[Note, ...]:
+        notes = await self.list_deleted()
+        return notes[: _bounded_limit(limit, maximum=20)]
 
     async def list_by_tag(self, tag: str) -> tuple[Note, ...]:
         return await run_repository_call(
@@ -46,6 +66,10 @@ class NoteQueryService:
             tag,
         )
 
+    async def list_by_tag_bounded(self, tag: str, limit: int = 20) -> tuple[Note, ...]:
+        notes = await self.list_by_tag(tag)
+        return notes[: _bounded_limit(limit, maximum=20)]
+
     async def search(self, query: str, limit: int = 100) -> tuple[Note, ...]:
         return await run_repository_call(
             self._executor,
@@ -53,6 +77,50 @@ class NoteQueryService:
             self._repository.search,
             query,
             limit,
+        )
+
+    async def search_filtered(
+        self,
+        query: str,
+        *,
+        tags: Iterable[str] = (),
+        scope: str = "active",
+        limit: int = 10,
+    ) -> tuple[Note, ...]:
+        clean_scope = _scope(scope)
+        safe_limit = _bounded_limit(limit, maximum=10)
+        clean_tags = tuple(dict.fromkeys(str(tag).strip() for tag in tags if str(tag).strip()))
+        clean_query = str(query).strip().casefold()
+
+        if clean_scope == "active":
+            candidates = await self.search(query, max(safe_limit * 100, safe_limit))
+        elif clean_scope == "deleted":
+            candidates = await self.list_deleted()
+        else:
+            active, deleted = await asyncio.gather(self.list_all(), self.list_deleted())
+            candidates = (*active, *deleted)
+
+        filtered = tuple(
+            note
+            for note in candidates
+            if _matches(note, clean_query) and all(tag in note.tags for tag in clean_tags)
+        )
+        return tuple(
+            sorted(filtered, key=lambda note: (note.updated_at, note.id), reverse=True)[:safe_limit]
+        )
+
+    async def list_scope_bounded(self, scope: str, limit: int = 100) -> tuple[Note, ...]:
+        clean_scope = _scope(scope)
+        safe_limit = _bounded_limit(limit, maximum=200)
+        if clean_scope == "active":
+            notes = await self.list_all()
+        elif clean_scope == "deleted":
+            notes = await self.list_deleted()
+        else:
+            active, deleted = await asyncio.gather(self.list_all(), self.list_deleted())
+            notes = (*active, *deleted)
+        return tuple(
+            sorted(notes, key=lambda note: (note.updated_at, note.id), reverse=True)[:safe_limit]
         )
 
     async def get(
@@ -67,3 +135,20 @@ class NoteQueryService:
             note_id,
             include_deleted,
         )
+
+
+def _bounded_limit(value: int, *, maximum: int) -> int:
+    return max(1, min(int(value), maximum))
+
+
+def _scope(value: str) -> str:
+    clean = str(value).strip().lower() or "active"
+    if clean not in {"active", "deleted", "all"}:
+        raise ValueError("invalid note query scope")
+    return clean
+
+
+def _matches(note: Note, query: str) -> bool:
+    if not query:
+        return True
+    return any(query in str(value).casefold() for value in (note.title, note.content, *note.tags))

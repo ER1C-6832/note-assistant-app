@@ -166,6 +166,16 @@ class SqlAlchemyNoteRepository:
         statement = _active_order(select(NoteRow).where(NoteRow.is_deleted.is_(False)))
         return self._list(statement)
 
+    def list_recent(self, limit: int = 5) -> tuple[Note, ...]:
+        safe_limit = max(1, min(int(limit), 20))
+        statement = (
+            select(NoteRow)
+            .where(NoteRow.is_deleted.is_(False))
+            .order_by(NoteRow.updated_at.desc(), NoteRow.id.desc())
+            .limit(safe_limit)
+        )
+        return self._list(statement)
+
     def list_pinned(self) -> tuple[Note, ...]:
         statement = _active_order(
             select(NoteRow).where(

@@ -20,14 +20,23 @@ from .descriptors import (
     GATE5_TOOL_DESCRIPTORS,
     UNSUPPORTED_ANDROID_TOOL_NAMES,
 )
+from .gate5_1_executor import Gate51ToolExecutor, READ_TOOL_NAMES, UI_TOOL_NAMES
 from .registry import GateNotReadyExecutor, ToolRegistry
 from .router import McpAwareXiaozhiMessageRouter, PrivateMcpEnvelope
 from .transport_adapters import McpRealWebSocketTransport, McpScriptedFakeTransport
+from .ui_bus import (
+    UiCommand,
+    UiCommandAdapter,
+    UiCommandBus,
+    UiCommandKind,
+    UiDispatchResult,
+)
 
 __all__ = [
     "ConfirmationPolicy",
     "FROZEN_GATE5_TOOL_NAMES",
     "GATE5_TOOL_DESCRIPTORS",
+    "Gate51ToolExecutor",
     "GateNotReadyExecutor",
     "MCP_DEDUPE_CAPACITY",
     "MCP_MAX_OUTER_MESSAGE_BYTES",
@@ -40,10 +49,17 @@ __all__ = [
     "McpScriptedFakeTransport",
     "McpSubmission",
     "PrivateMcpEnvelope",
+    "READ_TOOL_NAMES",
     "ToolCall",
     "ToolDescriptor",
     "ToolRegistry",
     "ToolResult",
     "ToolRisk",
+    "UI_TOOL_NAMES",
     "UNSUPPORTED_ANDROID_TOOL_NAMES",
+    "UiCommand",
+    "UiCommandAdapter",
+    "UiCommandBus",
+    "UiCommandKind",
+    "UiDispatchResult",
 ]

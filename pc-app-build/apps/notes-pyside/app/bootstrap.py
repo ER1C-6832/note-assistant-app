@@ -23,12 +23,15 @@ from .assistant import (
     DeviceIdentityManager,
     DeviceIdentityStore,
     FakeActivationClient,
+    McpCoordinator,
+    McpScriptedFakeTransport,
     PersistedConnectionConfigProvider,
     RealOtaActivationClient,
     RealWebSocketTransport,
     ReconnectPolicy,
     RuntimeConfigStore,
     RuntimeTransportRouter,
+    ToolRegistry,
 )
 from .assistant.audio import (
     AssistantAudioEngine,
@@ -38,7 +41,7 @@ from .assistant.audio import (
 )
 from .assistant.controller import SystemRuntimeClock
 from .assistant.identity import LegacyPyXiaozhiIdentitySource
-from .assistant.network import ScriptedFakeTransport
+from .assistant.mcp import Gate51ToolExecutor, UiCommandBus
 from .lifecycle import ApplicationLifecycle
 from .notes import (
     DatabaseExecutor,
@@ -53,7 +56,7 @@ from .notes import (
     prepare_gate1_local_data,
 )
 from .notes.sqlalchemy_repository import SessionFactory
-from .ui import NoteListModel, NotesViewModel
+from .ui import NoteListModel, NotesUiCommandAdapter, NotesViewModel
 from .ui.assistant_view_model import AssistantViewModel
 
 
@@ -73,6 +76,7 @@ class AssistantRuntime:
     preferences_store: AssistantPreferencesStore
     identity_manager: DeviceIdentityManager
     audio_engine: AssistantAudioEngine
+    mcp_coordinator: McpCoordinator
     controller: AssistantController
     view_model: AssistantViewModel
 
@@ -90,6 +94,8 @@ class ApplicationContext:
     notes_view_model: NotesViewModel
     notes_list_model: NoteListModel
     deleted_notes_list_model: NoteListModel
+    ui_command_bus: UiCommandBus
+    ui_command_adapter: NotesUiCommandAdapter
 
     @property
     def database_engine(self) -> Engine:
@@ -168,7 +174,11 @@ def create_notes_runtime(paths: AppPaths) -> NotesRuntime:
     )
 
 
-def create_assistant_runtime(paths: AppPaths) -> AssistantRuntime:
+def create_assistant_runtime(
+    paths: AppPaths,
+    *,
+    mcp_coordinator: McpCoordinator | None = None,
+) -> AssistantRuntime:
     config_store = RuntimeConfigStore(paths.assistant_runtime_config)
     preferences_store = AssistantPreferencesStore(paths.assistant_preferences)
     preferences = preferences_store.load()
@@ -182,11 +192,13 @@ def create_assistant_runtime(paths: AppPaths) -> AssistantRuntime:
         config_store=config_store,
         identity_manager=identity_manager,
     )
+    coordinator = mcp_coordinator or McpCoordinator()
     transport = RuntimeTransportRouter(
-        fake_transport=ScriptedFakeTransport(),
+        fake_transport=McpScriptedFakeTransport(mcp_coordinator=coordinator),
         real_transport=RealWebSocketTransport(
             config_provider=config_provider,
             clock=clock,
+            mcp_coordinator=coordinator,
         ),
     )
     disabled_state = AssistantState.disabled(now_ns=clock.now_ns())
@@ -227,6 +239,7 @@ def create_assistant_runtime(paths: AppPaths) -> AssistantRuntime:
         preferences_store=preferences_store,
         identity_manager=identity_manager,
         audio_engine=audio_engine,
+        mcp_coordinator=coordinator,
         controller=controller,
         view_model=AssistantViewModel(
             controller,
@@ -261,7 +274,6 @@ def create_application_context(
     tag_catalog.load()
 
     notes_runtime = create_notes_runtime(paths)
-    assistant_runtime = create_assistant_runtime(paths)
     notes_list_model = NoteListModel()
     deleted_notes_list_model = NoteListModel()
     notes_view_model = NotesViewModel(
@@ -271,6 +283,14 @@ def create_application_context(
         notes_model=notes_list_model,
         deleted_notes_model=deleted_notes_list_model,
     )
+    ui_command_bus = UiCommandBus()
+    ui_command_adapter = NotesUiCommandAdapter(notes_view_model)
+    ui_command_bus.bind(ui_command_adapter)
+    mcp_registry = ToolRegistry(
+        executor=Gate51ToolExecutor(notes_runtime.note_query_service, ui_command_bus)
+    )
+    mcp_coordinator = McpCoordinator(mcp_registry)
+    assistant_runtime = create_assistant_runtime(paths, mcp_coordinator=mcp_coordinator)
 
     lifecycle = ApplicationLifecycle()
     lifecycle.register_async_closer(
@@ -284,6 +304,10 @@ def create_application_context(
     lifecycle.register_async_closer(
         "notes-view-model",
         notes_view_model.close,
+    )
+    lifecycle.register_async_closer(
+        "ui-command-bus",
+        ui_command_bus.close,
     )
     lifecycle.register_async_closer(
         "assistant-controller",
@@ -300,6 +324,7 @@ def create_application_context(
     context.setContextProperty("notesListModel", notes_list_model)
     context.setContextProperty("deletedNotesListModel", deleted_notes_list_model)
     context.setContextProperty("assistantViewModel", assistant_runtime.view_model)
+    context.setContextProperty("uiCommandAdapter", ui_command_adapter)
 
     qml_file = Path(__file__).resolve().parent / "qml" / "Main.qml"
     engine.load(QUrl.fromLocalFile(str(qml_file)))
@@ -323,6 +348,8 @@ def create_application_context(
         notes_view_model=notes_view_model,
         notes_list_model=notes_list_model,
         deleted_notes_list_model=deleted_notes_list_model,
+        ui_command_bus=ui_command_bus,
+        ui_command_adapter=ui_command_adapter,
     )
 
 

@@ -9,6 +9,10 @@ Rectangle {
     signal searchRequested(string keyword)
     signal searchTextChanged(string keyword)
 
+    function setSearchQueryAndFocus(query) {
+        searchBox.setQueryAndFocus(query)
+    }
+
     color: "#FFFFFF"
     radius: 20
     height: 76
@@ -57,6 +61,7 @@ Rectangle {
         }
 
         SearchBox {
+            id: searchBox
             Layout.preferredWidth: 520
             resetToken: root.searchResetToken
 

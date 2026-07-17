@@ -10,6 +10,12 @@ Rectangle {
     signal searchRequested(string keyword)
     signal searchTextChanged(string keyword)
 
+    function setQueryAndFocus(query) {
+        searchField.text = String(query)
+        searchField.forceActiveFocus()
+        searchField.selectAll()
+    }
+
     onResetTokenChanged: {
         if (searchField.text.length > 0) {
             searchField.text = ""

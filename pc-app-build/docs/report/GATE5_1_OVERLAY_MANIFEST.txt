@@ -1,0 +1,4 @@
+Gate 5.1 incremental overlay
+Base commit: c1eb1bf6e6240f7c8e8bccbb0aa320ce057b658e
+Scope: 8 read/resolve tools, 7 UI descriptors (6 active + confirmation blocked), typed UI bus, production bootstrap wiring, tests and verifiers.
+No Gate 5.2 mutation handlers are included.

@@ -24,6 +24,7 @@ ApplicationWindow {
     readonly property bool viewModelReady: root.viewModel !== null
     readonly property var assistantModel: assistantViewModel
     readonly property bool assistantModelReady: root.assistantModel !== null
+    readonly property var mcpUiAdapter: (typeof uiCommandAdapter !== "undefined") ? uiCommandAdapter : null
     property alias assistantOverlayItem: assistantOverlay
 
     function createInitialTags() {
@@ -105,12 +106,42 @@ ApplicationWindow {
         }
     }
 
+    Connections {
+        target: root.mcpUiAdapter
+        ignoreUnknownSignals: true
+
+        function onNavigationRequested(command, payload) {
+            if (command === "open_note") {
+                root.currentCategory = "all"
+                root.currentPage = "home"
+            } else if (command === "show_search") {
+                var query = String(payload.query || "")
+                root.currentCategory = "search"
+                root.currentPage = "search"
+                topBar.setSearchQueryAndFocus(query)
+            } else if (command === "show_note_list") {
+                root.currentCategory = "all"
+                root.currentPage = "home"
+            } else if (command === "show_tag") {
+                root.currentCategory = "tag:" + String(payload.tag)
+                root.currentPage = "home"
+            } else if (command === "show_trash") {
+                root.currentCategory = "deleted"
+                root.currentPage = "deletedList"
+            } else if (command === "show_pinned") {
+                root.currentCategory = "pinned"
+                root.currentPage = "home"
+            }
+        }
+    }
+
     ColumnLayout {
         anchors.fill: parent
         anchors.margins: 24
         spacing: 20
 
         TopBar {
+            id: topBar
             Layout.fillWidth: true
             searchResetToken: root.searchResetToken
 
@@ -166,7 +197,6 @@ ApplicationWindow {
                     return homePage
                 }
             }
-
         }
     }
 
