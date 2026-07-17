@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import time
+from collections import deque
 
 from PySide6.QtCore import QObject, Signal
 
@@ -20,6 +21,11 @@ class NotesUiCommandAdapter(QObject):
         super().__init__()
         self._view_model = view_model
         self._closed = False
+        self._command_history: deque[str] = deque(maxlen=32)
+
+    @property
+    def command_history(self) -> tuple[str, ...]:
+        return tuple(self._command_history)
 
     async def dispatch(self, command: UiCommand) -> UiDispatchResult:
         if self._closed:
@@ -30,10 +36,14 @@ class NotesUiCommandAdapter(QObject):
             note_id = int(payload["note_id"])
             self._view_model.loadAll()
             if not await self._wait_query_idle():
-                return UiDispatchResult(False, "等待便签列表刷新超时", "ui_refresh_timeout")
+                return UiDispatchResult(
+                    False, "等待便签列表刷新超时", "ui_refresh_timeout"
+                )
             ids = self._view_model.currentNoteIds()
             if note_id not in ids:
-                return UiDispatchResult(False, "便签已不在活动列表中", "stale_ui_selection")
+                return UiDispatchResult(
+                    False, "便签已不在活动列表中", "stale_ui_selection"
+                )
             self._view_model.selectNote(ids.index(note_id))
         elif command.kind is UiCommandKind.SHOW_SEARCH:
             query = str(payload.get("query", "")).strip()
@@ -50,9 +60,12 @@ class NotesUiCommandAdapter(QObject):
         elif command.kind is UiCommandKind.SHOW_PINNED:
             self._view_model.loadCategory("pinned")
         else:
-            return UiDispatchResult(False, "当前 UI 命令尚未实现", "ui_command_not_ready")
+            return UiDispatchResult(
+                False, "当前 UI 命令尚未实现", "ui_command_not_ready"
+            )
 
         self.navigationRequested.emit(command.kind.value, payload)
+        self._command_history.append(command.kind.value)
         await asyncio.sleep(0)
         return UiDispatchResult(True, "桌面 UI 已切换")
 

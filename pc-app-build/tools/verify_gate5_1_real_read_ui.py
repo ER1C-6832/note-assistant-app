@@ -1,13 +1,13 @@
-"""Verify real Gate 5.1 read tools and typed UI dispatch over Xiaozhi MCP."""
+"""Probe Gate 5.1 natural-language tool selection over the real Xiaozhi endpoint."""
 
 from __future__ import annotations
 
 import asyncio
 import json
 import os
-import re
 import sys
 import time
+from dataclasses import dataclass
 from pathlib import Path
 
 APP_ROOT = Path(__file__).resolve().parents[1] / "apps" / "notes-pyside"
@@ -41,9 +41,11 @@ from app.notes import (  # noqa: E402
     create_sqlite_engine,
     initialize_database,
 )
+from gate5_1_acceptance import ToolProbeDecision, classify_tool_probe  # noqa: E402
 
 CONNECT_TIMEOUT_SECONDS = 20.0
-TOOL_TIMEOUT_SECONDS = 60.0
+PROTOCOL_TIMEOUT_SECONDS = 15.0
+TOOL_TIMEOUT_SECONDS = 45.0
 
 
 class MonotonicClock:
@@ -53,44 +55,85 @@ class MonotonicClock:
 
 class RecordingUiAdapter:
     def __init__(self) -> None:
-        self.commands = []
+        self.commands: list[str] = []
 
     async def dispatch(self, command):
         self.commands.append(command.kind.value)
         return UiDispatchResult(True, "桌面 UI 已切换")
 
 
-async def _wait_for_tool(coordinator, tool_name: str, start_index: int) -> bool:
-    deadline = time.perf_counter() + TOOL_TIMEOUT_SECONDS
+@dataclass(frozen=True, slots=True)
+class PromptOutcome:
+    tool_status: str | None
+    turn_completed: bool
+    assistant_reply_present: bool
+
+
+async def _wait_for_protocol_ready(coordinator: McpCoordinator) -> bool:
+    deadline = time.perf_counter() + PROTOCOL_TIMEOUT_SECONDS
     while time.perf_counter() < deadline:
-        for summary in coordinator.lifecycle_history[start_index:]:
-            if summary.tool_name == tool_name and summary.status == "success":
-                return True
+        methods = {
+            summary.method
+            for summary in coordinator.lifecycle_history
+            if summary.status == "success"
+        }
+        if {"initialize", "tools/list"}.issubset(methods):
+            return True
         await asyncio.sleep(0.05)
     return False
 
 
-async def _run_prompt(controller, coordinator, prompt: str, tool_name: str) -> bool:
+async def _wait_for_tool_status(
+    coordinator: McpCoordinator,
+    tool_name: str,
+    start_index: int,
+    timeout_seconds: float,
+) -> str | None:
+    deadline = time.perf_counter() + max(timeout_seconds, 0.01)
+    while time.perf_counter() < deadline:
+        for summary in coordinator.lifecycle_history[start_index:]:
+            if summary.tool_name == tool_name:
+                return summary.status
+        await asyncio.sleep(0.05)
+    return None
+
+
+async def _run_prompt(
+    controller: AssistantController,
+    coordinator: McpCoordinator,
+    prompt: str,
+    tool_name: str,
+) -> PromptOutcome:
     history_index = len(coordinator.lifecycle_history)
+    deadline = time.perf_counter() + TOOL_TIMEOUT_SECONDS
     await controller.send_text(prompt)
     turn_token = controller.state.conversation.active_text_turn_token
     if turn_token is None:
-        return False
-    tool_task = asyncio.create_task(
-        _wait_for_tool(coordinator, tool_name, history_index),
-        name=f"gate5-1-wait-{tool_name}",
-    )
+        return PromptOutcome(None, False, False)
+
     try:
-        await controller.wait_for_state(
+        final_state = await controller.wait_for_state(
             lambda state: state.error is not None
             or state.conversation.last_completed_text_turn_token >= turn_token,
             timeout_seconds=TOOL_TIMEOUT_SECONDS,
         )
-        return await tool_task
-    finally:
-        if not tool_task.done():
-            tool_task.cancel()
-            await asyncio.gather(tool_task, return_exceptions=True)
+    except TimeoutError:
+        final_state = controller.state
+
+    remaining = max(0.01, deadline - time.perf_counter())
+    tool_status = await _wait_for_tool_status(
+        coordinator,
+        tool_name,
+        history_index,
+        remaining,
+    )
+    return PromptOutcome(
+        tool_status=tool_status,
+        turn_completed=(
+            final_state.conversation.last_completed_text_turn_token >= turn_token
+        ),
+        assistant_reply_present=bool(final_state.conversation.last_assistant_text),
+    )
 
 
 def _optional_env(name: str) -> str | None:
@@ -120,13 +163,18 @@ def _environment_blocked(message: str) -> bool:
             "service unavailable",
             "ssl",
             "urlopen error",
+            "unexpected_eof_while_reading",
+            "eof occurred in violation",
         )
     )
 
 
-def _safe_query(title: str) -> str:
-    words = re.findall(r"[\w\u4e00-\u9fff]+", title)
-    return (words[0] if words else "便签")[:12]
+def _protocol_statuses(coordinator: McpCoordinator) -> dict[str, str]:
+    result: dict[str, str] = {}
+    for summary in coordinator.lifecycle_history:
+        if summary.method in {"initialize", "tools/list"}:
+            result[summary.method] = summary.status
+    return result
 
 
 async def _run() -> int:
@@ -145,7 +193,7 @@ async def _run() -> int:
                 {
                     "status": "real_gate_blocked",
                     "failure_stage": "seed_data",
-                    "message": "真实数据库没有活动便签，无法执行 search/get/open_note 验收",
+                    "message": "真实数据库没有活动便签，无法执行 read/UI 验收",
                 },
                 ensure_ascii=False,
                 indent=2,
@@ -156,7 +204,6 @@ async def _run() -> int:
         return 2
 
     target = active_notes[0]
-    query = _safe_query(target.title)
     ui_bus = UiCommandBus()
     ui_adapter = RecordingUiAdapter()
     ui_bus.bind(ui_adapter)
@@ -189,8 +236,12 @@ async def _run() -> int:
         identity_manager=identity_manager,
     )
 
-    observed = {}
-    failure_stage = "connect"
+    observed: dict[str, bool] = {}
+    prompt_outcomes: dict[str, dict[str, object]] = {}
+    protocol_ready = False
+    decision = ToolProbeDecision("failed", 1, "connect", "not connected")
+    blocked_tool: str | None = None
+    connected = controller.state
     try:
         await controller.enable_assistant()
         await controller.ensure_device_identity()
@@ -200,55 +251,66 @@ async def _run() -> int:
             timeout_seconds=CONNECT_TIMEOUT_SECONDS,
         )
         if not connected.is_connected:
-            message = connected.error.message if connected.error else "真实 WebSocket 未连接"
-            print(
-                json.dumps(
-                    {
-                        "status": (
-                            "real_gate_blocked" if _environment_blocked(message) else "failed"
-                        ),
-                        "failure_stage": failure_stage,
-                        "message": message[:240],
-                    },
-                    ensure_ascii=False,
-                    indent=2,
-                    sort_keys=True,
-                )
+            message = (
+                connected.error.message if connected.error else "真实 WebSocket 未连接"
             )
-            return 2 if _environment_blocked(message) else 1
+            blocked = _environment_blocked(message)
+            decision = ToolProbeDecision(
+                "real_gate_blocked" if blocked else "failed",
+                2 if blocked else 1,
+                "connect",
+                message[:240],
+            )
+        else:
+            protocol_ready = await _wait_for_protocol_ready(coordinator)
+            if not protocol_ready:
+                decision = classify_tool_probe(
+                    protocol_ready=False,
+                    turn_completed=True,
+                    observed_status=None,
+                    interactive_user_command=False,
+                )
+            else:
+                scenarios = (
+                    ("notes.list_recent", "请告诉我最近三条便签，简短回答即可。"),
+                    ("notes.search", "请搜索关键词“便签”，最多返回五条结果。"),
+                    ("notes.get", f"请读取编号为 {target.id} 的便签。"),
+                    ("ui.open_note", f"请打开编号为 {target.id} 的便签。"),
+                    ("ui.show_note_list", "请回到全部便签列表。"),
+                )
+                decision = ToolProbeDecision("real_gate_complete", 0, None, None)
+                for tool_name, prompt in scenarios:
+                    outcome = await _run_prompt(
+                        controller, coordinator, prompt, tool_name
+                    )
+                    prompt_outcomes[tool_name] = {
+                        "tool_status": outcome.tool_status,
+                        "turn_completed": outcome.turn_completed,
+                        "assistant_reply_present": outcome.assistant_reply_present,
+                    }
+                    observed[tool_name] = outcome.tool_status == "success"
+                    step_decision = classify_tool_probe(
+                        protocol_ready=protocol_ready,
+                        turn_completed=outcome.turn_completed,
+                        observed_status=outcome.tool_status,
+                        interactive_user_command=False,
+                    )
+                    if step_decision.exit_code != 0:
+                        decision = step_decision
+                        blocked_tool = tool_name
+                        break
 
-        scenarios = (
-            (
-                "notes.list_recent",
-                "请调用 notes.list_recent 工具读取最近三条便签，然后简短回复完成。",
-            ),
-            (
-                "notes.search",
-                f"请调用 notes.search 工具搜索关键词“{query}”，limit 为 5，然后简短回复完成。",
-            ),
-            (
-                "notes.get",
-                f"请调用 notes.get 工具读取 note_id={target.id}，然后简短回复完成。",
-            ),
-            (
-                "ui.open_note",
-                f"请调用 ui.open_note 工具打开 note_id={target.id}，然后简短回复完成。",
-            ),
-            (
-                "ui.show_note_list",
-                "请调用 ui.show_note_list 工具切换到全部便签列表，然后简短回复完成。",
-            ),
-        )
-        for tool_name, prompt in scenarios:
-            failure_stage = tool_name
-            observed[tool_name] = await _run_prompt(controller, coordinator, prompt, tool_name)
-            if not observed[tool_name]:
-                break
+                if decision.exit_code == 0 and not {
+                    "open_note",
+                    "show_note_list",
+                }.issubset(set(ui_adapter.commands)):
+                    decision = ToolProbeDecision(
+                        "failed",
+                        1,
+                        "ui_dispatch",
+                        "tool call succeeded but expected typed UI command was not dispatched",
+                    )
 
-        verified_before_shutdown = all(observed.values()) and {
-            "open_note",
-            "show_note_list",
-        }.issubset(set(ui_adapter.commands))
         before_disconnect = {
             "request_queue_size": coordinator.request_queue_size,
             "worker_alive": coordinator.worker_alive,
@@ -256,7 +318,8 @@ async def _run() -> int:
             "response_future_count": coordinator.response_future_count,
             "ui_dispatch_count": ui_bus.active_dispatch_count,
         }
-        await controller.disconnect("gate5_1_real_read_ui_complete")
+        if connected.is_connected:
+            await controller.disconnect("gate5_1_real_read_ui_complete")
         await controller.shutdown()
         await ui_bus.close()
         await database_executor.close()
@@ -277,20 +340,29 @@ async def _run() -> int:
             "response_future_count": coordinator.response_future_count,
             "ui_dispatch_count": ui_bus.active_dispatch_count,
         }
-        verified = (
-            verified_before_shutdown
-            and pending == []
-            and all(
-                value is False if key == "worker_alive" else value == 0
-                for key, value in terminal.items()
-            )
+        terminal_clean = pending == [] and all(
+            value is False if key == "worker_alive" else value == 0
+            for key, value in terminal.items()
         )
+        if not terminal_clean and decision.exit_code == 0:
+            decision = ToolProbeDecision(
+                "failed",
+                1,
+                "resource_closeout",
+                "MCP/UI resources were not fully released",
+            )
+
         print(
             json.dumps(
                 {
-                    "status": "real_gate_complete" if verified else "failed",
-                    "failure_stage": None if verified else failure_stage,
+                    "status": decision.status,
+                    "failure_stage": decision.failure_stage,
+                    "failure_reason": decision.reason,
+                    "blocked_tool": blocked_tool,
+                    "protocol_ready": protocol_ready,
+                    "protocol_statuses": _protocol_statuses(coordinator),
                     "observed_tools": observed,
+                    "prompt_outcomes": prompt_outcomes,
                     "ui_commands": ui_adapter.commands,
                     "target_note_id": target.id,
                     "connection_generation": connected.connection.connection_generation,
@@ -309,7 +381,7 @@ async def _run() -> int:
                 sort_keys=True,
             )
         )
-        return 0 if verified else 1
+        return decision.exit_code
     finally:
         if not controller.closed:
             await controller.shutdown()

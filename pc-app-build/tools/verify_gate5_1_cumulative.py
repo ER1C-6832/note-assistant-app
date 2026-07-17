@@ -83,16 +83,27 @@ def _run_check(check: Check) -> dict[str, object]:
         "command": list(check.command),
         "returncode": completed.returncode,
         "duration_ms": duration_ms,
-        "status": ("passed" if completed.returncode == 0 else ("blocked" if blocked else "failed")),
+        "status": (
+            "passed"
+            if completed.returncode == 0
+            else ("blocked" if blocked else "failed")
+        ),
         "stdout_tail": _tail(completed.stdout),
         "stderr_tail": _tail(completed.stderr),
     }
 
 
-def _checks(*, include_gate4_real: bool, include_gate5_real: bool) -> list[Check]:
+def _checks(
+    *,
+    include_gate4_real: bool,
+    include_gate5_real: bool,
+    include_gate5_real_ui_language: bool,
+) -> list[Check]:
     python = sys.executable
     checks = [
-        Check("compileall", (python, "-m", "compileall", "-q", "apps", "tools", "tests")),
+        Check(
+            "compileall", (python, "-m", "compileall", "-q", "apps", "tools", "tests")
+        ),
         Check("black", (python, "-m", "black", "--check", "apps", "tools", "tests")),
         Check("ruff", (python, "-m", "ruff", "check", "apps", "tools", "tests")),
         Check("pytest_all", (python, "-m", "pytest", "-W", "error", "tests", "-q")),
@@ -109,18 +120,26 @@ def _checks(*, include_gate4_real: bool, include_gate5_real: bool) -> list[Check
             )
         )
     if include_gate5_real:
-        checks.extend(
-            (
+        checks.append(
+            Check(
+                "gate5_0_real_protocol",
+                (python, "tools/verify_gate5_0_real_protocol.py"),
+            )
+        )
+        if include_gate5_real_ui_language:
+            checks.append(
                 Check(
-                    "gate5_0_real_protocol",
-                    (python, "tools/verify_gate5_0_real_protocol.py"),
-                ),
+                    "gate5_1_real_ui_language",
+                    (python, "tools/verify_gate5_1_real_ui_language.py"),
+                )
+            )
+        else:
+            checks.append(
                 Check(
                     "gate5_1_real_read_ui",
                     (python, "tools/verify_gate5_1_real_read_ui.py"),
-                ),
+                )
             )
-        )
     return checks
 
 
@@ -128,10 +147,22 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--include-gate4-real", action="store_true")
     parser.add_argument("--include-gate5-real", action="store_true")
+    parser.add_argument(
+        "--include-gate5-real-ui-language",
+        action="store_true",
+        help=(
+            "launch the actual desktop UI and require interactive natural-language "
+            "tool calls; implies --include-gate5-real"
+        ),
+    )
     args = parser.parse_args()
+    include_gate5_real = bool(
+        args.include_gate5_real or args.include_gate5_real_ui_language
+    )
     expected = _checks(
         include_gate4_real=args.include_gate4_real,
-        include_gate5_real=args.include_gate5_real,
+        include_gate5_real=include_gate5_real,
+        include_gate5_real_ui_language=args.include_gate5_real_ui_language,
     )
     results: list[dict[str, object]] = []
     for check in expected:
@@ -154,7 +185,8 @@ def main() -> int:
                 ),
                 "baseline_expectation": "single-process Gate 1.1 through Gate 5.1",
                 "include_gate4_real": args.include_gate4_real,
-                "include_gate5_real": args.include_gate5_real,
+                "include_gate5_real": include_gate5_real,
+                "include_gate5_real_ui_language": (args.include_gate5_real_ui_language),
                 "checks": results,
                 "payload_persisted": False,
                 "secrets_redacted": True,

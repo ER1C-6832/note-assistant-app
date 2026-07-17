@@ -56,7 +56,8 @@ from .notes import (
     prepare_gate1_local_data,
 )
 from .notes.sqlalchemy_repository import SessionFactory
-from .ui import NoteListModel, NotesUiCommandAdapter, NotesViewModel
+from .ui import NoteListModel, NotesViewModel
+from .ui import NotesUiCommandAdapter
 from .ui.assistant_view_model import AssistantViewModel
 
 

@@ -1,0 +1,4 @@
+Gate 5.1 Real UI fix overlay
+Baseline: 3faefba365bc71de93573fd56007c7346b8147de
+Files: 11
+Purpose: bootstrap regression fix, honest endpoint classification, actual UI natural-language Real Gate
