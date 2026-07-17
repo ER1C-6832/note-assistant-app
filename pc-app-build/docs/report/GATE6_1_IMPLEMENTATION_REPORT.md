@@ -78,8 +78,8 @@ Packaging-environment evidence:
 compileall                         passed
 Black --check                     passed (316 files unchanged)
 Ruff                              passed
-Gate 6.1 focused tests            11 passed
-non-GUI cumulative regression     465 passed
+Gate 6.1 focused tests            13 passed
+non-GUI cumulative regression     467 passed
 Gate 6.1 Fake session             gate6_1_fake_session_complete
 qmllint new/changed QML           passed without warnings
 full QML/application smoke        blocked locally: Linux image lacks libEGL.so.1
@@ -87,6 +87,13 @@ Windows real route                pending user overlay run
 ```
 
 The local `libEGL.so.1` limitation is an execution-environment block, not converted into a pass. The provided cumulative command still runs the complete test and QML suite on the user's configured Windows environment.
+
+Windows follow-up correction after the first overlay run:
+
+- all 475 then-current tests reached 100%; pytest itself failed only while resolving a stale/permission-denied `%TEMP%\pytest-of-111\pytest-current` cleanup link;
+- Gate 6.1 cumulative verification now assigns one fresh `PYTEST_DEBUG_TEMPROOT` to the complete nested verifier tree and ignores only final removal errors for that private temporary root;
+- the local microphone level test now uses PyAudio callback capture with a monotonic duration budget instead of blocking `stream.read()` calls;
+- zero callback frames is a semantic failure, and the real runner emits structured failed JSON instead of ending with an unclassified traceback.
 
 Primary command:
 

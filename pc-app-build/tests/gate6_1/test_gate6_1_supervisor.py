@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import asyncio
+import sys
+from types import SimpleNamespace
 
 import pytest
 
@@ -130,4 +132,56 @@ async def test_microphone_test_failure_releases_lease_and_activity(tmp_path, mon
     assert diagnostics["microphone_lease"]["owner"] == "none"
     assert diagnostics["microphone_test"]["status"] == "failed"
     assert diagnostics["microphone_test"]["error_code"] == "microphone_test_failed:OSError"
+    await supervisor.close()
+
+
+@pytest.mark.asyncio
+async def test_microphone_test_uses_bounded_callback_capture(tmp_path, monkeypatch) -> None:
+    supervisor = AudioSessionSupervisor(
+        AssistantPreferencesStore(tmp_path / "preferences.json"),
+        registry=PyAudioDeviceRegistry(pyaudio_factory=FakePyAudioManager),
+        route_observer=FakeRouteObserver(),
+        duplex_session=FakeDuplexSession(),
+    )
+    await supervisor.start()
+
+    class FakeStream:
+        def __init__(self, callback) -> None:
+            self._callback = callback
+            self._active = False
+
+        def start_stream(self) -> None:
+            self._active = True
+            self._callback(b"\x64\x00" * 320, 320, {}, 0)
+
+        def is_active(self) -> bool:
+            return self._active
+
+        def stop_stream(self) -> None:
+            self._active = False
+
+        def close(self) -> None:
+            self._active = False
+
+    class FakeManager:
+        def open(self, **kwargs):
+            return FakeStream(kwargs["stream_callback"])
+
+        def terminate(self) -> None:
+            return None
+
+    monkeypatch.setitem(
+        sys.modules,
+        "pyaudio",
+        SimpleNamespace(paInt16=8, paContinue=0, PyAudio=FakeManager),
+    )
+
+    result = await supervisor.microphone_test(duration_seconds=0.25)
+
+    assert result["status"] == "complete"
+    assert result["sample_count"] == 320
+    assert result["peak_abs"] == 100
+    assert result["rms"] == 100.0
+    assert result["callback_status_error_count"] == 0
+    assert supervisor.diagnostics()["microphone_lease"]["owner"] == "none"
     await supervisor.close()

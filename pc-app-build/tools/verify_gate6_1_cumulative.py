@@ -7,6 +7,7 @@ import os
 import re
 import subprocess
 import sys
+import tempfile
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -22,8 +23,13 @@ class Check:
     command: tuple[str, ...]
 
 
-def _run(check: Check) -> dict[str, object]:
+def _run(check: Check, *, pytest_temp_root: str) -> dict[str, object]:
     started = time.perf_counter_ns()
+    inherited_addopts = os.environ.get("PYTEST_ADDOPTS", "").strip()
+    private_basetemp = str(Path(pytest_temp_root) / "basetemp")
+    pytest_addopts = " ".join(
+        value for value in (inherited_addopts, f"--basetemp={private_basetemp}") if value
+    )
     completed = subprocess.run(
         check.command,
         cwd=ROOT,
@@ -31,7 +37,13 @@ def _run(check: Check) -> dict[str, object]:
         text=True,
         encoding="utf-8",
         errors="replace",
-        env={**os.environ, "PYTHONUTF8": "1", "QT_QPA_PLATFORM": "offscreen"},
+        env={
+            **os.environ,
+            "PYTHONUTF8": "1",
+            "QT_QPA_PLATFORM": "offscreen",
+            "PYTEST_DEBUG_TEMPROOT": pytest_temp_root,
+            "PYTEST_ADDOPTS": pytest_addopts,
+        },
         check=False,
     )
 
@@ -61,12 +73,16 @@ def main() -> int:
         Check("gate6_1_fake_session", (python, "tools/verify_gate6_1_fake_session.py")),
     )
     results: list[dict[str, object]] = []
-    for check in checks:
-        print(f"[Gate 6.1] {check.name}", file=sys.stderr, flush=True)
-        result = _run(check)
-        results.append(result)
-        if result["status"] != "passed":
-            break
+    with tempfile.TemporaryDirectory(
+        prefix="note-assistant-gate6-1-pytest-",
+        ignore_cleanup_errors=True,
+    ) as pytest_temp_root:
+        for check in checks:
+            print(f"[Gate 6.1] {check.name}", file=sys.stderr, flush=True)
+            result = _run(check, pytest_temp_root=pytest_temp_root)
+            results.append(result)
+            if result["status"] != "passed":
+                break
     passed = len(results) == len(checks) and all(item["status"] == "passed" for item in results)
     print(
         json.dumps(

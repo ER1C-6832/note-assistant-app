@@ -576,6 +576,27 @@ class AudioSessionSupervisor:
         peak = 0
         squared_total = 0.0
         sample_count = 0
+        callback_status_error_count = 0
+        metrics_lock = threading.Lock()
+
+        def callback(in_data, _frame_count, _time_info, status_flags):
+            nonlocal peak
+            nonlocal squared_total
+            nonlocal sample_count
+            nonlocal callback_status_error_count
+            raw = bytes(in_data)
+            if len(raw) % 2:
+                return (None, pyaudio.paContinue)
+            samples = struct.unpack("<" + "h" * (len(raw) // 2), raw)
+            with metrics_lock:
+                if status_flags:
+                    callback_status_error_count += 1
+                if samples:
+                    peak = max(peak, max(abs(value) for value in samples))
+                    squared_total += sum(float(value) * value for value in samples)
+                    sample_count += len(samples)
+            return (None, pyaudio.paContinue)
+
         try:
             index = self.registry.device_index(
                 route.input_device.opaque_device_id,
@@ -589,31 +610,35 @@ class AudioSessionSupervisor:
                 input=True,
                 input_device_index=index,
                 frames_per_buffer=frames_per_buffer,
-                start=True,
+                stream_callback=callback,
+                start=False,
             )
+            stream.start_stream()
             deadline = time.monotonic() + duration_seconds
             while time.monotonic() < deadline:
-                raw = bytes(stream.read(frames_per_buffer, exception_on_overflow=False))
-                if len(raw) % 2:
-                    continue
-                samples = struct.unpack("<" + "h" * (len(raw) // 2), raw)
-                if not samples:
-                    continue
-                peak = max(peak, max(abs(value) for value in samples))
-                squared_total += sum(float(value) * value for value in samples)
-                sample_count += len(samples)
+                if not stream.is_active():
+                    break
+                time.sleep(min(0.02, max(0.0, deadline - time.monotonic())))
         finally:
             if stream is not None:
                 if stream.is_active():
                     stream.stop_stream()
                 stream.close()
             manager.terminate()
-        rms = math.sqrt(squared_total / sample_count) if sample_count else 0.0
+        with metrics_lock:
+            final_peak = peak
+            final_squared_total = squared_total
+            final_sample_count = sample_count
+            final_status_errors = callback_status_error_count
+        if final_sample_count <= 0:
+            raise RuntimeError("microphone test captured no frames")
+        rms = math.sqrt(final_squared_total / final_sample_count)
         return {
             "status": "complete",
-            "peak_abs": peak,
+            "peak_abs": final_peak,
             "rms": round(rms, 3),
-            "sample_count": sample_count,
+            "sample_count": final_sample_count,
+            "callback_status_error_count": final_status_errors,
             "input_device_public_name": route.input_device.public_name,
             "error_code": None,
         }

@@ -39,3 +39,11 @@ def test_gate6_1_does_not_enable_product_aec_kws_or_barge_in() -> None:
     assert "aec_audio_processing" not in supervisor
     assert "sherpa_onnx" not in supervisor
     assert "ProcessingState.BYPASS" in supervisor
+
+
+def test_cumulative_verifier_isolates_windows_pytest_temp_cleanup() -> None:
+    verifier = (ROOT / "tools" / "verify_gate6_1_cumulative.py").read_text(encoding="utf-8")
+
+    assert "PYTEST_DEBUG_TEMPROOT" in verifier
+    assert "--basetemp=" in verifier
+    assert "ignore_cleanup_errors=True" in verifier

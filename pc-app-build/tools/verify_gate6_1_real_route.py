@@ -25,11 +25,12 @@ async def _run(include_microphone_test: bool, duration: float) -> tuple[dict[str
         )
         try:
             await supervisor.start()
-            microphone_test = (
-                await supervisor.microphone_test(duration_seconds=duration)
-                if include_microphone_test
-                else {"status": "not_run"}
-            )
+            microphone_test: dict[str, object] = {"status": "not_run"}
+            if include_microphone_test:
+                try:
+                    microphone_test = await supervisor.microphone_test(duration_seconds=duration)
+                except Exception:
+                    microphone_test = supervisor.last_microphone_test
             before_close = supervisor.diagnostics()
             input_items = supervisor.input_device_items()
             output_items = supervisor.output_device_items()
@@ -47,6 +48,7 @@ async def _run(include_microphone_test: bool, duration: float) -> tuple[dict[str
                 terminal["route_observer_running"] is False,
                 terminal["duplex_open_stream_count"] == 0,
                 terminal["pending_route_tasks"] == [],
+                not include_microphone_test or microphone_test.get("status") == "complete",
             )
         )
         return (

@@ -1,0 +1,29 @@
+{
+  "fake": {
+    "activated": true,
+    "last_activation_json_redacted": "{\"fake\":true,\"websocket\":{\"token\":\"***\",\"url\":\"wss://fake.local/xiaozhi/a982f06e\"}}",
+    "websocket_token": "gate2.2-fake-token",
+    "websocket_url": "wss://fake.local/xiaozhi/a982f06e"
+  },
+  "identity": {
+    "client_id": "a982f06e-d4b4-49e9-9adb-dd6c2acd1d24",
+    "device_id": "9e:12:21:97:17:ad",
+    "generation": 1,
+    "hmac_key": "b0e922e580a620a14a3d55da048bd44ab01c50128e4e9dffe622f8bb1ad98af3",
+    "serial_number": "SN-B076969A-9e12219717ad",
+    "source": "machine_fingerprint"
+  },
+  "real": {
+    "activated": false,
+    "activation_challenge": "",
+    "activation_code": "",
+    "activation_message": "",
+    "activation_version": "v2",
+    "authorization_url": "https://xiaozhi.me/",
+    "last_ota_json_redacted": "",
+    "ota_url": "https://api.tenclass.net/xiaozhi/ota/",
+    "websocket_token": "",
+    "websocket_url": ""
+  },
+  "schema_version": 1
+}
