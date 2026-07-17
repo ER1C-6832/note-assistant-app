@@ -28,9 +28,11 @@ def test_batch_tag_binding_is_one_repository_transaction() -> None:
     assert "BatchUpdateTagsCommand" in source
 
 
-def test_bootstrap_shares_gate52_executor_and_tag_service() -> None:
+def test_bootstrap_shares_gate52_capabilities_and_tag_service() -> None:
     source = _read(APP / "bootstrap.py")
-    assert "Gate52ToolExecutor" in source
+    gate53 = _read(APP / "assistant" / "mcp" / "gate5_3_executor.py")
+    assert "Gate53ToolExecutor" in source
+    assert "class Gate53ToolExecutor(Gate52ToolExecutor)" in gate53
     assert "TagCatalogService" in source
     assert "tag_catalog=tag_catalog_service" in source
     assert "from .ui import NoteListModel, NotesViewModel" in source

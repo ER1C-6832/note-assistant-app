@@ -160,6 +160,10 @@ class McpCoordinator:
             if not inflight.future.done()
         )
 
+    @property
+    def pending_confirmation_count(self) -> int:
+        return self._registry.pending_confirmation_count
+
     async def open_generation(
         self,
         generation: int,
@@ -277,11 +281,11 @@ class McpCoordinator:
         return McpSubmission(accepted=True, reason="queued")
 
     async def close_generation(self, generation: int, reason: str) -> None:
-        del reason
         context = self._contexts.pop(generation, None)
         if context is None:
             return
         context.accepting = False
+        await self._registry.close_generation(generation, reason)
         while True:
             try:
                 item = context.queue.get_nowait()
@@ -316,12 +320,14 @@ class McpCoordinator:
                 inflight.future.cancel()
         context.inflight.clear()
         context.completed.clear()
+        await self._registry.close_generation(generation, reason)
         context.session_id = None
         context.worker = None
 
     async def close(self) -> None:
         for generation in tuple(self._contexts):
             await self.close_generation(generation, "coordinator_close")
+        await self._registry.close()
 
     async def _worker_loop(self, context: _GenerationContext) -> None:
         while True:
@@ -340,7 +346,7 @@ class McpCoordinator:
         risk: str | None = None
         status = "failed"
         try:
-            response, tool_name, risk, status = await self._execute_request(request)
+            response, tool_name, risk, status = await self._execute_request(context, request)
         except Exception:
             response = internal_error(request.request_id)
             status = "internal_error"
@@ -378,7 +384,7 @@ class McpCoordinator:
             pass
 
     async def _execute_request(
-        self, request: McpRequest
+        self, context: _GenerationContext, request: McpRequest
     ) -> tuple[ResponsePayload, str | None, str | None, str]:
         if request.method == "initialize":
             result: dict[str, JsonValue] = {
@@ -427,6 +433,8 @@ class McpCoordinator:
                     request_id=request.request_id,
                     tool_name=name,
                     arguments=dict(arguments),
+                    connection_generation=context.generation,
+                    session_id=context.session_id,
                 )
             )
         except SchemaValidationError as exc:

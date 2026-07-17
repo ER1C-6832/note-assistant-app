@@ -45,6 +45,10 @@ class ToolRegistry:
     def descriptors(self) -> tuple[ToolDescriptor, ...]:
         return tuple(self._descriptors.values())
 
+    @property
+    def pending_confirmation_count(self) -> int:
+        return int(getattr(self._executor, "pending_confirmation_count", 0))
+
     def get(self, name: str) -> ToolDescriptor | None:
         return self._descriptors.get(name)
 
@@ -57,6 +61,22 @@ class ToolRegistry:
             raise KeyError(call.tool_name)
         validate_arguments(call.arguments, descriptor.input_schema)
         return await self._executor.execute(call, descriptor)
+
+    async def close_generation(self, generation: int, reason: str) -> None:
+        handler = getattr(self._executor, "close_generation", None)
+        if handler is None:
+            return
+        result = handler(generation, reason)
+        if hasattr(result, "__await__"):
+            await result
+
+    async def close(self) -> None:
+        handler = getattr(self._executor, "close", None)
+        if handler is None:
+            return
+        result = handler()
+        if hasattr(result, "__await__"):
+            await result
 
 
 __all__ = [

@@ -19,6 +19,8 @@ ApplicationWindow {
     property string currentPage: "home"
     property string currentCategory: "all"
     property int searchResetToken: 0
+    property var pendingConfirmation: ({})
+    property string confirmationStatus: ""
 
     readonly property var viewModel: notesViewModel
     readonly property bool viewModelReady: root.viewModel !== null
@@ -131,6 +133,24 @@ ApplicationWindow {
             } else if (command === "show_pinned") {
                 root.currentCategory = "pinned"
                 root.currentPage = "home"
+            } else if (command === "show_confirmation") {
+                root.pendingConfirmation = payload
+                root.confirmationStatus = ""
+                confirmationDialog.open()
+            }
+        }
+    }
+
+    Connections {
+        target: root.mcpUiAdapter
+        ignoreUnknownSignals: true
+
+        function onConfirmationActionFinished(confirmationId, status, message) {
+            if (String(root.pendingConfirmation.confirmation_id || "") !== String(confirmationId)) return
+            root.confirmationStatus = message
+            if (status === "success" || status === "partial_success") {
+                confirmationDialog.close()
+                root.pendingConfirmation = ({})
             }
         }
     }
@@ -207,6 +227,86 @@ ApplicationWindow {
         viewModelRef: root.assistantModel
         windowActive: root.visible && root.visibility !== Window.Minimized
         z: 40
+    }
+
+    Dialog {
+        id: confirmationDialog
+        objectName: "mcpConfirmationDialog"
+        modal: true
+        anchors.centerIn: parent
+        width: Math.min(root.width - 80, 560)
+        title: "请确认助手操作"
+        closePolicy: Popup.NoAutoClose
+        standardButtons: Dialog.NoButton
+        z: 60
+
+        contentItem: ColumnLayout {
+            spacing: 14
+
+            Label {
+                Layout.fillWidth: true
+                text: "工具：" + String(root.pendingConfirmation.tool_name || "")
+                font.bold: true
+                wrapMode: Text.Wrap
+            }
+
+            Label {
+                Layout.fillWidth: true
+                text: {
+                    var preview = root.pendingConfirmation.preview || {}
+                    var operation = String(preview.operation || "高风险操作")
+                    var noteCount = Number(preview.note_count || 0)
+                    var tagCount = Number(preview.tag_count || 0)
+                    var summary = "操作：" + operation
+                    if (noteCount > 0) summary += "；便签数量：" + noteCount
+                    if (tagCount > 0) summary += "；标签数量：" + tagCount
+                    return summary
+                }
+                wrapMode: Text.Wrap
+            }
+
+            Label {
+                Layout.fillWidth: true
+                text: "便签 ID：" + String((root.pendingConfirmation.affected_note_ids || []).join(", "))
+                visible: (root.pendingConfirmation.affected_note_ids || []).length > 0
+                wrapMode: Text.Wrap
+            }
+
+            Label {
+                Layout.fillWidth: true
+                text: "标签：" + String((root.pendingConfirmation.affected_tags || []).join("、"))
+                visible: (root.pendingConfirmation.affected_tags || []).length > 0
+                wrapMode: Text.Wrap
+            }
+
+            Label {
+                Layout.fillWidth: true
+                text: root.confirmationStatus
+                color: "#B42318"
+                visible: text.length > 0
+                wrapMode: Text.Wrap
+            }
+
+            RowLayout {
+                Layout.alignment: Qt.AlignRight
+                spacing: 12
+
+                Button {
+                    text: "拒绝"
+                    onClicked: root.mcpUiAdapter.rejectPending(
+                        String(root.pendingConfirmation.confirmation_id || "")
+                    )
+                }
+
+                Button {
+                    text: "确认执行"
+                    highlighted: true
+                    onClicked: root.mcpUiAdapter.confirmPending(
+                        String(root.pendingConfirmation.confirmation_id || "")
+                    )
+                }
+            }
+        }
     }
 
     Component {

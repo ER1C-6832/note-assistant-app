@@ -28,8 +28,10 @@ def test_gate5_1_executor_uses_services_and_typed_ui_bus_only() -> None:
 def test_bootstrap_injects_one_shared_mcp_coordinator_and_ui_adapter() -> None:
     text = (APP / "bootstrap.py").read_text(encoding="utf-8")
     gate52 = (APP / "assistant" / "mcp" / "gate5_2_executor.py").read_text(encoding="utf-8")
+    gate53 = (APP / "assistant" / "mcp" / "gate5_3_executor.py").read_text(encoding="utf-8")
 
-    assert "Gate52ToolExecutor" in text
+    assert "Gate53ToolExecutor" in text
+    assert "class Gate53ToolExecutor(Gate52ToolExecutor)" in gate53
     assert "class Gate52ToolExecutor(Gate51ToolExecutor)" in gate52
     assert "McpScriptedFakeTransport(mcp_coordinator=coordinator)" in text
     assert "mcp_coordinator=coordinator" in text

@@ -1,0 +1,4 @@
+Gate 5.3 incremental overlay
+Baseline: 3d6bd6abadc14784811ee454e33874fe0d5ed980
+Purpose: pending confirmation service, high-risk execution, local UI confirmation, Fake/local verification
+Real natural-language acceptance: deferred to Gate 5.4

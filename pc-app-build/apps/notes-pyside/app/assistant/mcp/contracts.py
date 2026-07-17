@@ -71,6 +71,8 @@ class ToolCall:
     request_id: RequestId
     tool_name: str
     arguments: Mapping[str, JsonValue] = field(repr=False)
+    connection_generation: int = 0
+    session_id: str | None = field(default=None, repr=False)
 
 
 @dataclass(frozen=True, slots=True)

@@ -41,7 +41,7 @@ from .assistant.audio import (
 )
 from .assistant.controller import SystemRuntimeClock
 from .assistant.identity import LegacyPyXiaozhiIdentitySource
-from .assistant.mcp import Gate52ToolExecutor, UiCommandBus
+from .assistant.mcp import Gate53ToolExecutor, UiCommandBus
 from .lifecycle import ApplicationLifecycle
 from .notes import (
     DatabaseExecutor,
@@ -99,6 +99,7 @@ class ApplicationContext:
     deleted_notes_list_model: NoteListModel
     ui_command_bus: UiCommandBus
     ui_command_adapter: NotesUiCommandAdapter
+    mcp_tool_executor: Gate53ToolExecutor
 
     @property
     def database_engine(self) -> Engine:
@@ -289,15 +290,15 @@ def create_application_context(
     )
     ui_command_bus = UiCommandBus()
     ui_command_adapter = NotesUiCommandAdapter(notes_view_model)
-    ui_command_bus.bind(ui_command_adapter)
-    mcp_registry = ToolRegistry(
-        executor=Gate52ToolExecutor(
-            notes_runtime.note_query_service,
-            notes_runtime.note_command_service,
-            tag_catalog_service,
-            ui_command_bus,
-        )
+    mcp_tool_executor = Gate53ToolExecutor(
+        notes_runtime.note_query_service,
+        notes_runtime.note_command_service,
+        tag_catalog_service,
+        ui_command_bus,
     )
+    ui_command_adapter.bind_confirmation_actions(mcp_tool_executor)
+    ui_command_bus.bind(ui_command_adapter)
+    mcp_registry = ToolRegistry(executor=mcp_tool_executor)
     mcp_coordinator = McpCoordinator(mcp_registry)
     assistant_runtime = create_assistant_runtime(paths, mcp_coordinator=mcp_coordinator)
 
@@ -317,6 +318,10 @@ def create_application_context(
     lifecycle.register_async_closer(
         "notes-view-model",
         notes_view_model.close,
+    )
+    lifecycle.register_async_closer(
+        "mcp-confirmation-service",
+        mcp_tool_executor.close,
     )
     lifecycle.register_async_closer(
         "ui-command-bus",
@@ -364,6 +369,7 @@ def create_application_context(
         deleted_notes_list_model=deleted_notes_list_model,
         ui_command_bus=ui_command_bus,
         ui_command_adapter=ui_command_adapter,
+        mcp_tool_executor=mcp_tool_executor,
     )
 
 
