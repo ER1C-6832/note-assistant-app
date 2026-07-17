@@ -35,7 +35,7 @@ async def test_fake_transport_uses_real_registry_coordinator_and_cleans_up() -> 
     )
     responses = await transport.wait_for_mcp_responses(3)
     assert responses[0]["result"]["serverInfo"]["name"] == "note-assistant-pc"
-    assert len(responses[1]["result"]["tools"]) == 31
+    assert len(responses[1]["result"]["tools"]) == 32
     assert responses[2]["result"]["isError"] is True
     async with asyncio.timeout(2.0):
         while len(transport.mcp_lifecycle) < 3:

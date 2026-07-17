@@ -71,6 +71,8 @@ class NotesUiCommandAdapter(QObject):
             self._view_model.loadDeleted()
         elif command.kind is UiCommandKind.SHOW_PINNED:
             self._view_model.loadCategory("pinned")
+        elif command.kind is UiCommandKind.SHOW_TODOS:
+            self._view_model.loadCategory("todo")
         elif command.kind is UiCommandKind.SHOW_CONFIRMATION:
             if self._confirmation_actions is None:
                 return UiDispatchResult(

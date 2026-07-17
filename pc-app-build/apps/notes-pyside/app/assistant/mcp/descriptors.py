@@ -1,4 +1,4 @@
-"""Frozen 31-tool Gate 5 descriptor catalog."""
+"""Frozen 32-tool Gate 5 descriptor catalog."""
 
 from __future__ import annotations
 
@@ -324,6 +324,12 @@ GATE5_TOOL_DESCRIPTORS: tuple[ToolDescriptor, ...] = (
     _descriptor(
         "ui.show_pinned",
         "Show the pinned-note view.",
+        _object_schema(),
+        ToolRisk.LOW,
+    ),
+    _descriptor(
+        "ui.show_todos",
+        "Show the todo-note view.",
         _object_schema(),
         ToolRisk.LOW,
     ),

@@ -6,7 +6,7 @@
 
 ## 1. 冻结范围
 
-Gate 5.1 只启用以下 15 个工具：
+Gate 5.1 原启用 15 个工具；Gate 5.4.1 真实验收修订后，当前累计面为以下 16 个工具：
 
 ```text
 notes.resolve
@@ -24,6 +24,7 @@ ui.show_note_list
 ui.show_tag
 ui.show_trash
 ui.show_pinned
+ui.show_todos
 ui.show_confirmation
 ```
 
@@ -36,7 +37,7 @@ ui.show_confirmation
 - `notes.list_todos` 只匹配受保护标签 `待办`，不宣称存在 done 字段。
 - `notes.list_by_tag` 使用精确标签匹配。
 - list/search 输出使用摘要和 UTF-8 字节预算；`notes.get` 正文受 32 KiB MCP result budget 约束并返回 `content_truncated`。
-- `notes.resolve` 优先正整数 id、精确标题，再做模糊候选；多候选返回 `ambiguous` 且 `note_id=null`，不得自动选择第一条。
+- `notes.resolve` 只在“编号/ID/第N号便签”等明确表达中优先 id；纯数字 query 先按精确标题和关键词，再做模糊候选；多候选返回 `ambiguous` 且 `note_id=null`，不得自动选择第一条。
 - 读取工具只经过 `NoteQueryService`，不得直接访问 Repository、SQLAlchemy、SQLite。
 
 ## 3. UI 所有权
@@ -65,7 +66,7 @@ MCP tool handler
 ## 5. Gate 5.1 退出条件
 
 - 8 个 read/resolve 工具通过真实 service/database 集成；
-- 6 个当前可执行 UI 导航工具通过 typed bus；
+- 7 个当前可执行 UI 导航工具（含待办视图）通过 typed bus；
 - `ui.show_confirmation` 正确 blocked；
 - ambiguous resolve 零 mutation；
 - deleted 不混入 active search；

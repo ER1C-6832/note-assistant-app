@@ -111,3 +111,24 @@ async def test_bare_context_reference_never_guesses_among_multiple_notes(
     assert result.result["resolution_status"] == "ambiguous"
     assert result.result["note_id"] is None
     assert len(result.result["candidates"]) == 2
+
+
+@pytest.mark.asyncio
+async def test_numeric_title_is_not_silently_reinterpreted_as_note_id(runtime) -> None:
+    registry, commands, _queries, _bus = runtime
+    numeric_title = await commands.create(
+        CreateNoteCommand("2", "标题就是数字", (), source=NoteSource.MANUAL)
+    )
+    numeric_id = await commands.create(
+        CreateNoteCommand("真正的第二条", "数据库 id 为 2", (), source=NoteSource.MANUAL)
+    )
+    assert numeric_title.id == 1
+    assert numeric_id.id == 2
+
+    by_title = await call(registry, 5, "notes.resolve", {"query": "2"})
+    by_id = await call(registry, 6, "notes.resolve", {"query": "编号 2"})
+
+    assert by_title.result["resolution_status"] == "resolved"
+    assert by_title.result["note_id"] == numeric_title.id
+    assert by_id.result["resolution_status"] == "resolved"
+    assert by_id.result["note_id"] == numeric_id.id

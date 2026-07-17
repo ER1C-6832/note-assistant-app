@@ -15,12 +15,12 @@ from app.assistant.mcp.intent_rules import (
     is_contextual_reference,
 )
 
-EXPECTED_NAME_SET_SHA256 = "58840e01b41f8f3cf08a406428bab9261d07a664be7212d3d650e5016da22693"
+EXPECTED_NAME_SET_SHA256 = "543129cc3d6c8fae161ddb716f6cdbf803920ba8fa674d6c5cf6571a198a10e9"
 
 
-def test_frozen_31_tool_name_set_and_descriptor_budget() -> None:
-    assert len(FROZEN_GATE5_TOOL_NAMES) == 31
-    assert len(set(FROZEN_GATE5_TOOL_NAMES)) == 31
+def test_frozen_32_tool_name_set_and_descriptor_budget() -> None:
+    assert len(FROZEN_GATE5_TOOL_NAMES) == 32
+    assert len(set(FROZEN_GATE5_TOOL_NAMES)) == 32
     assert not (set(FROZEN_GATE5_TOOL_NAMES) & UNSUPPORTED_ANDROID_TOOL_NAMES)
     digest = hashlib.sha256("\n".join(sorted(FROZEN_GATE5_TOOL_NAMES)).encode()).hexdigest()
     assert digest == EXPECTED_NAME_SET_SHA256
@@ -37,6 +37,8 @@ def test_every_tool_has_chinese_intent_routing_guidance() -> None:
         assert len(descriptor.description) >= 24
 
     assert "不能猜" in TOOL_INTENT_DESCRIPTIONS["notes.resolve"]
+    assert "单独的‘119’" in TOOL_INTENT_DESCRIPTIONS["notes.resolve"]
+    assert "ui.show_todos" in TOOL_INTENT_DESCRIPTIONS
     assert "不是文件" in TOOL_INTENT_DESCRIPTIONS["notes.search"]
     assert (
         "先调用 assistant.list_pending_confirmations"
@@ -58,5 +60,7 @@ def test_verbose_spoken_query_normalization_is_deterministic() -> None:
     assert extract_explicit_note_id("麻烦读取编号为 12 的便签") == 12
     assert extract_explicit_note_id("打开第3号笔记") == 3
     assert extract_explicit_note_id("编号 3 和编号 4") is None
+    assert extract_explicit_note_id("119") is None
+    assert extract_search_terms("标题叫119的便签")[0] == "119"
     assert is_contextual_reference("刚才那条便签") is True
     assert is_contextual_reference("那个关于包装的便签") is False

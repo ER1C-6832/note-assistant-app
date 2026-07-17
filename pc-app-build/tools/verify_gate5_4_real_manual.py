@@ -259,7 +259,7 @@ async def _run(context, args: argparse.Namespace) -> int:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--list", action="store_true", help="仅列出 31 个验收案例")
+    parser.add_argument("--list", action="store_true", help="仅列出 32 个验收案例")
     parser.add_argument(
         "--group",
         choices=("读取/解析", "便签写入", "标签", "界面", "确认"),

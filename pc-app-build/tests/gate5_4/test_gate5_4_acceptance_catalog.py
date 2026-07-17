@@ -15,8 +15,8 @@ from gate5_4_acceptance_catalog import GATE5_4_ACCEPTANCE_CASES  # noqa: E402
 def test_real_language_catalog_covers_every_frozen_tool_once() -> None:
     names = tuple(case.tool_name for case in GATE5_4_ACCEPTANCE_CASES)
     assert names == FROZEN_GATE5_TOOL_NAMES
-    assert len(names) == 31
-    assert len(set(names)) == 31
+    assert len(names) == 32
+    assert len(set(names)) == 32
     for case in GATE5_4_ACCEPTANCE_CASES:
         assert case.command.strip()
         assert case.verbose_command.strip()

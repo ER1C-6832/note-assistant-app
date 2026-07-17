@@ -18,6 +18,7 @@ class UiCommandKind(str, Enum):
     SHOW_TAG = "show_tag"
     SHOW_TRASH = "show_trash"
     SHOW_PINNED = "show_pinned"
+    SHOW_TODOS = "show_todos"
     SHOW_CONFIRMATION = "show_confirmation"
     REFRESH_CURRENT = "refresh_current"
     REFRESH_TAGS = "refresh_tags"

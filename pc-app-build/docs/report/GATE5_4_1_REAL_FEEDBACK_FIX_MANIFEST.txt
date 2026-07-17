@@ -1,0 +1,45 @@
+Gate 5.4.1 real-feedback fix overlay
+Baseline: ddc287c656fd151fc7643d44c1be30e1b08a3fac (gate5 acceptance)
+Purpose: numeric-title resolution precedence, ui.show_todos, 32-tool surface amendment
+
+Production:
+- apps/notes-pyside/app/assistant/mcp/descriptors.py
+- apps/notes-pyside/app/assistant/mcp/gate5_1_executor.py
+- apps/notes-pyside/app/assistant/mcp/intent_rules.py
+- apps/notes-pyside/app/assistant/mcp/ui_bus.py
+- apps/notes-pyside/app/ui/mcp_ui_adapter.py
+- apps/notes-pyside/app/qml/Main.qml
+
+Tests and verifiers:
+- tests/gate5_0/test_gate5_0_registry.py
+- tests/gate5_0/test_gate5_0_coordinator.py
+- tests/gate5_0/test_gate5_0_fake_transport.py
+- tests/gate5_1/test_gate5_1_read_tools.py
+- tests/gate5_4/test_gate5_4_acceptance_catalog.py
+- tests/gate5_4/test_gate5_4_architecture.py
+- tests/gate5_4/test_gate5_4_fuzzy_resolution.py
+- tests/gate5_4/test_gate5_4_intent_rules.py
+- tools/verify_gate5_0_protocol.py
+- tools/verify_gate5_1_read_ui.py
+- tools/gate5_4_acceptance_catalog.py
+- tools/verify_gate5_4_freeze.py
+- tools/verify_gate5_4_real_manual.py
+
+Documentation:
+- docs/adr/ADR-009-in-process-xiaozhi-mcp-tool-runtime.md
+- docs/spec/gate5/GATE5_0_PROTOCOL_FREEZE.md
+- docs/spec/gate5/GATE5_1_READ_UI_FREEZE.md
+- docs/spec/gate5/GATE5_4_INTENT_ROUTING_FREEZE.md
+- docs/spec/gate5/GATE5_4_REAL_LANGUAGE_ACCEPTANCE.md
+- docs/spec/gate5/GATE5_4_1_TOOL_SURFACE_AMENDMENT.md
+- docs/report/GATE5_4_IMPLEMENTATION_REPORT.md
+- docs/report/GATE5_4_OVERLAY_MANIFEST.txt
+- docs/report/GATE5_FINAL_ACCEPTANCE_REPORT.md
+- docs/report/GATE5_4_1_REAL_FEEDBACK_FIX_REPORT.md
+- docs/report/GATE5_4_1_REAL_FEEDBACK_FIX_MANIFEST.txt
+
+Frozen values:
+- Tool count: 32
+- Name-set SHA-256: 543129cc3d6c8fae161ddb716f6cdbf803920ba8fa674d6c5cf6571a198a10e9
+- Serialized tools/list: 16633 bytes
+- Reconnect replay: disabled

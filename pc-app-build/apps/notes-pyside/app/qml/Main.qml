@@ -133,6 +133,9 @@ ApplicationWindow {
             } else if (command === "show_pinned") {
                 root.currentCategory = "pinned"
                 root.currentPage = "home"
+            } else if (command === "show_todos") {
+                root.currentCategory = "todo"
+                root.currentPage = "home"
             } else if (command === "show_confirmation") {
                 root.pendingConfirmation = payload
                 root.confirmationStatus = ""

@@ -147,9 +147,47 @@ async def test_eight_read_tools_use_current_note_data_and_todo_semantics() -> No
     pinned = await _call(registry, 7, "notes.list_pinned", {})
     assert pinned.affected_note_ids == (1,)
 
-    resolved = await _call(registry, 8, "notes.resolve", {"query": "2"})
+    resolved = await _call(registry, 8, "notes.resolve", {"query": "编号 2"})
     assert resolved.result["resolution_status"] == "resolved"
     assert resolved.result["note_id"] == 2
+
+
+@pytest.mark.asyncio
+async def test_bare_numeric_query_prefers_title_while_labelled_number_uses_id() -> None:
+    now = datetime.now(timezone.utc)
+    numeric_title = Note(
+        id=1,
+        title="119",
+        content="按标题定位",
+        tags=(),
+        is_pinned=False,
+        is_deleted=False,
+        created_at=now,
+        updated_at=now,
+        source=NoteSource.MANUAL,
+    )
+    numeric_id = Note(
+        id=119,
+        title="数据库编号目标",
+        content="按明确编号定位",
+        tags=(),
+        is_pinned=False,
+        is_deleted=False,
+        created_at=now,
+        updated_at=now,
+        source=NoteSource.MANUAL,
+    )
+    registry = ToolRegistry(
+        executor=Gate51ToolExecutor(FakeQueries((numeric_title, numeric_id)), UiCommandBus())
+    )
+
+    by_title = await _call(registry, 20, "notes.resolve", {"query": "119"})
+    by_id = await _call(registry, 21, "notes.resolve", {"query": "编号 119"})
+
+    assert by_title.result["resolution_status"] == "resolved"
+    assert by_title.result["note_id"] == numeric_title.id
+    assert by_id.result["resolution_status"] == "resolved"
+    assert by_id.result["note_id"] == numeric_id.id
 
 
 @pytest.mark.asyncio
@@ -186,7 +224,7 @@ async def test_get_bounds_large_utf8_content_under_coordinator_budget() -> None:
 
 
 @pytest.mark.asyncio
-async def test_six_ui_tools_dispatch_and_confirmation_remains_blocked() -> None:
+async def test_seven_ui_tools_dispatch_and_confirmation_remains_blocked() -> None:
     bus = UiCommandBus()
     adapter = RecordingUiAdapter()
     bus.bind(adapter)
@@ -199,6 +237,7 @@ async def test_six_ui_tools_dispatch_and_confirmation_remains_blocked() -> None:
         ("ui.show_tag", {"tag": "旅行"}),
         ("ui.show_trash", {}),
         ("ui.show_pinned", {}),
+        ("ui.show_todos", {}),
     )
     for index, (name, arguments) in enumerate(calls, start=1):
         result = await _call(registry, index, name, arguments)
@@ -209,7 +248,7 @@ async def test_six_ui_tools_dispatch_and_confirmation_remains_blocked() -> None:
     )
     assert confirmation.status == "blocked"
     assert confirmation.error_code == "confirmation_not_ready"
-    assert len(adapter.commands) == 6
+    assert len(adapter.commands) == 7
 
 
 @pytest.mark.asyncio

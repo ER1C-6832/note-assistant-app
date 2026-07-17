@@ -15,7 +15,7 @@ python tools/verify_gate5_4_real_manual.py --confirm-effects
 
 占位符：`{active_id}` 为活动便签 ID，`{deleted_id}` 为回收站便签 ID。
 
-## 31 个工具与真实语言命令
+## 32 个工具与真实语言命令
 
 | # | 分组 | 工具 | 简洁验收命令 | 口语/啰嗦验收命令 | 期望 |
 |---:|---|---|---|---|---|
@@ -46,24 +46,46 @@ python tools/verify_gate5_4_real_manual.py --confirm-effects
 | 25 | 界面 | `ui.show_tag` | 打开客户标签页。 | 请在桌面界面切到精确的客户标签分类，不是做关键词搜索。 | 真实 UI 打开精确标签分类。 |
 | 26 | 界面 | `ui.show_trash` | 打开回收站。 | 把桌面窗口切到已删除便签页面，我要看看刚才删的内容。 | 真实 UI 打开已删除页面。 |
 | 27 | 界面 | `ui.show_pinned` | 打开置顶便签页面。 | 请把界面切到只看置顶和重要便签的视图。 | 真实 UI 打开置顶视图。 |
-| 28 | 界面 | `ui.show_confirmation` | 把刚才待确认的操作显示在界面上。 | 请把当前那个需要我确认的高风险操作弹出来，我要看清楚再决定。 | 展示有效 pending confirmation，不暴露正文。 |
-| 29 | 确认 | `assistant.confirm` | 确认刚才那个操作，就按预览执行。 | 我已经看过确认窗口了，当前只有这一个待确认操作，请继续执行。 | 若未给 id，先 list_pending；唯一 pending 才确认且只执行一次。 |
-| 30 | 确认 | `assistant.reject` | 取消刚才那个操作，不要修改。 | 我反悔了，把当前等待确认的操作拒绝掉，数据库保持原样。 | 消费 pending 且零 mutation。 |
-| 31 | 确认 | `assistant.list_pending_confirmations` | 现在有哪些操作等我确认？ | 我不记得刚才有哪些危险操作还没处理，请只列安全摘要，不要念正文。 | 仅列当前会话 pending 的安全摘要和剩余时间。 |
+| 28 | 界面 | `ui.show_todos` | 打开待办便签页面。 | 请把桌面界面切到待办列表，只显示带待办标签、还需要处理的便签。 | 真实 UI 打开待办视图。 |
+| 29 | 界面 | `ui.show_confirmation` | 把刚才待确认的操作显示在界面上。 | 请把当前那个需要我确认的高风险操作弹出来，我要看清楚再决定。 | 展示有效 pending confirmation，不暴露正文。 |
+| 30 | 确认 | `assistant.confirm` | 确认刚才那个操作，就按预览执行。 | 我已经看过确认窗口了，当前只有这一个待确认操作，请继续执行。 | 若未给 id，先 list_pending；唯一 pending 才确认且只执行一次。 |
+| 31 | 确认 | `assistant.reject` | 取消刚才那个操作，不要修改。 | 我反悔了，把当前等待确认的操作拒绝掉，数据库保持原样。 | 消费 pending 且零 mutation。 |
+| 32 | 确认 | `assistant.list_pending_confirmations` | 现在有哪些操作等我确认？ | 我不记得刚才有哪些危险操作还没处理，请只列安全摘要，不要念正文。 | 仅列当前会话 pending 的安全摘要和剩余时间。 |
 
 ## 含糊目标规则
 
 - “刚才那条 / 那个便签 / 之前那条”没有唯一候选时必须调用 `notes.resolve` 并返回 `ambiguous`，不得直接 mutation。
 - “关于王总报价的那条”可以清理礼貌语和对象词后以“王总报价”搜索；仍有多个候选时让用户选择。
-- “编号为 12 / ID 12 / 第 12 号便签”可安全提取明确 ID。
+- “编号为 12 / ID 12 / 第 12 号便签”可安全提取明确 ID；单独的“119”或“标题叫119”按标题/关键词解析，不隐式当数据库 ID。
 - “确认 / 就这么做 / 取消”未携带 confirmation id 时，先 `assistant.list_pending_confirmations`；只有一个 pending 才继续。
 - 追加、改标题、整体替换、待办转换必须分流到不同工具，不能用通用 update 模糊覆盖字段。
 
 ## Gate 5.4 Real 通过条件
 
-- `tools/list` 精确 31 个工具；
+- `tools/list` 精确 32 个工具；
 - 所选工具均在真实 UI 会话中观察到预期 `tools/call`；
 - mutation、UI 和 confirmation 的实际效果由用户确认；
 - 高风险操作确认前零写入；
 - shutdown 后 MCP、UI、pending confirmation 资源全零；
 - 日志与报告不包含便签正文、完整 query、token、原始参数或完整会话身份。
+
+
+## Gate 5.4.1 回归命令
+
+```text
+帮我找到标题叫119的便签，给它加上 Gate54标签。
+```
+
+预期：先按标题 `119` 解析，不得尝试读取数据库 `note_id=119`。
+
+```text
+读取编号为119的便签。
+```
+
+预期：只有这种明确带“编号/ID/第N号便签”的表达才按数据库 ID 解析。
+
+```text
+把桌面界面切到待办列表，只显示带待办标签的便签。
+```
+
+预期：调用 `ui.show_todos`，界面进入 `currentCategory=todo`。

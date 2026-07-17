@@ -222,6 +222,13 @@ GATE5_4_ACCEPTANCE_CASES: tuple[AcceptanceCase, ...] = (
     ),
     AcceptanceCase(
         "界面",
+        "ui.show_todos",
+        "打开待办便签页面。",
+        "请把桌面界面切到待办列表，只显示带待办标签、还需要处理的便签。",
+        "真实 UI 打开待办视图。",
+    ),
+    AcceptanceCase(
+        "界面",
         "ui.show_confirmation",
         "把刚才待确认的操作显示在界面上。",
         "请把当前那个需要我确认的高风险操作弹出来，我要看清楚再决定。",

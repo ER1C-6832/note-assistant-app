@@ -8,7 +8,7 @@
 
 Gate 5.4 只增强两层：
 
-1. `tools/list` 中 31 个 descriptor 的中文路由说明；
+1. `tools/list` 中 32 个 descriptor 的中文路由说明；
 2. 已经进入 `notes.search` / `notes.resolve` 的 query 参数做确定性、无副作用的口语冗余清理。
 
 ## 2. 参考来源
@@ -48,6 +48,7 @@ Xiaozhi MCP -> ToolRegistry -> Gate53ToolExecutor
 “麻烦帮我找一下那个关于王总报价的便签” -> “王总报价”
 “请在小智便签里查查我之前记的包装问题” -> “包装问题”
 “编号为 12 的便签” -> note_id 12
+“119” / “标题叫119” -> 标题或关键词 119，不是隐式 note_id
 ```
 
 规则：
@@ -62,8 +63,15 @@ Xiaozhi MCP -> ToolRegistry -> Gate53ToolExecutor
 ## 5. 冻结值
 
 ```text
-工具数量                 31
-工具名集合 SHA-256       58840e01b41f8f3cf08a406428bab9261d07a664be7212d3d650e5016da22693
+工具数量                 32
+工具名集合 SHA-256       543129cc3d6c8fae161ddb716f6cdbf803920ba8fa674d6c5cf6571a198a10e9
 Android unsupported       8 个，继续不广告
 工具列表序列化预算         < 64 KiB
 ```
+
+
+## 6. Gate 5.4.1 真实验收修订
+
+- 新增 `ui.show_todos`，用于桌面待办视图；工具面由 31 修订为 32。
+- 纯数字 query 不再解释为数据库 ID。只有带“编号 / ID / 第N号便签”等明确标记的表达才按 ID。
+- 重连继续不重放已经完成、失败或连接中断前的工具调用，避免重复 mutation。

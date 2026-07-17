@@ -27,7 +27,7 @@ from app.assistant.mcp.intent_rules import (  # noqa: E402
 )
 from gate5_4_acceptance_catalog import GATE5_4_ACCEPTANCE_CASES  # noqa: E402
 
-EXPECTED_NAME_SET_SHA256 = "58840e01b41f8f3cf08a406428bab9261d07a664be7212d3d650e5016da22693"
+EXPECTED_NAME_SET_SHA256 = "543129cc3d6c8fae161ddb716f6cdbf803920ba8fa674d6c5cf6571a198a10e9"
 
 
 def main() -> int:
@@ -47,13 +47,15 @@ def main() -> int:
             "麻烦帮我看看以前在小智便签里有没有记过包装尺寸或者包装问题，最多给我五条"
         ),
         "explicit_id": extract_explicit_note_id("麻烦读取编号为 12 的便签"),
+        "bare_numeric_id": extract_explicit_note_id("119"),
+        "numeric_title_terms": extract_search_terms("标题叫119的便签"),
         "contextual": is_contextual_reference("刚才那条便签"),
     }
     catalog_names = tuple(case.tool_name for case in GATE5_4_ACCEPTANCE_CASES)
     verified = all(
         (
-            len(names) == 31,
-            len(set(names)) == 31,
+            len(names) == 32,
+            len(set(names)) == 32,
             digest == EXPECTED_NAME_SET_SHA256,
             not (set(names) & UNSUPPORTED_ANDROID_TOOL_NAMES),
             serialized_bytes < 64 * 1024,
@@ -64,6 +66,8 @@ def main() -> int:
             "包装尺寸" in samples["verbose_disjunction"],
             "包装问题" in samples["verbose_disjunction"],
             samples["explicit_id"] == 12,
+            samples["bare_numeric_id"] is None,
+            samples["numeric_title_terms"][0] == "119",
             samples["contextual"] is True,
         )
     )

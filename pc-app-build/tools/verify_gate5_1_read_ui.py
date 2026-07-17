@@ -114,7 +114,8 @@ async def _run() -> int:
             (12, "ui.show_tag", {"tag": "旅行"}),
             (13, "ui.show_trash", {}),
             (14, "ui.show_pinned", {}),
-            (15, "ui.show_confirmation", {"confirmation_id": "not-created-yet"}),
+            (15, "ui.show_todos", {}),
+            (16, "ui.show_confirmation", {"confirmation_id": "not-created-yet"}),
         )
 
         for request_id, name, arguments in requests:
@@ -143,8 +144,8 @@ async def _run() -> int:
             results[int(request_id)] = tool_payload
 
         read_statuses = [results[index]["status"] for index in range(1, 9)]
-        ui_statuses = [results[index]["status"] for index in range(9, 15)]
-        confirmation = results[15]
+        ui_statuses = [results[index]["status"] for index in range(9, 16)]
+        confirmation = results[16]
         active_after = await queries.list_all()
         deleted_after = await queries.list_deleted()
         before_close = {
@@ -160,7 +161,7 @@ async def _run() -> int:
             and all(status == "success" for status in ui_statuses)
             and confirmation["status"] == "blocked"
             and confirmation.get("error_code") == "confirmation_not_ready"
-            and len(ui_adapter.commands) == 6
+            and len(ui_adapter.commands) == 7
             and {note.id for note in active_after} == {first.id, todo.id}
             and {note.id for note in deleted_after} == {deleted.id}
         )
@@ -187,7 +188,7 @@ async def _run() -> int:
                 {
                     "status": "fake_gate_complete" if verified else "failed",
                     "read_tool_count": 8,
-                    "ui_tool_success_count": 6,
+                    "ui_tool_success_count": 7,
                     "confirmation_display_status": confirmation["status"],
                     "resolved_note_id": results[1]["result"]["note_id"],
                     "todo_note_ids": results[7]["affected_note_ids"],

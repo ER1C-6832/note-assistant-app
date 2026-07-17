@@ -1,6 +1,6 @@
 Gate 5.4 incremental overlay
 Baseline: 3ec36d9fe90e57e1b49daeb4e8ce8f7779b7b719 (confirmation tool)
-Purpose: final 31-tool freeze, richer server routing descriptions, safe verbose-query normalization, Real manual acceptance catalog/recorder, cumulative closure
+Purpose: final 32-tool freeze, richer server routing descriptions, safe verbose-query normalization, Real manual acceptance catalog/recorder, cumulative closure
 
 Changed production files:
 - apps/notes-pyside/app/assistant/mcp/intent_rules.py
@@ -32,9 +32,9 @@ Local evidence:
 - Gate 5.3 + Gate 5.4 architecture tests: 8 passed
 - Gate 5.3 confirmation verifier: fake_gate_complete
 - Gate 5.4 freeze verifier: gate5_4_freeze_complete
-- Tool count: 31
-- Name-set SHA-256: 58840e01b41f8f3cf08a406428bab9261d07a664be7212d3d650e5016da22693
-- Serialized tools/list bytes: 16103
+- Tool count: 32
+- Name-set SHA-256: 543129cc3d6c8fae161ddb716f6cdbf803920ba8fa674d6c5cf6571a198a10e9
+- Serialized tools/list bytes: 16633
 - Unsupported Android-only tools advertised: 0
 
 Real status: pending Windows full suite and user-authored Real UI acceptance. Do not mark Gate 5 Accepted yet.

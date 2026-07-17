@@ -27,7 +27,7 @@ Real/Fake transport
 
 - Fake 与 Real 使用同一 executor；
 - 无 Sidecar、HTTP localhost 服务或第二 sender；
-- 31 个工具名、schema、风险和确认策略可冻结；
+- 32 个工具名、schema、风险和确认策略可冻结；
 - UI、数据库和确认状态拥有明确关闭顺序；
 - descriptor 可增强口语路由而不破坏领域边界。
 
@@ -35,4 +35,4 @@ Real/Fake transport
 
 - 服务端模型是否选对工具仍需真实语音验收；
 - PC 不广告 Android 的 8 个额外工具；
-- 真实 31-tool 场景较长，采用用户自由表达的手工记录器而非固定 prompt runner。
+- 真实 32-tool 场景较长，采用用户自由表达的手工记录器而非固定 prompt runner。

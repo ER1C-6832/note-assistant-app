@@ -56,3 +56,8 @@ MCP workers                1 per active generation
 - Real response 只走既有 sender；
 - close/reconnect 后 request queue、worker、in-flight future 和 duplicate waiter 全零；
 - Real endpoint 主动完成 initialize + tools/list probe。
+
+
+## Gate 5.4.1 工具面修订
+
+Gate 5.0 当时冻结并验收的是 31 个工具。真实 UI 验收发现缺少独立待办导航后，当前累计 `tools/list` 增加 `ui.show_todos`，修订为 32 个工具。协议、队列、去重和错误语义不变。

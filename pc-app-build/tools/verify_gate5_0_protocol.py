@@ -110,7 +110,7 @@ async def _run() -> int:
             initialize["result"]["serverInfo"]["name"] == "note-assistant-pc"
             and initialize["result"]["protocolVersion"] == "2024-11-05"
             and listed["id"] == "list"
-            and len(tool_names) == 31
+            and len(tool_names) == 32
             and set(tool_names) == set(FROZEN_GATE5_TOOL_NAMES)
             and listed["result"]["nextCursor"] is None
             and conflict["error"]["code"] == -32600
@@ -145,7 +145,7 @@ async def _run() -> int:
         "queue_capacity": MCP_REQUEST_QUEUE_CAPACITY,
         "dedupe_capacity": MCP_DEDUPE_CAPACITY,
         "initialize_verified": initialize["result"]["serverInfo"]["name"] == "note-assistant-pc",
-        "tools_list_verified": len(tool_names) == 31,
+        "tools_list_verified": len(tool_names) == 32,
         "duplicate_inflight_execution_count": executor.calls,
         "duplicate_response_count": len(duplicate_responses),
         "same_id_different_payload_conflict": conflict["error"]["code"] == -32600,

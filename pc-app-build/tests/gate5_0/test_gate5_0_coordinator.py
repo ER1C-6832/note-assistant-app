@@ -87,7 +87,7 @@ async def test_initialize_list_and_not_ready_call() -> None:
         assert initialize["result"]["serverInfo"]["name"] == "note-assistant-pc"
         listed = responses[1]
         assert listed["id"] == "list"
-        assert len(listed["result"]["tools"]) == 31
+        assert len(listed["result"]["tools"]) == 32
         assert listed["result"]["nextCursor"] is None
         call = responses[2]
         text = call["result"]["content"][0]["text"]

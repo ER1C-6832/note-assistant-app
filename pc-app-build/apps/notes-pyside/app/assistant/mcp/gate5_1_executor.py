@@ -38,6 +38,7 @@ UI_TOOL_NAMES = frozenset(
         "ui.show_tag",
         "ui.show_trash",
         "ui.show_pinned",
+        "ui.show_todos",
         "ui.show_confirmation",
     }
 )
@@ -217,6 +218,8 @@ class Gate51ToolExecutor:
             command = UiCommand(UiCommandKind.SHOW_TRASH)
         elif name == "ui.show_pinned":
             command = UiCommand(UiCommandKind.SHOW_PINNED)
+        elif name == "ui.show_todos":
+            command = UiCommand(UiCommandKind.SHOW_TODOS)
         else:
             raise ValueError(f"unsupported Gate 5.1 UI tool: {name}")
 
@@ -237,9 +240,9 @@ class Gate51ToolExecutor:
         exact_title = str(args.get("exact_title", "")).strip()
         query = str(args.get("query", "")).strip()
 
+        # Bare digits are valid titles/search terms. Only an explicitly labelled
+        # phrase such as “编号 119 / ID 119 / 第119号便签” selects by database id.
         explicit_id = extract_explicit_note_id(query)
-        if explicit_id is None and query.isdecimal() and int(query) > 0:
-            explicit_id = int(query)
         if explicit_id is not None:
             note = await self._queries.get(explicit_id, include_deleted=scope != "active")
             if note is not None and _scope_matches(note, scope):

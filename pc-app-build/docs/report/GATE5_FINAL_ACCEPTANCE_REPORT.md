@@ -1,12 +1,12 @@
 # Gate 5 Final Acceptance Report
 
-状态：Pending Real Evidence
+状态：Pending Gate 5.4.1 Retest
 
 ## Frozen surface
 
 ```text
-Tool count: 31
-Name-set SHA-256: 58840e01b41f8f3cf08a406428bab9261d07a664be7212d3d650e5016da22693
+Tool count: 32
+Name-set SHA-256: 543129cc3d6c8fae161ddb716f6cdbf803920ba8fa674d6c5cf6571a198a10e9
 Unsupported Android-only tools advertised: 0
 Runtime: single process
 ```
@@ -31,7 +31,7 @@ python tools/verify_gate5_4_real_manual.py --confirm-effects
 
 必须记录：
 
-- 31-tool checklist 的 observed status；
+- 32-tool checklist 的 observed status；
 - create/read/search/update/tag/UI 的真实数据库或界面效果；
 - delete -> reject 零写入；
 - delete -> confirm 软删除；
@@ -42,7 +42,7 @@ python tools/verify_gate5_4_real_manual.py --confirm-effects
 
 ## Sign-off
 
-当前不得填写 Accepted。只有 Windows 自动测试和真实用户语言证据均通过后，才能把状态改为 `Accepted`。
+Windows 自动部分已由用户报告全部通过；真实语言验收除数字标题解析和待办 UI 导航外基本通过。修复后仍需重测这两项及新的 32-tool hash，之后才能填写 `Accepted`。
 
 ## 推荐执行顺序
 

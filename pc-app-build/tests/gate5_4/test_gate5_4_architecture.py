@@ -54,3 +54,17 @@ def test_cumulative_runner_keeps_manual_prompts_visible() -> None:
     assert "capture_output=not check.interactive" in text
     assert '"gate5_4_real_manual"' in text
     assert "interactive=True" in text
+
+
+def test_todo_ui_tool_crosses_typed_bus_and_qml_navigation() -> None:
+    executor = (APP / "assistant" / "mcp" / "gate5_1_executor.py").read_text(encoding="utf-8")
+    bus = (APP / "assistant" / "mcp" / "ui_bus.py").read_text(encoding="utf-8")
+    adapter = (APP / "ui" / "mcp_ui_adapter.py").read_text(encoding="utf-8")
+    qml = (APP / "qml" / "Main.qml").read_text(encoding="utf-8")
+
+    assert '"ui.show_todos"' in executor
+    assert "UiCommandKind.SHOW_TODOS" in executor
+    assert 'SHOW_TODOS = "show_todos"' in bus
+    assert 'loadCategory("todo")' in adapter
+    assert 'command === "show_todos"' in qml
+    assert 'root.currentCategory = "todo"' in qml

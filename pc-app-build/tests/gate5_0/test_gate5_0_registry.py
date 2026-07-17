@@ -39,6 +39,7 @@ EXPECTED_NAMES = {
     "ui.show_tag",
     "ui.show_trash",
     "ui.show_pinned",
+    "ui.show_todos",
     "ui.show_confirmation",
     "assistant.confirm",
     "assistant.reject",
@@ -46,17 +47,17 @@ EXPECTED_NAMES = {
 }
 
 
-def test_registry_freezes_exactly_31_supported_tools() -> None:
+def test_registry_freezes_exactly_32_supported_tools() -> None:
     registry = ToolRegistry()
-    assert len(registry.names) == 31
+    assert len(registry.names) == 32
     assert set(registry.names) == EXPECTED_NAMES
     assert set(FROZEN_GATE5_TOOL_NAMES) == EXPECTED_NAMES
-    assert len(set(FROZEN_GATE5_TOOL_NAMES)) == 31
+    assert len(set(FROZEN_GATE5_TOOL_NAMES)) == 32
     assert set(registry.names).isdisjoint(UNSUPPORTED_ANDROID_TOOL_NAMES)
 
 
 def test_every_descriptor_has_public_schema_and_risk_metadata() -> None:
-    assert len(GATE5_TOOL_DESCRIPTORS) == 31
+    assert len(GATE5_TOOL_DESCRIPTORS) == 32
     for descriptor in GATE5_TOOL_DESCRIPTORS:
         public = descriptor.public_dict()
         assert public["name"] == descriptor.name
