@@ -226,8 +226,10 @@ async def test_large_conditional_batches_escalate_without_write(runtime) -> None
 
     assert pin.status == "requires_confirmation"
     assert bind.status == "requires_confirmation"
-    assert all(not (await queries.get(note_id)).is_pinned for note_id in note_ids)
-    assert all("bulk" not in (await queries.get(note_id)).tags for note_id in note_ids)
+
+    persisted = await asyncio.gather(*(queries.get(note_id) for note_id in note_ids))
+    assert all(note is not None and not note.is_pinned for note in persisted)
+    assert all(note is not None and "bulk" not in note.tags for note in persisted)
 
 
 @pytest.mark.asyncio

@@ -1,0 +1,4 @@
+Gate 5.2 cumulative test fix overlay
+Baseline: 80ea5d68a09a57bed9d3e8bd3f4c7b41ab6d6b19
+Files: 4
+Scope: stale Gate 5.1 source contract and invalid async-generator assertions only
