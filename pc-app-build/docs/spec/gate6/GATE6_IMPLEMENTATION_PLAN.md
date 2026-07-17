@@ -4,6 +4,8 @@
 阶段数：5（6.0～6.4）  
 原则：每阶段必须可独立覆盖、回滚、验收；不得把全部音频风险留到 6.4。
 
+当前进度（2026-07-17）：Gate 6.0 `Accepted-Windows`，Gate 6.1 implementation complete / Windows real acceptance pending；macOS evidence deferred。Gate 6.2～6.4 未开始。
+
 ## 1. 共同规则
 
 每个阶段交付：
@@ -328,4 +330,3 @@ real identity/config/token/logs
 ```
 
 manifest 必须列出基线 commit、changed production/tests/docs、验证状态和真实环境限制。未执行 Windows/macOS Real 时必须明确写 pending，不能用 local Fake 代替。
-

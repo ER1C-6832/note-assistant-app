@@ -1,6 +1,6 @@
 # ADR-010 Addendum: Gate 6.0 Probe Implementation
 
-状态：Provisional — Real evidence required  
+状态：Accepted-Windows — superseded for product routing by the Gate 6.1 addendum
 基线：`19953b12d15ad5e76dfd4da0ca3dfa9aa353dec8`
 
 ## Decision implemented in 6.0
@@ -24,19 +24,18 @@ probe_watchdog_ms        2000
 kws_cooldown_ms          1500
 ```
 
-## Still undecided
+## Decisions after Windows evidence
 
 ```text
-Windows default AEC backend
-macOS target backend
-backend fallback order
-production queue/watchdog budgets
-supported production route/format matrix
-delay and drift estimator
-KWS model package and wake phrase
-initial PC barge-in VAD profile
+Windows AEC candidate       aec-audio-processing/WebRTC APM
+Windows provisional mode    AEC on, NS off, AGC off
+internal DSP block          10 ms
+delay                       route-reported auto (120 ms on tested route)
+KWS candidate               sherpa-onnx with existing local zipformer model
+macOS target backend        pending real Mac
+production barge-in profile deferred to Gate 6.3 evidence
 ```
 
 ## Consequence
 
-Gate 6.0 implementation may be merged and used to collect evidence, but Gate 6.1 authorization remains `no` until the Windows report freezes the undecided items. No formal AEC, KWS or acoustic barge-in capability is active in the product.
+The corrected Windows AEC-only and KWS probes authorize Gate 6.1. No formal AEC, KWS or acoustic barge-in capability becomes active in the product from this addendum; product routing decisions continue in the Gate 6.1 addendum.

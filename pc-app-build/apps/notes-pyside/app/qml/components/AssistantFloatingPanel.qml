@@ -127,6 +127,12 @@ Rectangle {
                             viewModelRef: root.viewModelRef
                         }
 
+                        AssistantAudioDeviceSettings {
+                            objectName: "assistantAudioDeviceSettings"
+                            Layout.fillWidth: true
+                            viewModelRef: root.viewModelRef
+                        }
+
                         Rectangle {
                             Layout.fillWidth: true
                             implicitHeight: gestureNote.implicitHeight + 24
@@ -138,7 +144,7 @@ Rectangle {
                                 id: gestureNote
                                 anchors.fill: parent
                                 anchors.margins: 12
-                                text: "悬浮按钮的拖动与按住说话手势仍在设计评审中；Gate 3.1 不绑定真实 PTT 手势。"
+                                text: "设备固定选择不可用时会临时回退到系统默认；原选择会保留，设备恢复后自动重新解析。"
                                 color: "#9A3412"
                                 font.pixelSize: 11
                                 wrapMode: Text.Wrap

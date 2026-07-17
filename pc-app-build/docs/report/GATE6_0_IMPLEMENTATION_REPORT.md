@@ -1,6 +1,6 @@
 # Gate 6.0 Implementation Report
 
-状态：Automated/Fake implemented; Windows duplex/far-end evidence collected; corrected double-talk/KWS rerun pending  
+状态：Accepted-Windows（macOS evidence deferred）
 实施基线：`19953b12d15ad5e76dfd4da0ca3dfa9aa353dec8`  
 证据修正基线：`3a8d018f98844bd3ee08b55c919084a0faffc5c1`  
 产品音频拓扑修改：否
@@ -130,7 +130,7 @@ acoustic barge-in product default: false
 Gate 6.1 may start: no
 ```
 
-The report must be amended from actual Windows JSON and human observations before Gate 6.0 can be accepted and Gate 6.1 authorized.
+The Windows evidence in sections 6 through 8 authorizes Gate 6.1. macOS evidence remains deferred and is not represented as complete.
 
 ## 6. Windows evidence correction after the first real run
 
@@ -212,3 +212,34 @@ The raw peak increase in the AEC+NS run proves that `aec_user_speech_not_observe
 - intermittent short utterances may pass without occupying half the speech window.
 
 The provisional Windows default is now `aec_only`, AEC on, NS off, AGC off, 10 ms internal block and auto delay (120 ms on this route). `aec_ns` remains an explicit diagnostic mode until normal short-utterance evidence proves that its stronger suppression does not damage ASR/barge-in.
+
+## 8. Final Windows 6.0 authorization evidence
+
+The corrected Windows reruns supplied after the short-utterance correction established:
+
+```text
+AEC-only far-end-only       accepted, 6.547 dB attenuation, 501 capture frames
+AEC-only double-talk        accepted, 11.881 dB attenuation
+near-end retention          0.2116, processed speech observed
+stream delay                120 ms from opened input/output latencies
+AGC                         disabled
+terminal audio resources    all zero
+KWS live                    accepted, 3 distinct hits in 30 s
+KWS cooldown                1500 ms
+idle microphone upload      0 frames
+KWS terminal resources      all zero
+```
+
+The KWS run validates candidate model/runtime compatibility only; it does not enable product KWS in Gate 6.0 or Gate 6.1. The 30-second repeated-hit acceptance window is evidence collection, not intended product behavior.
+
+Decision:
+
+```text
+Windows AEC candidate       aec-audio-processing/WebRTC APM
+provisional mode            AEC on, NS off, AGC off
+internal block              10 ms
+delay                       route-reported auto; 120 ms on tested Realtek route
+KWS candidate               sherpa-onnx + existing local zipformer model
+Gate 6.1 authorization      yes
+macOS evidence              deferred_after_windows_gate6
+```

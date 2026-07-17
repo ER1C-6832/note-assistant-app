@@ -35,13 +35,13 @@ from .assistant import (
 )
 from .assistant.audio import (
     AssistantAudioEngine,
-    MicrophoneLeaseCoordinator,
-    PyAudioCaptureAdapter,
     PyAvOpusEncoder,
 )
+from .assistant.audio.session_supervisor import AudioSessionSupervisor
 from .assistant.controller import SystemRuntimeClock
 from .assistant.identity import LegacyPyXiaozhiIdentitySource
 from .assistant.mcp import Gate53ToolExecutor, UiCommandBus
+from .assistant.playback.coordinator import PlaybackCoordinator
 from .lifecycle import ApplicationLifecycle
 from .notes import (
     DatabaseExecutor,
@@ -77,6 +77,7 @@ class AssistantRuntime:
     config_store: RuntimeConfigStore
     preferences_store: AssistantPreferencesStore
     identity_manager: DeviceIdentityManager
+    audio_session_supervisor: AudioSessionSupervisor
     audio_engine: AssistantAudioEngine
     mcp_coordinator: McpCoordinator
     controller: AssistantController
@@ -197,12 +198,19 @@ def create_assistant_runtime(
         identity_manager=identity_manager,
     )
     coordinator = mcp_coordinator or McpCoordinator()
+    audio_session_supervisor = AudioSessionSupervisor(preferences_store)
+    playback_coordinator = PlaybackCoordinator(
+        clock_ns=clock.now_ns,
+        output_plan_provider=audio_session_supervisor.output_plan,
+        playback_activity_sink=audio_session_supervisor.set_playback_activity,
+    )
     transport = RuntimeTransportRouter(
         fake_transport=McpScriptedFakeTransport(mcp_coordinator=coordinator),
         real_transport=RealWebSocketTransport(
             config_provider=config_provider,
             clock=clock,
             mcp_coordinator=coordinator,
+            playback_coordinator=playback_coordinator,
         ),
     )
     disabled_state = AssistantState.disabled(now_ns=clock.now_ns())
@@ -216,10 +224,9 @@ def create_assistant_runtime(
         ),
     )
     audio_engine = AssistantAudioEngine(
-        capture=PyAudioCaptureAdapter(),
+        capture=audio_session_supervisor.capture_adapter,
         encoder_factory=PyAvOpusEncoder,
     )
-    microphone_coordinator = MicrophoneLeaseCoordinator()
     controller = AssistantController(
         transport=transport,
         state_machine=ConversationStateMachine(ReconnectPolicy()),
@@ -236,12 +243,25 @@ def create_assistant_runtime(
         ),
         preferences_store=preferences_store,
         audio_engine=audio_engine,
-        microphone_coordinator=microphone_coordinator,
+        microphone_coordinator=audio_session_supervisor.microphone_coordinator,
+    )
+
+    async def interrupt_active_audio_for_route_change() -> None:
+        await playback_coordinator.cancel("audio_route_changed")
+        state = controller.state
+        if state.conversation.streaming_session_active:
+            await controller.stop_streaming_conversation("audio_route_changed")
+        elif state.conversation.active_voice_turn_token is not None:
+            await controller.stop_push_to_talk()
+
+    audio_session_supervisor.bind_route_interruption_handler(
+        interrupt_active_audio_for_route_change
     )
     return AssistantRuntime(
         config_store=config_store,
         preferences_store=preferences_store,
         identity_manager=identity_manager,
+        audio_session_supervisor=audio_session_supervisor,
         audio_engine=audio_engine,
         mcp_coordinator=coordinator,
         controller=controller,
@@ -249,6 +269,7 @@ def create_assistant_runtime(
             controller,
             preferences_store=preferences_store,
             initial_preferences=preferences,
+            audio_session_supervisor=audio_session_supervisor,
         ),
     )
 
@@ -326,6 +347,10 @@ def create_application_context(
     lifecycle.register_async_closer(
         "ui-command-bus",
         ui_command_bus.close,
+    )
+    lifecycle.register_async_closer(
+        "assistant-audio-supervisor",
+        assistant_runtime.audio_session_supervisor.close,
     )
     lifecycle.register_async_closer(
         "assistant-controller",

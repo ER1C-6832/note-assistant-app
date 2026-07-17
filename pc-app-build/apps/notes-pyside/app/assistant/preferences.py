@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from .state import VoiceInteractionMode
+from .audio.gate6_contracts import DevicePreferenceMode
 
 ASSISTANT_PREFERENCES_SCHEMA_VERSION = 1
 DEFAULT_STREAMING_IDLE_TIMEOUT_MS = 8_000
@@ -33,8 +34,20 @@ class AssistantPreferences:
     text_input_enabled: bool = True
     launcher_x_ratio: float = 1.0
     launcher_y_ratio: float = 1.0
+    audio_input_preference_mode: DevicePreferenceMode = DevicePreferenceMode.FOLLOW_SYSTEM_DEFAULT
+    audio_input_device_id: str | None = None
+    audio_output_preference_mode: DevicePreferenceMode = DevicePreferenceMode.FOLLOW_SYSTEM_DEFAULT
+    audio_output_device_id: str | None = None
 
     def normalized(self) -> "AssistantPreferences":
+        input_device_id = _normalized_device_id(self.audio_input_device_id)
+        output_device_id = _normalized_device_id(self.audio_output_device_id)
+        input_mode = self.audio_input_preference_mode
+        output_mode = self.audio_output_preference_mode
+        if input_mode is DevicePreferenceMode.PIN_SPECIFIC_DEVICE and input_device_id is None:
+            input_mode = DevicePreferenceMode.FOLLOW_SYSTEM_DEFAULT
+        if output_mode is DevicePreferenceMode.PIN_SPECIFIC_DEVICE and output_device_id is None:
+            output_mode = DevicePreferenceMode.FOLLOW_SYSTEM_DEFAULT
         return replace(
             self,
             schema_version=ASSISTANT_PREFERENCES_SCHEMA_VERSION,
@@ -45,11 +58,24 @@ class AssistantPreferences:
             ),
             launcher_x_ratio=clamp_ratio(self.launcher_x_ratio),
             launcher_y_ratio=clamp_ratio(self.launcher_y_ratio),
+            audio_input_preference_mode=input_mode,
+            audio_input_device_id=(
+                input_device_id if input_mode is DevicePreferenceMode.PIN_SPECIFIC_DEVICE else None
+            ),
+            audio_output_preference_mode=output_mode,
+            audio_output_device_id=(
+                output_device_id
+                if output_mode is DevicePreferenceMode.PIN_SPECIFIC_DEVICE
+                else None
+            ),
         )
 
     def to_json_dict(self) -> dict[str, object]:
-        payload = asdict(self.normalized())
-        payload["voice_interaction_mode"] = self.voice_interaction_mode.value
+        normalized = self.normalized()
+        payload = asdict(normalized)
+        payload["voice_interaction_mode"] = normalized.voice_interaction_mode.value
+        payload["audio_input_preference_mode"] = normalized.audio_input_preference_mode.value
+        payload["audio_output_preference_mode"] = normalized.audio_output_preference_mode.value
         return payload
 
 
@@ -107,6 +133,29 @@ class AssistantPreferencesStore:
                 launcher_y_ratio=clamp_ratio(y_ratio),
             )
         )
+
+    def update_audio_device_preferences(
+        self,
+        *,
+        input_mode: DevicePreferenceMode | None = None,
+        input_device_id: str | None = None,
+        output_mode: DevicePreferenceMode | None = None,
+        output_device_id: str | None = None,
+    ) -> AssistantPreferences:
+        def mutate(current: AssistantPreferences) -> AssistantPreferences:
+            return replace(
+                current,
+                audio_input_preference_mode=input_mode or current.audio_input_preference_mode,
+                audio_input_device_id=(
+                    current.audio_input_device_id if input_mode is None else input_device_id
+                ),
+                audio_output_preference_mode=(output_mode or current.audio_output_preference_mode),
+                audio_output_device_id=(
+                    current.audio_output_device_id if output_mode is None else output_device_id
+                ),
+            )
+
+        return self.update(mutate)
 
     def update_text_preferences(
         self,
@@ -213,6 +262,14 @@ def _preferences_from_json(payload: object) -> AssistantPreferences:
         ),
         launcher_x_ratio=clamp_ratio(payload.get("launcher_x_ratio", 1.0)),
         launcher_y_ratio=clamp_ratio(payload.get("launcher_y_ratio", 1.0)),
+        audio_input_preference_mode=_safe_preference_mode(
+            payload.get("audio_input_preference_mode")
+        ),
+        audio_input_device_id=_normalized_device_id(payload.get("audio_input_device_id")),
+        audio_output_preference_mode=_safe_preference_mode(
+            payload.get("audio_output_preference_mode")
+        ),
+        audio_output_device_id=_normalized_device_id(payload.get("audio_output_device_id")),
     )
 
 
@@ -227,6 +284,20 @@ def _safe_int(value: Any, *, default: int) -> int:
 
 def _safe_bool(value: Any, *, default: bool) -> bool:
     return value if isinstance(value, bool) else default
+
+
+def _safe_preference_mode(value: object) -> DevicePreferenceMode:
+    try:
+        return DevicePreferenceMode(str(value))
+    except ValueError:
+        return DevicePreferenceMode.FOLLOW_SYSTEM_DEFAULT
+
+
+def _normalized_device_id(value: object) -> str | None:
+    if not isinstance(value, str):
+        return None
+    clean = value.strip()
+    return clean[:512] if clean else None
 
 
 def _clamp_int(value: int, minimum: int, maximum: int) -> int:

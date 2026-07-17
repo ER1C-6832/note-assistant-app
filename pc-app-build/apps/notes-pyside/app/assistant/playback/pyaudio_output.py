@@ -26,6 +26,21 @@ def probe_default_output_plan(
 ) -> PyAudioOutputPlan:
     """Select a supported public default-output format without opening a stream."""
 
+    return probe_output_plan(
+        preferred_formats=preferred_formats,
+        pyaudio_factory=pyaudio_factory,
+    )
+
+
+def probe_output_plan(
+    *,
+    device_index: int | None = None,
+    device_public_name: str | None = None,
+    preferred_formats: tuple[PcmAudioFormat, ...] | None = None,
+    pyaudio_factory: Callable[[], Any] | None = None,
+) -> PyAudioOutputPlan:
+    """Select a supported PCM16 plan for a resolved output device."""
+
     try:
         import pyaudio
     except ImportError as exc:  # pragma: no cover - real dependency boundary
@@ -34,9 +49,13 @@ def probe_default_output_plan(
     factory = pyaudio_factory or pyaudio.PyAudio
     manager = factory()
     try:
-        info = manager.get_default_output_device_info()
-        device_index = int(info["index"])
-        device_name = str(info.get("name") or "Default output")[:120]
+        info = (
+            manager.get_default_output_device_info()
+            if device_index is None
+            else manager.get_device_info_by_index(device_index)
+        )
+        resolved_index = int(info["index"])
+        device_name = str(device_public_name or info.get("name") or "Default output")[:120]
         candidates = preferred_formats or (
             PcmAudioFormat(48_000, 2),
             PcmAudioFormat(48_000, 1),
@@ -48,7 +67,7 @@ def probe_default_output_plan(
             try:
                 supported = manager.is_format_supported(
                     pcm_format.sample_rate_hz,
-                    output_device=device_index,
+                    output_device=resolved_index,
                     output_channels=pcm_format.channels,
                     output_format=pyaudio.paInt16,
                 )
@@ -57,12 +76,12 @@ def probe_default_output_plan(
             if supported:
                 frames_per_buffer = max(240, pcm_format.sample_rate_hz // 50)
                 return PyAudioOutputPlan(
-                    device_index=device_index,
+                    device_index=resolved_index,
                     device_public_name=device_name,
                     pcm_format=pcm_format,
                     frames_per_buffer=frames_per_buffer,
                 )
-        raise RuntimeError("default output device has no supported Gate 4 PCM16 format")
+        raise RuntimeError("selected output device has no supported Gate 4 PCM16 format")
     finally:
         manager.terminate()
 

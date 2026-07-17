@@ -21,6 +21,7 @@ from .models import (
 from .ports import AudioCapturePort, OpusEncoderPort, VoiceActivityDetectorPort
 from ..state import VoiceActivityState
 from .vad import EnergyVadConfig, EnergyVoiceActivityDetector
+from .gate6_contracts import MicrophoneOwner
 from .queues import (
     AudioQueueClosed,
     AudioQueueOverflow,
@@ -61,33 +62,102 @@ class _Metrics:
 
 
 class MicrophoneLeaseCoordinator:
-    """One qasync-owned logical microphone lease for the whole process."""
+    """Owner-aware process-wide microphone lease with generation-safe transfer."""
 
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        route_generation_provider: Callable[[], int] | None = None,
+    ) -> None:
         self._generation: int | None = None
+        self._owner = MicrophoneOwner.NONE
+        self._route_generation = 0
+        self._route_generation_provider = route_generation_provider
         self._lock = asyncio.Lock()
 
     @property
     def generation(self) -> int | None:
         return self._generation
 
-    async def acquire(self, generation: int) -> bool:
+    @property
+    def owner(self) -> MicrophoneOwner:
+        return self._owner
+
+    @property
+    def route_generation(self) -> int:
+        return self._route_generation
+
+    async def acquire(
+        self,
+        generation: int,
+        owner: MicrophoneOwner = MicrophoneOwner.ASSISTANT_CAPTURE,
+        route_generation: int | None = None,
+    ) -> bool:
+        if route_generation is None:
+            provider = self._route_generation_provider
+            route_generation = int(provider()) if provider is not None else 0
+        if generation < 0 or route_generation < 0:
+            raise ValueError("lease generations cannot be negative")
+        if owner is MicrophoneOwner.NONE:
+            raise ValueError("NONE cannot acquire the microphone")
         async with self._lock:
             if self._generation is not None:
                 return False
             self._generation = generation
+            self._owner = owner
+            self._route_generation = route_generation
             return True
 
-    async def release(self, generation: int) -> bool:
+    async def release(
+        self,
+        generation: int,
+        owner: MicrophoneOwner | None = None,
+        route_generation: int | None = None,
+    ) -> bool:
         async with self._lock:
             if self._generation != generation:
                 return False
+            if owner is not None and self._owner is not owner:
+                return False
+            if route_generation is not None and self._route_generation != route_generation:
+                return False
             self._generation = None
+            self._owner = MicrophoneOwner.NONE
+            self._route_generation = 0
+            return True
+
+    async def transfer(
+        self,
+        *,
+        generation: int,
+        expected_owner: MicrophoneOwner,
+        next_owner: MicrophoneOwner,
+        next_generation: int,
+        route_generation: int,
+    ) -> bool:
+        if next_owner is MicrophoneOwner.NONE:
+            raise ValueError("transfer target cannot be NONE")
+        if min(next_generation, route_generation) < 0:
+            raise ValueError("lease generations cannot be negative")
+        async with self._lock:
+            if self._generation != generation or self._owner is not expected_owner:
+                return False
+            self._generation = next_generation
+            self._owner = next_owner
+            self._route_generation = route_generation
             return True
 
     async def force_release(self) -> None:
         async with self._lock:
             self._generation = None
+            self._owner = MicrophoneOwner.NONE
+            self._route_generation = 0
+
+    def public_dict(self) -> dict[str, object]:
+        return {
+            "owner": self._owner.value,
+            "lease_generation": self._generation,
+            "route_generation": self._route_generation,
+        }
 
 
 class AssistantAudioEngine:

@@ -28,6 +28,14 @@ from ..assistant.preferences import (
     AssistantPreferencesStore,
     clamp_ratio,
 )
+from ..assistant.audio.gate6_contracts import (
+    DeviceDirection,
+    DevicePreferenceMode,
+)
+from ..assistant.audio.session_supervisor import (
+    AudioSessionSnapshot,
+    AudioSessionSupervisor,
+)
 
 CommandFactory = Callable[[], Awaitable[None]]
 
@@ -77,6 +85,7 @@ class AssistantViewModel(QObject):
     commandStateChanged = Signal()
     developerChanged = Signal()
     preferencesChanged = Signal()
+    audioDeviceChanged = Signal()
     operationFailed = Signal(str, str)
 
     def __init__(
@@ -85,11 +94,18 @@ class AssistantViewModel(QObject):
         *,
         preferences_store: AssistantPreferencesStore | None = None,
         initial_preferences: AssistantPreferences | None = None,
+        audio_session_supervisor: AudioSessionSupervisor | None = None,
     ) -> None:
         super().__init__()
         self._controller = controller
         self._state = controller.state
         self._preferences_store = preferences_store
+        self._audio_session_supervisor = audio_session_supervisor
+        self._audio_session_snapshot = (
+            audio_session_supervisor.snapshot
+            if audio_session_supervisor is not None
+            else AudioSessionSnapshot()
+        )
         self._preferences = initial_preferences or (
             preferences_store.load() if preferences_store is not None else AssistantPreferences()
         )
@@ -97,6 +113,11 @@ class AssistantViewModel(QObject):
         self._position_save_task: asyncio.Task[None] | None = None
         self._launcher_position_dirty = False
         self._unsubscribe = controller.subscribe(self._accept_state)
+        self._unsubscribe_audio = (
+            audio_session_supervisor.subscribe(self._accept_audio_session)
+            if audio_session_supervisor is not None
+            else None
+        )
         self._developer_expanded = False
         self._operation_error = ""
         self._closed = False
@@ -321,6 +342,73 @@ class AssistantViewModel(QObject):
     def inputDevicePublicName(self) -> str:
         return self._state.audio.input_device_public_name or ""
 
+    @Property("QVariantList", notify=audioDeviceChanged)
+    def audioInputDeviceItems(self) -> list[dict[str, object]]:
+        supervisor = self._audio_session_supervisor
+        return supervisor.input_device_items() if supervisor is not None else []
+
+    @Property("QVariantList", notify=audioDeviceChanged)
+    def audioOutputDeviceItems(self) -> list[dict[str, object]]:
+        supervisor = self._audio_session_supervisor
+        return supervisor.output_device_items() if supervisor is not None else []
+
+    @Property(str, notify=audioDeviceChanged)
+    def audioRouteState(self) -> str:
+        return self._audio_session_snapshot.route_state.value
+
+    @Property(int, notify=audioDeviceChanged)
+    def audioRouteGeneration(self) -> int:
+        return self._audio_session_snapshot.route_generation
+
+    @Property(str, notify=audioDeviceChanged)
+    def audioRouteErrorCode(self) -> str:
+        return self._audio_session_snapshot.error_code or ""
+
+    @Property(str, notify=audioDeviceChanged)
+    def selectedInputDevicePublicName(self) -> str:
+        return self._audio_session_snapshot.input_device_public_name or ""
+
+    @Property(str, notify=audioDeviceChanged)
+    def selectedOutputDevicePublicName(self) -> str:
+        return self._audio_session_snapshot.output_device_public_name or ""
+
+    @Property(str, notify=audioDeviceChanged)
+    def captureActivity(self) -> str:
+        return self._audio_session_snapshot.capture_activity.value
+
+    @Property(str, notify=audioDeviceChanged)
+    def playbackActivity(self) -> str:
+        return self._audio_session_snapshot.playback_activity.value
+
+    @Property(str, notify=audioDeviceChanged)
+    def microphoneOwner(self) -> str:
+        supervisor = self._audio_session_supervisor
+        if supervisor is None:
+            return "none"
+        return supervisor.microphone_coordinator.owner.value
+
+    @Property(str, notify=audioDeviceChanged)
+    def microphoneTestStatus(self) -> str:
+        supervisor = self._audio_session_supervisor
+        if supervisor is None:
+            return "not_run"
+        return str(supervisor.last_microphone_test.get("status", "not_run"))
+
+    @Property(str, notify=audioDeviceChanged)
+    def microphoneTestText(self) -> str:
+        supervisor = self._audio_session_supervisor
+        if supervisor is None:
+            return "尚未测试"
+        result = supervisor.last_microphone_test
+        status = result.get("status")
+        if status == "running":
+            return "正在测试…"
+        if status == "failed":
+            return f"测试失败：{result.get('error_code', 'unknown')}"
+        if status != "complete":
+            return "尚未测试"
+        return f"峰值 {result.get('peak_abs', 0)} · RMS {result.get('rms', 0)}"
+
     @Property(int, notify=stateChanged)
     def capturedAudioFrames(self) -> int:
         return self._state.audio.captured_frames
@@ -502,6 +590,39 @@ class AssistantViewModel(QObject):
             lambda: self._controller.set_streaming_barge_in_enabled(bool(enabled)),
         )
 
+    @Slot()
+    def requestRefreshAudioDevices(self) -> None:
+        supervisor = self._audio_session_supervisor
+        if supervisor is None:
+            self._set_operation_error("音频设备管理尚未初始化")
+            return
+        self._schedule("refresh_audio_devices", supervisor.refresh)
+
+    @Slot(str, str, str)
+    def requestSelectAudioDevice(self, direction: str, mode: str, key: str) -> None:
+        supervisor = self._audio_session_supervisor
+        if supervisor is None:
+            self._set_operation_error("音频设备管理尚未初始化")
+            return
+        try:
+            selected_direction = DeviceDirection(str(direction).strip().lower())
+            selected_mode = DevicePreferenceMode(str(mode).strip().lower())
+        except ValueError:
+            self._set_operation_error("无效的音频设备选择")
+            return
+        self._schedule(
+            "select_audio_device",
+            lambda: supervisor.select_device(selected_direction, selected_mode, key),
+        )
+
+    @Slot()
+    def requestMicrophoneTest(self) -> None:
+        supervisor = self._audio_session_supervisor
+        if supervisor is None:
+            self._set_operation_error("音频设备管理尚未初始化")
+            return
+        self._schedule("microphone_test", supervisor.microphone_test)
+
     @Slot(float, float)
     def requestLauncherPosition(self, x_ratio: float, y_ratio: float) -> None:
         next_preferences = replace(
@@ -616,6 +737,9 @@ class AssistantViewModel(QObject):
                 self._set_operation_error(redact_error_text(str(exc) or type(exc).__name__))
         self._closed = True
         self._unsubscribe()
+        if self._unsubscribe_audio is not None:
+            self._unsubscribe_audio()
+            self._unsubscribe_audio = None
         tasks = tuple(task for task in self._tasks if not task.done())
         for task in tasks:
             task.cancel()
@@ -625,6 +749,8 @@ class AssistantViewModel(QObject):
         self.commandStateChanged.emit()
 
     async def _initialize_runtime(self) -> None:
+        if self._audio_session_supervisor is not None:
+            await self._audio_session_supervisor.start()
         await self._controller.start()
         await self._controller.ensure_device_identity()
 
@@ -633,6 +759,12 @@ class AssistantViewModel(QObject):
             return
         self._state = state
         self.stateChanged.emit()
+
+    def _accept_audio_session(self, snapshot: AudioSessionSnapshot) -> None:
+        if self._closed:
+            return
+        self._audio_session_snapshot = snapshot
+        self.audioDeviceChanged.emit()
 
     def _schedule(self, operation: str, factory: CommandFactory) -> None:
         if self._closed:

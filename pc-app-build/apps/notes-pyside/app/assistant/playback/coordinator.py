@@ -6,6 +6,7 @@ import asyncio
 from collections.abc import Awaitable, Callable
 
 from ..events import AssistantEvent
+from ..audio.gate6_contracts import PlaybackActivity
 from ..protocol.events import DownlinkAudioFormat
 from ..state import AssistantState
 from .engine import AssistantPlaybackEngine
@@ -36,6 +37,7 @@ from .runtime_events import (
 RuntimeEventSink = Callable[[AssistantEvent], Awaitable[None]]
 OutputPlanProvider = Callable[[], PyAudioOutputPlan]
 RuntimeStateProvider = Callable[[], AssistantState]
+PlaybackActivitySink = Callable[[PlaybackActivity], None]
 
 
 class PlaybackCoordinator:
@@ -48,6 +50,7 @@ class PlaybackCoordinator:
         output_plan_provider: OutputPlanProvider = probe_default_output_plan,
         stream_start_timeout_seconds: float = 6.0,
         decoder_progress_timeout_seconds: float = 6.0,
+        playback_activity_sink: PlaybackActivitySink | None = None,
         engine_factory: (
             Callable[
                 [
@@ -67,6 +70,7 @@ class PlaybackCoordinator:
         self._stream_start_timeout_seconds = stream_start_timeout_seconds
         self._decoder_progress_timeout_seconds = decoder_progress_timeout_seconds
         self._engine_factory = engine_factory or self._make_real_engine
+        self._playback_activity_sink = playback_activity_sink
         self._event_sink: RuntimeEventSink | None = None
         self._runtime_state_provider: RuntimeStateProvider | None = None
         self._bound_generation: int | None = None
@@ -193,6 +197,7 @@ class PlaybackCoordinator:
                 self._watch_playback_progress(context, engine),
                 name=f"assistant-playback-watchdog-{playback_generation}",
             )
+            self._set_playback_activity(PlaybackActivity.BUFFERING)
             return context
 
     def offer_payload_nowait(
@@ -269,7 +274,10 @@ class PlaybackCoordinator:
             or context.stream_sequence != stream_sequence
         ):
             return False
-        return engine.end_stream(stream_sequence, reason=reason, at_ns=at_ns)
+        accepted = engine.end_stream(stream_sequence, reason=reason, at_ns=at_ns)
+        if accepted:
+            self._set_playback_activity(PlaybackActivity.DRAINING)
+        return accepted
 
     async def cancel(self, reason: str, playback_generation: int | None = None) -> bool:
         async with self._lock:
@@ -306,17 +314,21 @@ class PlaybackCoordinator:
         self._output_plan = None
         self._packet_sequence = 0
         if engine is None:
+            self._set_playback_activity(PlaybackActivity.INACTIVE)
             return
+        self._set_playback_activity(PlaybackActivity.CANCELLING)
         try:
             await engine.cancel(reason)
         finally:
             await engine.close()
+            self._set_playback_activity(PlaybackActivity.INACTIVE)
 
     async def _on_playback_signal(self, signal: PlaybackSignal) -> None:
         sink = self._event_sink
         if sink is None:
             return
         if isinstance(signal, PlaybackStartedSignal):
+            self._set_playback_activity(PlaybackActivity.PLAYING)
             plan = self._output_plan
             await sink(
                 ActualPlaybackStarted(
@@ -332,6 +344,7 @@ class PlaybackCoordinator:
             await self._emit_progress()
             return
         if isinstance(signal, PlaybackEndedSignal):
+            self._set_playback_activity(PlaybackActivity.INACTIVE)
             await self._cancel_watchdog()
             self._last_summary = signal.summary
             metrics = self._engine.metrics if self._engine is not None else None
@@ -345,6 +358,7 @@ class PlaybackCoordinator:
             )
             return
         if isinstance(signal, PlaybackCancelledSignal):
+            self._set_playback_activity(PlaybackActivity.INACTIVE)
             await self._cancel_watchdog()
             await sink(
                 RuntimePlaybackCancelled(
@@ -358,6 +372,7 @@ class PlaybackCoordinator:
             )
             return
         if isinstance(signal, PlaybackFailedSignal):
+            self._set_playback_activity(PlaybackActivity.INACTIVE)
             await self._cancel_watchdog()
             await sink(
                 RuntimePlaybackFailed(
@@ -370,6 +385,15 @@ class PlaybackCoordinator:
                     message=signal.message,
                 )
             )
+
+    def _set_playback_activity(self, activity: PlaybackActivity) -> None:
+        sink = self._playback_activity_sink
+        if sink is None:
+            return
+        try:
+            sink(activity)
+        except Exception:
+            return
 
     async def _watch_playback_progress(
         self,
