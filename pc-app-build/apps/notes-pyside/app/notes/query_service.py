@@ -109,6 +109,49 @@ class NoteQueryService:
             sorted(filtered, key=lambda note: (note.updated_at, note.id), reverse=True)[:safe_limit]
         )
 
+    async def search_terms_filtered(
+        self,
+        terms: Iterable[str],
+        *,
+        tags: Iterable[str] = (),
+        scope: str = "active",
+        limit: int = 10,
+    ) -> tuple[Note, ...]:
+        """Search conversational terms while preferring the most precise phrase.
+
+        The first term is the filler-stripped phrase produced by the MCP intent
+        normalizer.  If it matches anything, broader fallback tokens are not
+        allowed to dilute that precise result set.
+        """
+
+        clean_scope = _scope(scope)
+        safe_limit = _bounded_limit(limit, maximum=10)
+        clean_tags = tuple(dict.fromkeys(str(tag).strip() for tag in tags if str(tag).strip()))
+        clean_terms = tuple(
+            dict.fromkeys(str(term).strip().casefold() for term in terms if str(term).strip())
+        )[:8]
+        if not clean_terms:
+            return ()
+
+        candidates = await self.list_scope_bounded(clean_scope, 200)
+        tagged = tuple(note for note in candidates if all(tag in note.tags for tag in clean_tags))
+        primary = clean_terms[0]
+        precise = tuple(note for note in tagged if _matches(note, primary))
+        pool = precise or tuple(
+            note for note in tagged if any(_matches(note, term) for term in clean_terms)
+        )
+        return tuple(
+            sorted(
+                pool,
+                key=lambda note: (
+                    _term_rank(note, clean_terms),
+                    note.updated_at,
+                    note.id,
+                ),
+                reverse=True,
+            )[:safe_limit]
+        )
+
     async def list_scope_bounded(self, scope: str, limit: int = 100) -> tuple[Note, ...]:
         clean_scope = _scope(scope)
         safe_limit = _bounded_limit(limit, maximum=200)
@@ -146,6 +189,17 @@ def _scope(value: str) -> str:
     if clean not in {"active", "deleted", "all"}:
         raise ValueError("invalid note query scope")
     return clean
+
+
+def _term_rank(note: Note, terms: tuple[str, ...]) -> tuple[int, int, int, int]:
+    title = note.title.casefold()
+    tags = tuple(tag.casefold() for tag in note.tags)
+    matched = tuple(term for term in terms if _matches(note, term))
+    exact_title = int(any(title == term for term in matched))
+    title_prefix = int(any(title.startswith(term) for term in matched))
+    exact_tag = int(any(term in tags for term in matched))
+    longest = max((len(term) for term in matched), default=0)
+    return len(matched), exact_title + title_prefix + exact_tag, longest, exact_title
 
 
 def _matches(note: Note, query: str) -> bool:

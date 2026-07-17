@@ -1,0 +1,40 @@
+Gate 5.4 incremental overlay
+Baseline: 3ec36d9fe90e57e1b49daeb4e8ce8f7779b7b719 (confirmation tool)
+Purpose: final 31-tool freeze, richer server routing descriptions, safe verbose-query normalization, Real manual acceptance catalog/recorder, cumulative closure
+
+Changed production files:
+- apps/notes-pyside/app/assistant/mcp/intent_rules.py
+- apps/notes-pyside/app/assistant/mcp/descriptors.py
+- apps/notes-pyside/app/assistant/mcp/gate5_1_executor.py
+- apps/notes-pyside/app/notes/query_service.py
+
+New verification and test files:
+- tools/gate5_4_acceptance_catalog.py
+- tools/verify_gate5_4_freeze.py
+- tools/verify_gate5_4_real_manual.py
+- tools/verify_gate5_4_cumulative.py
+- tests/gate5_4/conftest.py
+- tests/gate5_4/test_gate5_4_intent_rules.py
+- tests/gate5_4/test_gate5_4_fuzzy_resolution.py
+- tests/gate5_4/test_gate5_4_acceptance_catalog.py
+- tests/gate5_4/test_gate5_4_architecture.py
+
+New documentation:
+- docs/spec/gate5/GATE5_4_INTENT_ROUTING_FREEZE.md
+- docs/spec/gate5/GATE5_4_REAL_LANGUAGE_ACCEPTANCE.md
+- docs/report/GATE5_4_IMPLEMENTATION_REPORT.md
+- docs/report/GATE5_FINAL_ACCEPTANCE_REPORT.md
+- docs/adr/ADR-009-in-process-xiaozhi-mcp-tool-runtime.md
+
+Local evidence:
+- Black / Ruff / compileall passed
+- Framework-neutral behavior tests: 49 passed
+- Gate 5.3 + Gate 5.4 architecture tests: 8 passed
+- Gate 5.3 confirmation verifier: fake_gate_complete
+- Gate 5.4 freeze verifier: gate5_4_freeze_complete
+- Tool count: 31
+- Name-set SHA-256: 58840e01b41f8f3cf08a406428bab9261d07a664be7212d3d650e5016da22693
+- Serialized tools/list bytes: 16103
+- Unsupported Android-only tools advertised: 0
+
+Real status: pending Windows full suite and user-authored Real UI acceptance. Do not mark Gate 5 Accepted yet.

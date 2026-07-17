@@ -1,0 +1,280 @@
+"""Human-language acceptance catalog for the frozen Gate 5 tool surface."""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+
+
+@dataclass(frozen=True, slots=True)
+class AcceptanceCase:
+    group: str
+    tool_name: str
+    command: str
+    verbose_command: str
+    expected: str
+    prerequisite: str = "无"
+
+
+GATE5_4_ACCEPTANCE_CASES: tuple[AcceptanceCase, ...] = (
+    AcceptanceCase(
+        "读取/解析",
+        "notes.resolve",
+        "帮我定位那个关于王总报价的便签，先别修改。",
+        "麻烦你在小智便签里找一下，我之前记过一条和王总报价有关的，先告诉我是哪一条，不要自己猜。",
+        "唯一目标返回 note_id；多候选返回 ambiguous。",
+        "至少准备一条标题或正文含‘王总报价’的便签。",
+    ),
+    AcceptanceCase(
+        "读取/解析",
+        "notes.search",
+        "搜索一下包装问题相关的便签。",
+        "麻烦帮我看看以前在小智便签里有没有记过包装尺寸或者包装问题，最多给我五条。",
+        "返回有界搜索结果，不包含无关已删除便签。",
+        "准备含‘包装’关键词的便签。",
+    ),
+    AcceptanceCase(
+        "读取/解析",
+        "notes.list_recent",
+        "告诉我最近更新的三条便签。",
+        "我刚才和前面一阵子都记过东西，你按最后修改时间把最新三条念一下。",
+        "按 updated_at 倒序返回活动便签。",
+    ),
+    AcceptanceCase(
+        "读取/解析",
+        "notes.get",
+        "读取编号为 {active_id} 的便签完整内容。",
+        "麻烦把小智便签里 ID 是 {active_id} 的那条打开读给我，标题正文和标签都要。",
+        "返回指定便签公开字段。",
+        "需要一个活动便签 ID。",
+    ),
+    AcceptanceCase(
+        "读取/解析",
+        "notes.list_by_tag",
+        "列出客户标签下面的便签。",
+        "我想看看所有明确标了客户这个标签的活动便签，最多二十条。",
+        "仅返回精确标签匹配的活动便签。",
+        "准备‘客户’标签。",
+    ),
+    AcceptanceCase(
+        "读取/解析",
+        "notes.list_deleted",
+        "看看回收站里有哪些便签。",
+        "麻烦列出已经软删除的便签，我想找一下刚才删掉的内容，但先不要恢复。",
+        "返回软删除便签列表。",
+    ),
+    AcceptanceCase(
+        "读取/解析",
+        "notes.list_todos",
+        "列出我的待办便签。",
+        "帮我把所有带待办标签、还需要处理的便签列出来。",
+        "返回带受保护‘待办’标签的活动便签。",
+    ),
+    AcceptanceCase(
+        "读取/解析",
+        "notes.list_pinned",
+        "列出所有置顶便签。",
+        "我想看看现在固定在顶部的重要便签有哪些。",
+        "仅返回活动且置顶的便签。",
+    ),
+    AcceptanceCase(
+        "便签写入",
+        "notes.create",
+        "新建一条便签，标题叫 Gate54验收，正文写今天测试工具调用，标签加测试。",
+        "麻烦在小智便签里替我记一下：今天做 Gate 5.4 验收，标题用 Gate54验收，归到测试标签，不要写进系统记事本。",
+        "创建一条 source=voice_pc 的便签并刷新 UI。",
+    ),
+    AcceptanceCase(
+        "便签写入",
+        "notes.append",
+        "在编号 {active_id} 的便签末尾追加一句：补充验收完成。",
+        "找到 ID {active_id} 那条，在原正文后面另起一行补上‘补充验收完成’，原来的内容不要覆盖。",
+        "只追加正文，标题和标签保持。",
+        "需要一个活动便签 ID。",
+    ),
+    AcceptanceCase(
+        "便签写入",
+        "notes.update_title",
+        "把编号 {active_id} 的标题改成 Gate54最终标题。",
+        "麻烦只给 ID {active_id} 那条便签改个名字，叫 Gate54最终标题，正文和标签都别动。",
+        "仅标题改变。",
+        "需要一个活动便签 ID。",
+    ),
+    AcceptanceCase(
+        "便签写入",
+        "notes.replace_content",
+        "把编号 {active_id} 的正文全部替换成：这是确认后的新正文。",
+        "我确定要把 ID {active_id} 原来的正文整体覆盖掉，新内容只有‘这是确认后的新正文’，先给我确认，不要直接改。",
+        "先 requires_confirmation；确认后仅正文改变。",
+        "需要一个活动便签 ID，随后测试 assistant.confirm/reject。",
+    ),
+    AcceptanceCase(
+        "便签写入",
+        "notes.convert_type",
+        "把编号 {active_id} 的便签变成待办。",
+        "麻烦把 ID {active_id} 这条普通便签改成待办，其他标签和正文都保留。",
+        "添加‘待办’标签；反向命令应移除该标签。",
+        "需要一个活动便签 ID。",
+    ),
+    AcceptanceCase(
+        "便签写入",
+        "notes.pin",
+        "把编号 {active_id} 的便签置顶。",
+        "请把 ID {active_id} 这条固定在顶部；如果我说取消置顶，就把 pinned 设为 false。",
+        "1～5 条直接执行；超过 5 条先确认。",
+        "需要活动便签 ID。",
+    ),
+    AcceptanceCase(
+        "便签写入",
+        "notes.delete",
+        "删除编号 {active_id} 的便签。",
+        "麻烦把 ID {active_id} 那条移到回收站，但一定先让我确认，不要永久删除。",
+        "始终 requires_confirmation；确认后软删除。",
+        "需要一个活动便签 ID，随后确认或拒绝。",
+    ),
+    AcceptanceCase(
+        "便签写入",
+        "notes.restore",
+        "恢复编号 {deleted_id} 的已删除便签。",
+        "请从回收站把 ID {deleted_id} 那条找回来，恢复成活动便签。",
+        "1～5 条直接恢复；超过 5 条先确认。",
+        "需要一个软删除便签 ID。",
+    ),
+    AcceptanceCase(
+        "标签",
+        "tags.create",
+        "新建一个标签叫 Gate54标签。",
+        "麻烦在小智便签里增加一个自定义分类，名称是 Gate54标签；如果已经有了就不用重复创建。",
+        "创建或幂等返回已有标签。",
+    ),
+    AcceptanceCase(
+        "标签",
+        "tags.search",
+        "搜索名字里包含 Gate54 的标签。",
+        "我记不清完整标签名了，帮我找找有没有和 Gate54 有关的标签。",
+        "返回匹配标签和使用信息。",
+    ),
+    AcceptanceCase(
+        "标签",
+        "tags.list",
+        "列出全部标签和使用情况。",
+        "把小智便签现在所有分类都列一下，告诉我哪些正在使用、哪些可以删除。",
+        "包含自定义标签及受保护‘待办’。",
+    ),
+    AcceptanceCase(
+        "标签",
+        "tags.delete",
+        "删除空标签 Gate54空标签。",
+        "把没有任何便签在用的 Gate54空标签删掉，先让我确认；不要动便签内容。",
+        "始终 requires_confirmation；确认后仅删目录标签。",
+        "先创建未使用标签 Gate54空标签。",
+    ),
+    AcceptanceCase(
+        "标签",
+        "tags.bind",
+        "给编号 {active_id} 的便签加上 Gate54标签。",
+        "请给 ID {active_id} 那条追加 Gate54标签，原来的标签保留；如果说全部换成，则 operation 应为 replace 并先确认。",
+        "add/remove 小批量原子执行；replace 或大批量先确认。",
+        "需要活动便签 ID 和 Gate54标签。",
+    ),
+    AcceptanceCase(
+        "界面",
+        "ui.open_note",
+        "在界面里打开编号 {active_id} 的便签。",
+        "把刚才定位到的 ID {active_id} 那条在桌面窗口里选中并显示出来。",
+        "真实 UI 选中目标活动便签。",
+        "需要一个活动便签 ID。",
+    ),
+    AcceptanceCase(
+        "界面",
+        "ui.show_search",
+        "打开搜索界面并填入包装。",
+        "请把桌面便签切到搜索页，搜索框里先放上‘包装’，让我自己看结果。",
+        "搜索页获得焦点并预填 query。",
+    ),
+    AcceptanceCase(
+        "界面",
+        "ui.show_note_list",
+        "回到全部便签列表。",
+        "别停在搜索或者回收站了，请把界面切回所有活动便签的主页列表。",
+        "真实 UI 回到活动便签列表。",
+    ),
+    AcceptanceCase(
+        "界面",
+        "ui.show_tag",
+        "打开客户标签页。",
+        "请在桌面界面切到精确的客户标签分类，不是做关键词搜索。",
+        "真实 UI 打开精确标签分类。",
+        "需要存在‘客户’标签。",
+    ),
+    AcceptanceCase(
+        "界面",
+        "ui.show_trash",
+        "打开回收站。",
+        "把桌面窗口切到已删除便签页面，我要看看刚才删的内容。",
+        "真实 UI 打开已删除页面。",
+    ),
+    AcceptanceCase(
+        "界面",
+        "ui.show_pinned",
+        "打开置顶便签页面。",
+        "请把界面切到只看置顶和重要便签的视图。",
+        "真实 UI 打开置顶视图。",
+    ),
+    AcceptanceCase(
+        "界面",
+        "ui.show_confirmation",
+        "把刚才待确认的操作显示在界面上。",
+        "请把当前那个需要我确认的高风险操作弹出来，我要看清楚再决定。",
+        "展示有效 pending confirmation，不暴露正文。",
+        "先触发一个高风险操作。",
+    ),
+    AcceptanceCase(
+        "确认",
+        "assistant.confirm",
+        "确认刚才那个操作，就按预览执行。",
+        "我已经看过确认窗口了，当前只有这一个待确认操作，请继续执行。",
+        "若未给 id，先 list_pending；唯一 pending 才确认且只执行一次。",
+        "先触发一个高风险操作。",
+    ),
+    AcceptanceCase(
+        "确认",
+        "assistant.reject",
+        "取消刚才那个操作，不要修改。",
+        "我反悔了，把当前等待确认的操作拒绝掉，数据库保持原样。",
+        "消费 pending 且零 mutation。",
+        "先触发一个高风险操作。",
+    ),
+    AcceptanceCase(
+        "确认",
+        "assistant.list_pending_confirmations",
+        "现在有哪些操作等我确认？",
+        "我不记得刚才有哪些危险操作还没处理，请只列安全摘要，不要念正文。",
+        "仅列当前会话 pending 的安全摘要和剩余时间。",
+    ),
+)
+
+
+def format_command(
+    case: AcceptanceCase,
+    *,
+    active_id: int | str = "<活动便签ID>",
+    deleted_id: int | str = "<已删除便签ID>",
+) -> str:
+    return case.command.format(active_id=active_id, deleted_id=deleted_id)
+
+
+def format_verbose_command(
+    case: AcceptanceCase,
+    *,
+    active_id: int | str = "<活动便签ID>",
+    deleted_id: int | str = "<已删除便签ID>",
+) -> str:
+    return case.verbose_command.format(active_id=active_id, deleted_id=deleted_id)
+
+
+__all__ = [
+    "AcceptanceCase",
+    "GATE5_4_ACCEPTANCE_CASES",
+    "format_command",
+    "format_verbose_command",
+]

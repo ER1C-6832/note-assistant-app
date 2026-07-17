@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from .contracts import ConfirmationPolicy, JsonValue, ToolDescriptor, ToolRisk
+from .intent_rules import intent_description
 
 
 def _object_schema(
@@ -76,7 +77,7 @@ def _descriptor(
 ) -> ToolDescriptor:
     return ToolDescriptor(
         name=name,
-        description=description,
+        description=intent_description(name, description),
         input_schema=schema,
         risk=risk,
         mutates=mutates,

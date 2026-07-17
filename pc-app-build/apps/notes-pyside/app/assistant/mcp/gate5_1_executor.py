@@ -10,6 +10,11 @@ from datetime import datetime
 from ...notes import Note, NoteQueryService, NoteServiceError
 from .constants import MCP_MAX_RESULT_BYTES
 from .contracts import JsonValue, ToolCall, ToolDescriptor, ToolExecutor, ToolResult
+from .intent_rules import (
+    extract_explicit_note_id,
+    extract_search_terms,
+    is_contextual_reference,
+)
 from .registry import GateNotReadyExecutor
 from .ui_bus import UiCommand, UiCommandBus, UiCommandKind
 
@@ -116,12 +121,18 @@ class Gate51ToolExecutor:
                 affected_note_ids=(note.id,),
             )
         if name == "notes.search":
-            notes = await self._queries.search_filtered(
-                str(args["query"]),
-                tags=_strings(args.get("tags", ())),
-                scope=str(args.get("scope", "active")),
-                limit=int(args.get("limit", 10)),
-            )
+            raw_query = str(args["query"])
+            terms = extract_search_terms(raw_query) or (raw_query.strip(),)
+            tags = _strings(args.get("tags", ()))
+            scope = str(args.get("scope", "active"))
+            limit = int(args.get("limit", 10))
+            search_terms = getattr(self._queries, "search_terms_filtered", None)
+            if search_terms is None:
+                notes = await self._queries.search_filtered(
+                    terms[0], tags=tags, scope=scope, limit=limit
+                )
+            else:
+                notes = await search_terms(terms, tags=tags, scope=scope, limit=limit)
             return self._list_result(name, descriptor, notes, "搜索完成")
         if name == "notes.list_recent":
             notes = await self._queries.list_recent(int(args.get("limit", 5)))
@@ -226,8 +237,11 @@ class Gate51ToolExecutor:
         exact_title = str(args.get("exact_title", "")).strip()
         query = str(args.get("query", "")).strip()
 
-        if query.isdecimal() and int(query) > 0:
-            note = await self._queries.get(int(query), include_deleted=scope != "active")
+        explicit_id = extract_explicit_note_id(query)
+        if explicit_id is None and query.isdecimal() and int(query) > 0:
+            explicit_id = int(query)
+        if explicit_id is not None:
+            note = await self._queries.get(explicit_id, include_deleted=scope != "active")
             if note is not None and _scope_matches(note, scope):
                 return _Resolution("resolved", (note,))
             return _Resolution("not_found", ())
@@ -239,13 +253,42 @@ class Gate51ToolExecutor:
             )
             return _resolution_from_candidates(exact[:limit])
 
-        normalized_query = _normalized(query)
-        exact = tuple(note for note in pool if _normalized(note.title) == normalized_query)
+        if is_contextual_reference(query):
+            # A bare ‘刚才那条/那个’ has no stable conversation-local target in
+            # the client.  Resolve only when the selected scope itself has one
+            # candidate; otherwise return recent candidates for clarification.
+            return _resolution_from_candidates(tuple(pool[:limit]))
+
+        terms = extract_search_terms(query) or ((_normalized(query),) if query else ())
+        if not terms:
+            return _Resolution("not_found", ())
+
+        primary = _normalized(terms[0])
+        exact = tuple(note for note in pool if _normalized(note.title) == primary)
         if exact:
             return _resolution_from_candidates(exact[:limit])
+
+        precise = tuple(note for note in pool if _matches_query(note, primary))
+        if precise:
+            ranked = sorted(
+                precise,
+                key=lambda note: (
+                    _rank_terms(note, (primary,)),
+                    note.updated_at,
+                    note.id,
+                ),
+                reverse=True,
+            )
+            return _resolution_from_candidates(tuple(ranked[:limit]))
+
+        normalized_terms = tuple(_normalized(term) for term in terms if _normalized(term))
         ranked = sorted(
-            (note for note in pool if _matches_query(note, normalized_query)),
-            key=lambda note: (_rank(note, normalized_query), note.updated_at, note.id),
+            (note for note in pool if any(_matches_query(note, term) for term in normalized_terms)),
+            key=lambda note: (
+                _rank_terms(note, normalized_terms),
+                note.updated_at,
+                note.id,
+            ),
             reverse=True,
         )
         return _resolution_from_candidates(tuple(ranked[:limit]))
@@ -327,6 +370,13 @@ def _rank(note: Note, normalized_query: str) -> int:
     if any(normalized_query == _normalized(tag) for tag in note.tags):
         return 2
     return 1
+
+
+def _rank_terms(note: Note, terms: tuple[str, ...]) -> tuple[int, int, int]:
+    matched = tuple(term for term in terms if _matches_query(note, term))
+    best = max((_rank(note, term) for term in matched), default=0)
+    longest = max((len(term) for term in matched), default=0)
+    return len(matched), best, longest
 
 
 def _normalized(value: str) -> str:
