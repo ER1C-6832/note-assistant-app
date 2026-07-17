@@ -10,9 +10,10 @@ from .activation import (
 from .controller import ControllerClosedError
 from .errors import AssistantErrorCode, redact_error_text
 from .identity import DeviceIdentity, DeviceIdentityManager, DeviceIdentityStore
+from .mcp import McpCoordinator, McpScriptedFakeTransport, ToolRegistry
+from .mcp.transport_adapters import McpRealWebSocketTransport as RealWebSocketTransport
 from .network import (
     PersistedConnectionConfigProvider,
-    RealWebSocketTransport,
     ReconnectDecision,
     ReconnectPolicy,
     RuntimeTransportRouter,
@@ -83,22 +84,25 @@ __all__ = [
     "DeviceIdentityStore",
     "FakeActivationClient",
     "FakeRuntimeConfig",
+    "McpCoordinator",
+    "McpScriptedFakeTransport",
+    "MicrophoneOwner",
     "PersistedConnectionConfigProvider",
+    "RealOtaActivationClient",
+    "RealRuntimeConfig",
     "RealWebSocketTransport",
     "ReconnectDecision",
     "ReconnectPolicy",
+    "RuntimeConfigError",
+    "RuntimeConfigStore",
     "RuntimeTransportRouter",
+    "StateInvariantError",
+    "StreamingConversationState",
+    "ToolRegistry",
+    "VoiceActivityState",
+    "VoiceInteractionMode",
     "WebSocketConnectionConfig",
     "XiaozhiMessageBuilder",
     "XiaozhiMessageRouter",
-    "MicrophoneOwner",
-    "RealOtaActivationClient",
-    "RealRuntimeConfig",
-    "RuntimeConfigError",
-    "RuntimeConfigStore",
-    "StateInvariantError",
-    "StreamingConversationState",
-    "VoiceActivityState",
-    "VoiceInteractionMode",
     "redact_error_text",
 ]
