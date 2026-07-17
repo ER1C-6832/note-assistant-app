@@ -1,8 +1,9 @@
 # PC 小智语音助手单进程重写总计划
 
 > 文档定位：本文件是 PC 端单进程 Runtime 重写的长期权威计划。  
-> 当前整合基线：`9f204735e338ff7e87010ca58e628406673e13ae`。  
-> Gate 3 修正案的有效决策已在 Gate 3.4 并入本文件；修正案继续保留为历史记录。
+> 当前代码基线：`2bd25c3677cf2aecd2784d089e8f971c40bb377e`。  
+> Gate 5 的 32-tool Windows Automated/Fake/Real 结果由用户于 2026-07-17 完成验收；Gate 6 规划在该事实基础上制定。  
+> Gate 3/4 修正案继续作为历史记录；Gate 6 修正案的有效决策已并入本文件。
 
 规范优先级（发生冲突时从高到低）：
 
@@ -835,95 +836,52 @@ AssistantTextReceived、TtsStateReceived 或 `tts/stop` 本身均不是自动开
 
 ### 状态
 
-未开始；实施顺序位于完整语音闭环之后。
+已完成并接受。Windows 累计自动验收和 32 个真实工具验收均由用户报告通过。
 
-### 第一批工具
+### 冻结工具面
 
 ```text
-notes.create
-notes.search
-notes.delete
+Tool count: 32
+Name-set SHA-256: 543129cc3d6c8fae161ddb716f6cdbf803920ba8fa674d6c5cf6571a198a10e9
+Unsupported Android-only tools advertised: 0
+Runtime: single process
 ```
 
-MCP 必须共用 `NoteCommandService`，未注册工具 fail-closed，request_id 去重，删除默认软删除且需要显式确认。不得建立第二套便签写入口或第二 Runtime。
+MCP 共用 `NoteCommandService` / `NoteQueryService`，未注册工具 fail-closed，request id 去重，高风险写操作显式确认，删除默认软删除。真实反馈修订已加入 `ui.show_todos`，并将纯数字标题与明确数据库 ID 分开解析。不得建立第二套便签写入口或第二 Runtime。
 
 ---
 
 ## Gate 6：语音体验与设备增强
 
-Gate 6 不再首次实现连续对话，可用于：
-
-- VAD 阈值与噪声适配；
-- AEC/NS/AGC 调研或增强；
-- 蓝牙/热插拔恢复；
-- 持续待命策略；
-- 更复杂 barge-in；
-- system audio interruption；
-- 多设备选择。
-
-任何增强仍不得引入第二 Runtime、第二状态机、第二 sender 或第二麦克风 owner。
-
----
-
-## Gate 6.5：KWS 唤醒词
-
-KWS 不再永久排除，改为可选增强 Gate。
-
-### 目标
-
-支持低功耗持续监听唤醒词后进入连续对话。
-
-### 可能链路
+Gate 6 将原独立 Gate 6.5 KWS 合并进同一个语音增强总 Gate，固定为五个子阶段：
 
 ```text
-PyAudio KWS Stream
--> KWS Engine
--> wake event
--> AssistantController
--> connect/reuse connection
--> start streaming conversation
+6.0  Cross-platform probe and contract freeze
+6.1  Device registry, route handling and duplex audio foundation
+6.2  Offline KWS and microphone-owner handoff
+6.3  AEC/NS processing; AGC probe only and default-off
+6.4  Acoustic barge-in, settings completion and cumulative closeout
 ```
 
-### 推荐策略
+冻结顺序为：设备/双工底座先于 KWS；AEC 先于声学 barge-in。KWS 与 barge-in 是两个独立检测器，KWS 不得用于播放期插话。
 
-第一版不自行训练模型，优先复用成熟本地 KWS 引擎或现有服务端支持。
-
-### 需要新增
-
-- KWS Audio Owner；
-- microphone ownership；
-- KWS 与 PTT/Continuous 互斥；
-- 唤醒后切换采样通道；
-- false positive 指标；
-- cooldown；
-- system audio interruption；
-- KWS enable/disable；
-- 设置持久化；
-- 模型文件管理。
-
-### 增量工作量
-
-基础唤醒：
+Gate 6 首版产品策略：
 
 ```text
-1～2 日
+AEC                automatic / required for speaker-route acoustic barge-in
+NS                 automatic / conservative
+AGC                off by default; not a Gate 6 completion dependency
+KWS                off until user enables it
+Acoustic barge-in  off until user enables it and the processed path is ready
 ```
 
-加入设备兼容、误唤醒调优、模型打包：
+Gate 6.0 比较 WebRTC APM、Windows endpoint/system AEC 和 macOS voice processing；在真实 probe 前不冻结 concrete backend。Core、StateMachine 和 Ports 不导入平台 API。
 
-```text
-2～4 日
-```
+Gate 6 引入小型“语音与设备”面板，而不是完整设置中心。普通用户只选择 input/output、KWS、唤醒词和是否允许插话；AEC/NS/AGC、delay、drift、ERLE 等只进入 Developer Diagnostics。
 
-### 验收
+Windows 全量证据通过后可标记 `Accepted-Windows`。只有真实 macOS capture/playback/KWS/AEC/barge-in/terminal 证据通过后，才能标记 `Accepted-CrossPlatform`。
 
-- KWS 不与 PTT 抢麦克风；
-- 唤醒后 300ms 内进入 Listening；
-- TTS 播放时默认抑制 KWS；
-- false positive 可记录；
-- 模型不存在时可降级；
-- KWS 关闭后不保留音频流；
-- 不引入第二进程。
+任何增强仍不得引入第二 Runtime、第二状态机、第二 sender、第二 Python 进程或无所有权的麦克风流。
 
 ---
 
@@ -1065,13 +1023,12 @@ Gate 3 修正案已实施，当前顺序为：
 ```text
 Gate 3  共用音频基础 + PTT + streaming 上行/VAD
 Gate 4  TTS 播放 + PlaybackEnded 自动续轮 + 真实两轮 + 可选简单插话
-Gate 5  MCP 便签闭环
-Gate 6  语音体验与设备增强
-Gate 6.5  可选 KWS
+Gate 5  32-tool MCP 便签闭环（已完成）
+Gate 6  设备/双工 + KWS + AEC/NS + 声学 barge-in
 Gate 7  延迟验证
 ```
 
-连续对话上行/VAD 不再等待 MCP；完整连续语音闭环仍必须等待 Gate 4 的真实播放与 PlaybackEnded。KWS 不得提前插入 Gate 4 稳定之前。
+连续对话上行/VAD 不再等待 MCP；完整连续语音闭环仍以 Gate 4 的真实播放与 actual PlaybackEnded 为基线。Gate 6 不得破坏 PlaybackEnded 唯一自然续轮规则。
 
 ## 增量估算（历史规划，非当前完成声明）
 
@@ -1115,29 +1072,12 @@ Gate 1                  3～5 日
 Gate 2                  1～2 日
 Gate 3                  2～3 日
 Gate 4                  1～2 日
-Gate 5                  1～2 日
-Gate 6                  1～2 日
-Gate 6.5 KWS            1～4 日
+Gate 5                  已完成
+Gate 6                  以 6.0 真实探测后估算为准
 Gate 7                  1 日
 ```
 
-不含 KWS 的稳定验证版：
-
-```text
-约 9～15 个有效工作日
-```
-
-包含基础 KWS：
-
-```text
-约 10～17 个有效工作日
-```
-
-包含 KWS 调优和设备增强：
-
-```text
-约 12～20 个有效工作日
-```
+历史 Gate 6/6.5 工期估算失效。Windows/macOS backend、设备路由和打包探测前不得给出伪精确总工期。
 
 ---
 
@@ -1234,9 +1174,8 @@ Gate 7                  1 日
 | Gate 3.3 | 真实一轮链路通过；累计自动验收由 Gate 3.4 收口 |
 | Gate 3.4 | 已完成 |
 | Gate 4 | 已完成（4.0～4.4，真实协议、真实播放、真实两轮与停止优先级） |
-| Gate 5 | 未开始 |
-| Gate 6 | 未开始 |
-| Gate 6.5 | 未开始 |
+| Gate 5 | 已完成（32-tool Windows Automated/Fake/Real 验收通过） |
+| Gate 6 | Spec 已冻结，等待 6.0 探测实施 |
 | Gate 7 | 未开始 |
 
 Gate 3.3 只声明 VAD + Opus 上行 + readable transcript；不声明 TTS 播放、自动第二轮或 barge-in。
@@ -1280,6 +1219,19 @@ Gate 4 不包含 MCP、KWS、AEC、声学全双工 barge-in 或完整设备热�
 - `tools/verify_gate4_3_real_two_turn.py`；
 - `tools/verify_gate4_4_real_stop_during_playback.py`；
 - `tools/verify_gate4_4_cumulative.py`。
+
+---
+
+## 10.2 Gate 5 已冻结结果
+
+Gate 5 在同一 WebSocket、同一 sender、同一 Controller 和同一便签服务边界内完成 32 个真实 MCP 工具。工具目录、确认、去重、重连不重放、UI typed bus 和资源终态均以 `docs/spec/gate5/` 与 `docs/report/GATE5_FINAL_ACCEPTANCE_REPORT.md` 为准。
+
+Gate 5 的真实反馈修订包括：
+
+- 新增 `ui.show_todos`；
+- 纯数字 query 按标题/关键词解析；
+- 只有“编号/ID/第 N 号便签”等明确表达按数据库 ID；
+- reconnect 不重放历史工具调用。
 
 ---
 
@@ -1335,11 +1287,13 @@ DatabaseExecutor Lifecycle
 - 文本对话；
 - PTT；
 - TTS；
-- MCP create/search/delete；
-- 删除确认；
+- MCP 32-tool 便签闭环；
+- 高风险确认/拒绝与软删除恢复；
 - 连续对话；
-- 简单打断；
-- 可选 KWS；
+- 可选离线 KWS；
+- AEC/NS processed path；
+- 可选声学 barge-in；
+- input/output 设备选择与安全恢复；
 - 自动重连；
 - 错误可见；
 - 数据持久化。

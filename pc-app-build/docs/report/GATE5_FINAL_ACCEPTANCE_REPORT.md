@@ -1,6 +1,7 @@
 # Gate 5 Final Acceptance Report
 
-状态：Pending Gate 5.4.1 Retest
+状态：Accepted  
+证据来源：用户于 2026-07-17 在 Windows 当前工作树完成 Automated/Fake/Real 验收。本文只记录脱敏结论，不伪造未保存的逐行控制台输出或 pytest 数量。
 
 ## Frozen surface
 
@@ -13,7 +14,7 @@ Runtime: single process
 
 ## Automated evidence
 
-待填写 Windows 输出：
+用户报告以下 Windows 自动入口全部通过：
 
 ```powershell
 python -m pytest -W error tests
@@ -23,26 +24,26 @@ python tools/verify_gate5_4_cumulative.py
 
 ## Real evidence
 
-待填写用户自由自然语言验收：
+用户使用自由自然语言完成真实验收：
 
 ```powershell
 python tools/verify_gate5_4_real_manual.py --confirm-effects
 ```
 
-必须记录：
+已确认结论：
 
-- 32-tool checklist 的 observed status；
-- create/read/search/update/tag/UI 的真实数据库或界面效果；
-- delete -> reject 零写入；
-- delete -> confirm 软删除；
-- trash/list_deleted/restore；
-- duplicate request id、same id/different payload；
-- disconnect/reconnect 和 shutdown terminal matrix；
-- 不含正文、原始 arguments、token 或完整 identity 的脱敏 JSON 摘要。
+- 真实 `tools/list` 为 32；
+- 32-tool checklist 全部通过；
+- create/read/search/update/tag/UI/confirmation 的真实数据库或界面效果通过；
+- 纯数字标题 `119` 按标题解析复测通过；
+- `ui.show_todos` 真实待办导航复测通过；
+- disconnect/reconnect 不重放旧工具调用；
+- 高风险确认、拒绝、软删除和恢复保持 Gate 5 冻结语义；
+- 单进程、无 Sidecar、无第二 sender 和无第二便签写入口保持。
 
 ## Sign-off
 
-Windows 自动部分已由用户报告全部通过；真实语言验收除数字标题解析和待办 UI 导航外基本通过。修复后仍需重测这两项及新的 32-tool hash，之后才能填写 `Accepted`。
+Gate 5 已接受。后续 Gate 不得修改 32-tool 名称集合、schema、风险级别或确认语义；若业务功能真实扩展，必须通过独立 amendment 更新冻结 hash 与全量 Real checklist。
 
 ## 推荐执行顺序
 

@@ -1,0 +1,68 @@
+{
+  "schema_version": 1,
+  "gate": "6",
+  "status": "frozen_for_implementation",
+  "repository": "ER1C-6832/note-assistant-app",
+  "branch": "rewrite/single-process-runtime",
+  "baseline_commit": "2bd25c3677cf2aecd2784d089e8f971c40bb377e",
+  "prerequisite": {
+    "gate5_status": "accepted_user_windows_evidence",
+    "tool_count": 32,
+    "tool_name_set_sha256": "543129cc3d6c8fae161ddb716f6cdbf803920ba8fa674d6c5cf6571a198a10e9"
+  },
+  "phases": [
+    {
+      "id": "6.0",
+      "name": "cross_platform_probe_and_contract_freeze"
+    },
+    {
+      "id": "6.1",
+      "name": "device_registry_route_and_duplex_foundation"
+    },
+    {
+      "id": "6.2",
+      "name": "offline_kws_and_owner_handoff"
+    },
+    {
+      "id": "6.3",
+      "name": "aec_ns_processing_agc_probe"
+    },
+    {
+      "id": "6.4",
+      "name": "acoustic_barge_in_and_cumulative_closeout"
+    }
+  ],
+  "frozen_defaults": {
+    "aec": "automatic",
+    "noise_suppression": "automatic_conservative",
+    "agc": "disabled",
+    "kws": "disabled_until_user_opt_in",
+    "acoustic_barge_in": "disabled_until_user_opt_in_and_processing_ready",
+    "input_device": "follow_system_default",
+    "output_device": "follow_system_default",
+    "raw_audio_persistence": false,
+    "second_process": false
+  },
+  "backend_policy": {
+    "selected_backend": "pending_gate6_0_real_probe",
+    "candidates": [
+      "webrtc_apm",
+      "windows_system_or_endpoint_aec",
+      "macos_voice_processing"
+    ],
+    "speaker_route_raw_mic_barge_in_fallback": false
+  },
+  "signoff_levels": [
+    "accepted_windows",
+    "accepted_cross_platform"
+  ],
+  "documents": [
+    "GATE6_SPEC_INDEX.md",
+    "GATE6_AUDIO_DEVICE_KWS_AEC_BARGE_IN_SPEC.md",
+    "GATE6_ANDROID_REFERENCE_AUDIT.md",
+    "GATE6_IMPLEMENTATION_PLAN.md",
+    "GATE6_TEST_AND_ACCEPTANCE_PLAN.md"
+  ],
+  "adr": "../../adr/ADR-010-gate6-cross-platform-audio-session.md"
+}
+
