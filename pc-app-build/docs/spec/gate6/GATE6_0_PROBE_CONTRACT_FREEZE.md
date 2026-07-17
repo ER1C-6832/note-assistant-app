@@ -87,7 +87,18 @@ bypass baseline
 
 当前 real AEC runner 对 `aec-audio-processing` 提供可选适配器，要求 reverse/render stream API 实际存在。导入成功或对象创建成功不等于 AEC 通过；必须分别执行 far-end-only 和 double-talk。
 
+真实声学 runner 的退出码必须包含功能语义，不能只依据“进程未报错”和“资源归零”：
+
+- `far_end_only` 必须在麦克风侧观察到 far-end，并达到至少 6 dB 的处理前后 RMS 衰减；
+- `double_talk` 必须先取得安静基线，再同时证明 raw 侧观察到近端人声、processed 侧保留近端人声；
+- raw 有明显人声而 processed 未保留时，必须返回 `aec_near_end_not_preserved` 和非零退出码；
+- backend 自带的 `has_voice()` 只作为诊断字段，不是唯一验收源；
+- stream delay 默认由已打开的 input/output stream reported latency 合成，允许显式 `0..500 ms` 覆盖，不冻结单机 50 ms 猜值；
+- real render reference 使用内存生成的确定性 speech-like fixture，不写入 PCM 文件。
+
 KWS 首选候选为 sherpa-onnx `KeywordSpotter`。工具不会下载模型；必须显式传入本地 tokens、encoder、decoder、joiner 和 keywords 文件。
+
+KWS CLI 必须先验证五个文件、加载模型并打开麦克风，然后才提示用户说唤醒词。KWS live 至少取得两个通过 cooldown 去重的真实命中才能返回零；仅 import 成功、模型加载成功或监听窗口正常结束都不是 live acceptance。
 
 ## 5. 真实探测入口
 
@@ -95,8 +106,8 @@ KWS 首选候选为 sherpa-onnx `KeywordSpotter`。工具不会下载模型；�
 python tools/probe_gate6_audio_devices.py
 python tools/probe_gate6_duplex.py --duration 3
 python tools/probe_gate6_aec.py --scenario capability
-python tools/probe_gate6_aec.py --scenario far_end_only --duration 5
-python tools/probe_gate6_aec.py --scenario double_talk --duration 6
+python tools/probe_gate6_aec.py --scenario far_end_only --duration 5 --stream-delay-ms auto
+python tools/probe_gate6_aec.py --scenario double_talk --duration 6 --stream-delay-ms auto --speech-start-delay 1.5
 python tools/probe_gate6_kws.py
 ```
 

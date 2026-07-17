@@ -1,0 +1,27 @@
+Gate 6.0 Evidence Correction Overlay Manifest
+
+Overlay baseline commit: 3a8d018f98844bd3ee08b55c919084a0faffc5c1
+Product audio topology changed: no
+Windows corrected AEC rerun: required
+KWS live model evidence: pending
+macOS real evidence: pending_real_macos
+
+Local validation:
+- compileall: passed
+- Black: passed
+- Ruff: passed
+- framework-neutral AEC semantic tests: 4 passed
+- updated architecture semantic test: 1 passed
+- Windows native AEC/KWS: not available in packaging environment
+
+Files:
+109aae1171131396a3999c4c838f71a6beb6f69cd3e15d09ef42520ea04a5fa1  pc-app-build/RUN_GATE6_0_REAL_AEC_CORRECTED.ps1
+6df4c7ce5e47ad86c0b942698872cb4166599dd395b9341431ea33a37063d5d9  pc-app-build/apps/notes-pyside/app/assistant/audio/gate6_backend_probe.py
+32d4fca737f73b2099166ba1a9285b487ec02c3cc5e3c0949873f5bee47e821b  pc-app-build/tools/probe_gate6_aec.py
+109cc6b74063cfe3b778a5b338a322e03b9d2d944a1055aa5c344ef5181435ea  pc-app-build/tools/probe_gate6_kws.py
+af8f6480ae60c4df37f24f59396c88108009681003678f598f8edd650cc18d77  pc-app-build/tools/verify_gate6_0_cumulative.py
+cd9d2af001c9e8f21d3e0c47db3a05537100e37672cf6ffc2a76348fa3fe44ec  pc-app-build/tests/gate6_0/test_gate6_0_architecture.py
+427a48f38ac4686a5b6f44f1fda408aa37aa22df0c5342fb26b4f2a0c47c41a7  pc-app-build/tests/gate6_0/test_gate6_0_real_probe_semantics.py
+bb00ca9b876bb0814197d882d5a545e903b38b9912468ba51e8c2ddff370982a  pc-app-build/docs/report/GATE6_0_IMPLEMENTATION_REPORT.md
+79e1656f3aa94e76e1e3654496573f7fdd9ba902e1a7d244b90d2b9db29be96f  pc-app-build/docs/report/GATE6_0_EVIDENCE_CORRECTION_REPORT.md
+c57ae00e99e2a8022eac0e051391dd351c24b67caad1c5bad71ef0672ff263ff  pc-app-build/docs/spec/gate6/GATE6_0_PROBE_CONTRACT_FREEZE.md

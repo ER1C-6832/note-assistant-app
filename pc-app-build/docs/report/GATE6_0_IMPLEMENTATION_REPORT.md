@@ -1,7 +1,8 @@
 # Gate 6.0 Implementation Report
 
-状态：Automated/Fake implemented; Windows Real pending  
-基线：`19953b12d15ad5e76dfd4da0ca3dfa9aa353dec8`  
+状态：Automated/Fake implemented; Windows duplex/far-end evidence collected; corrected double-talk/KWS rerun pending  
+实施基线：`19953b12d15ad5e76dfd4da0ca3dfa9aa353dec8`  
+证据修正基线：`3a8d018f98844bd3ee08b55c919084a0faffc5c1`  
 产品音频拓扑修改：否
 
 ## 1. Scope delivered
@@ -130,3 +131,45 @@ Gate 6.1 may start: no
 ```
 
 The report must be amended from actual Windows JSON and human observations before Gate 6.0 can be accepted and Gate 6.1 authorized.
+
+## 6. Windows evidence correction after the first real run
+
+The first Windows run supplied after commit `3a8d018f` established:
+
+- full cumulative automated verification passed with `458 passed`;
+- default Realtek input/output opened as a real duplex route with ordered capture/render timestamps, no overflow, no product uplink, no persisted PCM and terminal resources at zero;
+- far-end-only reduced median RMS from `99.369` to `5.064` (about 25.9 dB) with no reported processed VAD trigger;
+- double-talk reduced median RMS from `168.381` to `4.82`, processed peak max was only `23`, and processed VAD trigger count was zero;
+- sherpa-onnx imported, but the five example paths under `C:\models\kws` did not exist, so KWS live capture never started.
+
+The original runner incorrectly treated native completion and terminal-zero as acoustic success. The double-talk result is therefore rejected: it did not prove that near-end speech survived. No backend is selected from this evidence.
+
+This correction freezes the following verifier behavior:
+
+- AEC delay defaults to the sum of the opened input/output stream latencies instead of a hard-coded 50 ms; an explicit `0..500` ms override remains available;
+- the render fixture is deterministic speech-like audio rather than one 550 Hz sinusoid;
+- double-talk has a 1.5 second quiet baseline followed by a speech window;
+- raw near-end speech must be observed and processed speech must remain measurably above its quiet baseline;
+- semantic failure returns non-zero even when cleanup succeeds;
+- the backend VAD flag is diagnostic only and cannot authorize acceptance by itself;
+- KWS validates files, loads the model and opens the microphone before prompting;
+- KWS live requires two distinct accepted detections separated by the cooldown.
+
+Corrected rerun:
+
+```powershell
+python tools/probe_gate6_aec.py `
+  --scenario far_end_only `
+  --duration 5 `
+  --stream-delay-ms auto `
+  --processing-mode aec_ns
+
+python tools/probe_gate6_aec.py `
+  --scenario double_talk `
+  --duration 6 `
+  --stream-delay-ms auto `
+  --processing-mode aec_ns `
+  --speech-start-delay 1.5
+```
+
+For diagnosis only, if `aec_ns` does not preserve near-end speech, repeat double-talk with `--processing-mode aec_only`. Do not select a production backend until the corrected runner returns `probe_complete`, `acceptance.accepted = true`, and exit code zero.

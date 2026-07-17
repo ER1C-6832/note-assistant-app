@@ -126,6 +126,10 @@ def _checks(args: argparse.Namespace) -> list[Check]:
                         "far_end_only",
                         "--duration",
                         str(max(3.0, args.duration)),
+                        "--stream-delay-ms",
+                        args.aec_stream_delay_ms,
+                        "--processing-mode",
+                        args.aec_processing_mode,
                     ),
                     interactive=True,
                 ),
@@ -138,6 +142,12 @@ def _checks(args: argparse.Namespace) -> list[Check]:
                         "double_talk",
                         "--duration",
                         str(max(4.0, args.duration)),
+                        "--stream-delay-ms",
+                        args.aec_stream_delay_ms,
+                        "--processing-mode",
+                        args.aec_processing_mode,
+                        "--speech-start-delay",
+                        str(args.aec_speech_start_delay),
                     ),
                     interactive=True,
                 ),
@@ -176,6 +186,13 @@ def main() -> int:
     parser.add_argument("--include-real-aec", action="store_true")
     parser.add_argument("--include-real-kws", action="store_true")
     parser.add_argument("--duration", type=float, default=3.0)
+    parser.add_argument("--aec-stream-delay-ms", default="auto")
+    parser.add_argument(
+        "--aec-processing-mode",
+        choices=("aec_only", "aec_ns", "ns_only"),
+        default="aec_ns",
+    )
+    parser.add_argument("--aec-speech-start-delay", type=float, default=1.5)
     parser.add_argument("--kws-duration", type=float, default=12.0)
     parser.add_argument("--kws-tokens", type=Path)
     parser.add_argument("--kws-encoder", type=Path)

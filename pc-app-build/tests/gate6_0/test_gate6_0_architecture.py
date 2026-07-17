@@ -74,6 +74,24 @@ def test_gate6_0_real_probes_are_explicit_and_fake_probe_opens_no_device() -> No
     assert "--include-real-aec" in cumulative
     assert "--include-real-kws" in cumulative
     assert "interactive=True" in cumulative
+    assert "--aec-stream-delay-ms" in cumulative
+    assert "--aec-processing-mode" in cumulative
+
+
+def test_gate6_0_real_acceptance_is_semantic_and_kws_prompts_only_when_ready() -> None:
+    backend = (AUDIO / "gate6_backend_probe.py").read_text(encoding="utf-8")
+    aec_cli = (TOOLS / "probe_gate6_aec.py").read_text(encoding="utf-8")
+    kws_cli = (TOOLS / "probe_gate6_kws.py").read_text(encoding="utf-8")
+
+    assert "near_end_speech_not_preserved" in backend
+    assert '"probe_inconclusive"' in backend
+    assert "resolve_stream_delay_ms" in backend
+    assert 'acceptance.get("accepted") is True' in aec_cli
+    assert '"required_distinct_hits": 2' in backend
+    assert 'acceptance.get("accepted") is True' in kws_cli
+    assert "model.validate()" in kws_cli
+    assert "ready_callback=prompt_ready" in kws_cli
+    assert kws_cli.index("model.validate()") < kws_cli.index("ready_callback=prompt_ready")
 
 
 def test_gate5_frozen_name_hash_remains_unchanged() -> None:
