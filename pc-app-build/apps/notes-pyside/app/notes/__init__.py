@@ -2,6 +2,7 @@
 
 from .command_service import NoteCommandService
 from .commands import (
+    BatchUpdateTagsCommand,
     CreateNoteCommand,
     HardDeleteCommand,
     NoteValidationError,
@@ -58,8 +59,10 @@ from .tag_catalog import (
     TagInUseError,
     TagValidationError,
 )
+from .tag_catalog_service import TagCatalogService, TagDeleteInspection
 
 __all__ = [
+    "BatchUpdateTagsCommand",
     "CreateNoteCommand",
     "DEFAULT_TAGS",
     "DataPreparationError",
@@ -96,6 +99,8 @@ __all__ = [
     "TagCatalogError",
     "TagCatalogFormatError",
     "TagCatalogItem",
+    "TagCatalogService",
+    "TagDeleteInspection",
     "TagFileValidationError",
     "TagInUseError",
     "TagValidationError",

@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Protocol
 
 from .commands import (
+    BatchUpdateTagsCommand,
     CreateNoteCommand,
     HardDeleteCommand,
     RestoreCommand,
@@ -50,6 +51,8 @@ class NoteRepository(Protocol):
     def list_by_tag(self, tag: str) -> tuple[Note, ...]: ...
 
     def search(self, query: str, limit: int = 100) -> tuple[Note, ...]: ...
+
+    def update_tags_many(self, command: BatchUpdateTagsCommand) -> tuple[Note, ...]: ...
 
     def set_pinned_many(self, command: SetPinnedCommand) -> tuple[Note, ...]: ...
 

@@ -1,0 +1,4 @@
+Gate 5.2 mutation overlay
+Baseline: f69137bdf11002fc036d6dcda9dfa1f094390c64
+Scope: note/tag mutations, shared tag service, atomic batch tag binding, tests/verifiers/docs
+High-risk execution: deferred to Gate 5.3

@@ -1,4 +1,4 @@
-"""Run the canonical non-interactive Gate 1 through Gate 5.1 verifier."""
+"""Run the canonical non-interactive Gate 1 through Gate 5.2 verifier."""
 
 from __future__ import annotations
 
@@ -105,6 +105,7 @@ def _checks(
         Check("gate4_fake_two_turn", (python, "tools/verify_gate4_3_fake_two_turn.py")),
         Check("gate5_0_protocol", (python, "tools/verify_gate5_0_protocol.py")),
         Check("gate5_1_read_ui", (python, "tools/verify_gate5_1_read_ui.py")),
+        Check("gate5_2_mutations", (python, "tools/verify_gate5_2_mutations.py")),
     ]
     if include_gate4_real:
         checks.append(
@@ -158,7 +159,7 @@ def main() -> int:
     )
     results: list[dict[str, object]] = []
     for check in expected:
-        print(f"[Gate 5.1] {check.name}", file=sys.stderr, flush=True)
+        print(f"[Gate 5.2] {check.name}", file=sys.stderr, flush=True)
         result = _run_check(check)
         results.append(result)
         if result["status"] != "passed":
@@ -171,11 +172,11 @@ def main() -> int:
         json.dumps(
             {
                 "status": (
-                    "gate5_1_cumulative_complete"
+                    "gate5_2_cumulative_complete"
                     if passed
-                    else ("gate5_1_cumulative_blocked" if blocked else "failed")
+                    else ("gate5_2_cumulative_blocked" if blocked else "failed")
                 ),
-                "baseline_expectation": "single-process Gate 1.1 through Gate 5.1",
+                "baseline_expectation": "single-process Gate 1.1 through Gate 5.2",
                 "include_gate4_real": args.include_gate4_real,
                 "include_gate5_real": include_gate5_real,
                 "include_gate5_real_ui_language": (args.include_gate5_real_ui_language),

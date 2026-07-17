@@ -19,6 +19,8 @@ class UiCommandKind(str, Enum):
     SHOW_TRASH = "show_trash"
     SHOW_PINNED = "show_pinned"
     SHOW_CONFIRMATION = "show_confirmation"
+    REFRESH_CURRENT = "refresh_current"
+    REFRESH_TAGS = "refresh_tags"
 
 
 @dataclass(frozen=True, slots=True)

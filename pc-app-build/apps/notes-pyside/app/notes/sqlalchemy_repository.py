@@ -10,6 +10,7 @@ from sqlalchemy import Engine, Select, create_engine, event, or_, select
 from sqlalchemy.orm import Session, sessionmaker
 
 from .commands import (
+    BatchUpdateTagsCommand,
     CreateNoteCommand,
     HardDeleteCommand,
     RestoreCommand,
@@ -216,6 +217,32 @@ class SqlAlchemyNoteRepository:
             )
         ).limit(safe_limit)
         return self._list(statement)
+
+    def update_tags_many(self, command: BatchUpdateTagsCommand) -> tuple[Note, ...]:
+        """Apply one tag operation to every active target in one transaction."""
+        with self._session_factory() as session, session.begin():
+            rows = self._require_rows(session, command.note_ids, expected_deleted=False)
+            now = utc_now_naive()
+            wanted = set(command.tags)
+            for row in rows:
+                current = list(_deserialize_tags(row.tags))
+                if command.operation == "add":
+                    merged = list(current)
+                    known = set(current)
+                    for tag in command.tags:
+                        if tag not in known:
+                            known.add(tag)
+                            merged.append(tag)
+                elif command.operation == "remove":
+                    merged = [tag for tag in current if tag not in wanted]
+                else:
+                    merged = list(command.tags)
+                row.tags = _serialize_tags(merged)
+                row.updated_at = now
+            session.flush()
+            by_id = {row.id: _to_domain(row) for row in rows}
+            result = tuple(by_id[note_id] for note_id in command.note_ids)
+        return result
 
     def set_pinned_many(self, command: SetPinnedCommand) -> tuple[Note, ...]:
         with self._session_factory() as session, session.begin():

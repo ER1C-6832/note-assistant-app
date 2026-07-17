@@ -115,9 +115,7 @@ async def _ask_yes(prompt: str) -> bool:
     return answer in {"y", "yes", "是", "1"}
 
 
-async def _run_scenario(
-    context, scenario: Scenario
-) -> tuple[dict[str, object], ToolProbeDecision]:
+async def _run_scenario(context, scenario: Scenario) -> tuple[dict[str, object], ToolProbeDecision]:
     coordinator = context.assistant_runtime.mcp_coordinator
     adapter = context.ui_command_adapter
     history_index = len(coordinator.lifecycle_history)
@@ -161,9 +159,7 @@ async def _run_scenario(
                 f"expected UI command {scenario.expected_ui_command} was not observed",
             )
         elif scenario.visual_question is not None:
-            visual_confirmed = await _ask_yes(
-                f"{scenario.visual_question} 输入 y 确认："
-            )
+            visual_confirmed = await _ask_yes(f"{scenario.visual_question} 输入 y 确认：")
             if not visual_confirmed:
                 decision = ToolProbeDecision(
                     "failed",
@@ -201,9 +197,7 @@ async def _run(context) -> int:
         timeout_seconds=CONNECT_TIMEOUT_SECONDS,
     )
     if not connected.is_connected:
-        message = (
-            connected.error.message if connected.error else "真实 WebSocket 未连接"
-        )
+        message = connected.error.message if connected.error else "真实 WebSocket 未连接"
         blocked = _environment_blocked(message)
         print(
             json.dumps(
@@ -322,8 +316,7 @@ async def _run(context) -> int:
         "ui_dispatch_count": context.ui_command_bus.active_dispatch_count,
     }
     terminal_clean = pending == [] and all(
-        value is False if key == "worker_alive" else value == 0
-        for key, value in terminal.items()
+        value is False if key == "worker_alive" else value == 0 for key, value in terminal.items()
     )
     if not terminal_clean and decision.exit_code == 0:
         decision = ToolProbeDecision(
@@ -385,9 +378,7 @@ def main() -> int:
                 exit_code = loop.run_until_complete(_run(context))
             finally:
                 if not context.lifecycle.is_closed:
-                    loop.run_until_complete(
-                        context.lifecycle.shutdown(timeout_seconds=10.0)
-                    )
+                    loop.run_until_complete(context.lifecycle.shutdown(timeout_seconds=10.0))
             app.quit()
             return exit_code
     except Exception as exc:

@@ -36,14 +36,10 @@ class NotesUiCommandAdapter(QObject):
             note_id = int(payload["note_id"])
             self._view_model.loadAll()
             if not await self._wait_query_idle():
-                return UiDispatchResult(
-                    False, "等待便签列表刷新超时", "ui_refresh_timeout"
-                )
+                return UiDispatchResult(False, "等待便签列表刷新超时", "ui_refresh_timeout")
             ids = self._view_model.currentNoteIds()
             if note_id not in ids:
-                return UiDispatchResult(
-                    False, "便签已不在活动列表中", "stale_ui_selection"
-                )
+                return UiDispatchResult(False, "便签已不在活动列表中", "stale_ui_selection")
             self._view_model.selectNote(ids.index(note_id))
         elif command.kind is UiCommandKind.SHOW_SEARCH:
             query = str(payload.get("query", "")).strip()
@@ -59,12 +55,19 @@ class NotesUiCommandAdapter(QObject):
             self._view_model.loadDeleted()
         elif command.kind is UiCommandKind.SHOW_PINNED:
             self._view_model.loadCategory("pinned")
+        elif command.kind is UiCommandKind.REFRESH_CURRENT:
+            self._view_model.refreshCurrentView()
+            self._view_model.tagsChanged.emit()
+        elif command.kind is UiCommandKind.REFRESH_TAGS:
+            self._view_model.tagsChanged.emit()
         else:
-            return UiDispatchResult(
-                False, "当前 UI 命令尚未实现", "ui_command_not_ready"
-            )
+            return UiDispatchResult(False, "当前 UI 命令尚未实现", "ui_command_not_ready")
 
-        self.navigationRequested.emit(command.kind.value, payload)
+        if command.kind not in {
+            UiCommandKind.REFRESH_CURRENT,
+            UiCommandKind.REFRESH_TAGS,
+        }:
+            self.navigationRequested.emit(command.kind.value, payload)
         self._command_history.append(command.kind.value)
         await asyncio.sleep(0)
         return UiDispatchResult(True, "桌面 UI 已切换")

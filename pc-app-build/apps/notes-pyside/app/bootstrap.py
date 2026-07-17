@@ -41,7 +41,7 @@ from .assistant.audio import (
 )
 from .assistant.controller import SystemRuntimeClock
 from .assistant.identity import LegacyPyXiaozhiIdentitySource
-from .assistant.mcp import Gate51ToolExecutor, UiCommandBus
+from .assistant.mcp import Gate52ToolExecutor, UiCommandBus
 from .lifecycle import ApplicationLifecycle
 from .notes import (
     DatabaseExecutor,
@@ -50,6 +50,7 @@ from .notes import (
     NoteQueryService,
     SqlAlchemyNoteRepository,
     TagCatalog,
+    TagCatalogService,
     create_session_factory,
     create_sqlite_engine,
     initialize_database,
@@ -90,6 +91,7 @@ class ApplicationContext:
     lifecycle: ApplicationLifecycle
     migration_result: MigrationResult
     tag_catalog: TagCatalog
+    tag_catalog_service: TagCatalogService
     notes_runtime: NotesRuntime
     assistant_runtime: AssistantRuntime
     notes_view_model: NotesViewModel
@@ -275,12 +277,13 @@ def create_application_context(
     tag_catalog.load()
 
     notes_runtime = create_notes_runtime(paths)
+    tag_catalog_service = TagCatalogService(tag_catalog, notes_runtime.note_query_service)
     notes_list_model = NoteListModel()
     deleted_notes_list_model = NoteListModel()
     notes_view_model = NotesViewModel(
         command_service=notes_runtime.note_command_service,
         query_service=notes_runtime.note_query_service,
-        tag_catalog=tag_catalog,
+        tag_catalog=tag_catalog_service,
         notes_model=notes_list_model,
         deleted_notes_model=deleted_notes_list_model,
     )
@@ -288,7 +291,12 @@ def create_application_context(
     ui_command_adapter = NotesUiCommandAdapter(notes_view_model)
     ui_command_bus.bind(ui_command_adapter)
     mcp_registry = ToolRegistry(
-        executor=Gate51ToolExecutor(notes_runtime.note_query_service, ui_command_bus)
+        executor=Gate52ToolExecutor(
+            notes_runtime.note_query_service,
+            notes_runtime.note_command_service,
+            tag_catalog_service,
+            ui_command_bus,
+        )
     )
     mcp_coordinator = McpCoordinator(mcp_registry)
     assistant_runtime = create_assistant_runtime(paths, mcp_coordinator=mcp_coordinator)
@@ -301,6 +309,10 @@ def create_application_context(
     lifecycle.register_async_closer(
         "database-executor",
         notes_runtime.database_executor.close,
+    )
+    lifecycle.register_async_closer(
+        "tag-catalog-service",
+        tag_catalog_service.close,
     )
     lifecycle.register_async_closer(
         "notes-view-model",
@@ -344,6 +356,7 @@ def create_application_context(
         lifecycle=lifecycle,
         migration_result=migration_result,
         tag_catalog=tag_catalog,
+        tag_catalog_service=tag_catalog_service,
         notes_runtime=notes_runtime,
         assistant_runtime=assistant_runtime,
         notes_view_model=notes_view_model,

@@ -103,6 +103,24 @@ class UpdateNoteCommand:
 
 
 @dataclass(frozen=True, slots=True)
+class BatchUpdateTagsCommand:
+    note_ids: tuple[int, ...]
+    operation: str
+    tags: tuple[str, ...]
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "note_ids", normalize_note_ids(self.note_ids))
+        operation = str(self.operation).strip().lower()
+        if operation not in {"add", "remove", "replace"}:
+            raise NoteValidationError("unsupported tag binding operation")
+        tags = normalize_tags(self.tags)
+        if not tags:
+            raise NoteValidationError("at least one tag is required")
+        object.__setattr__(self, "operation", operation)
+        object.__setattr__(self, "tags", tags)
+
+
+@dataclass(frozen=True, slots=True)
 class SetPinnedCommand:
     note_ids: tuple[int, ...]
     is_pinned: bool

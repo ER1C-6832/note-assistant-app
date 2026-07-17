@@ -129,9 +129,7 @@ async def _run_prompt(
     )
     return PromptOutcome(
         tool_status=tool_status,
-        turn_completed=(
-            final_state.conversation.last_completed_text_turn_token >= turn_token
-        ),
+        turn_completed=(final_state.conversation.last_completed_text_turn_token >= turn_token),
         assistant_reply_present=bool(final_state.conversation.last_assistant_text),
     )
 
@@ -251,9 +249,7 @@ async def _run() -> int:
             timeout_seconds=CONNECT_TIMEOUT_SECONDS,
         )
         if not connected.is_connected:
-            message = (
-                connected.error.message if connected.error else "真实 WebSocket 未连接"
-            )
+            message = connected.error.message if connected.error else "真实 WebSocket 未连接"
             blocked = _environment_blocked(message)
             decision = ToolProbeDecision(
                 "real_gate_blocked" if blocked else "failed",
@@ -280,9 +276,7 @@ async def _run() -> int:
                 )
                 decision = ToolProbeDecision("real_gate_complete", 0, None, None)
                 for tool_name, prompt in scenarios:
-                    outcome = await _run_prompt(
-                        controller, coordinator, prompt, tool_name
-                    )
+                    outcome = await _run_prompt(controller, coordinator, prompt, tool_name)
                     prompt_outcomes[tool_name] = {
                         "tool_status": outcome.tool_status,
                         "turn_completed": outcome.turn_completed,
