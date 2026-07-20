@@ -30,6 +30,7 @@ def main() -> int:
     parser.add_argument("--duration", type=float, default=10.0)
     parser.add_argument("--input-device-index", type=int)
     parser.add_argument("--cooldown-ms", type=int, default=1500)
+    parser.add_argument("--required-hits", type=int, default=2)
     args = parser.parse_args()
     module_available = importlib.util.find_spec("sherpa_onnx") is not None
     supplied = [
@@ -78,9 +79,9 @@ def main() -> int:
     )
 
     def prompt_ready() -> None:
+        hit_text = "一次" if args.required_hits == 1 else f"{args.required_hits} 次"
         print(
-            f"[Gate 6.0] 模型和麦克风已就绪。请在 {args.duration:g} 秒窗口内说两次唤醒词，"
-            f"两次间隔至少 {args.cooldown_ms / 1000:g} 秒；"
+            f"[Gate 6] 模型和麦克风已就绪。请在 {args.duration:g} 秒窗口内说{hit_text}唤醒词；"
             "不会保存或上传麦克风音频。",
             file=sys.stderr,
             flush=True,
@@ -94,6 +95,7 @@ def main() -> int:
             duration_seconds=args.duration,
             input_device_index=args.input_device_index,
             cooldown_ms=args.cooldown_ms,
+            required_hits=args.required_hits,
             ready_callback=prompt_ready,
         )
     except Gate60BackendUnavailable as exc:

@@ -1,0 +1,8 @@
+
+        {
+          "mac_address": "AA-BB-CC-DD-EE-FF",
+          "serial_number": "SN-LEGACY",
+          "hmac_key": "legacy-hmac",
+          "activation_status": true
+        }
+        

@@ -19,10 +19,17 @@ Rectangle {
         readonly property string selectedOutputDevicePublicName: ""
         readonly property string microphoneTestStatus: "not_run"
         readonly property string microphoneTestText: "尚未测试"
+        readonly property bool offlineKwsEnabled: false
+        readonly property string offlineKwsStatusText: "已关闭"
+        readonly property bool offlineKwsModelReady: false
+        readonly property string offlineKwsModelSummary: "尚未检查"
+        readonly property string offlineKwsWakePhrase: "小智"
+        readonly property string offlineKwsErrorCode: ""
         readonly property bool commandBusy: false
         function requestRefreshAudioDevices() {}
         function requestSelectAudioDevice(direction, mode, key) {}
         function requestMicrophoneTest() {}
+        function requestOfflineKwsEnabled(enabled) {}
     }
 
     function selectedIndex(items) {
@@ -60,6 +67,57 @@ Rectangle {
                 enabled: root.ready && !root.model.commandBusy
                 onClicked: root.model.requestRefreshAudioDevices()
             }
+        }
+
+        Rectangle {
+            Layout.fillWidth: true
+            implicitHeight: 1
+            color: "#E2E8F0"
+        }
+
+        RowLayout {
+            Layout.fillWidth: true
+
+            ColumnLayout {
+                Layout.fillWidth: true
+                spacing: 2
+
+                Label {
+                    text: "离线唤醒 · “" + root.model.offlineKwsWakePhrase + "”"
+                    color: "#334155"
+                    font.pixelSize: 11
+                    font.bold: true
+                }
+
+                Label {
+                    Layout.fillWidth: true
+                    text: root.model.offlineKwsStatusText
+                          + " · " + root.model.offlineKwsModelSummary
+                    color: root.model.offlineKwsModelReady ? "#64748B" : "#B45309"
+                    font.pixelSize: 10
+                    elide: Text.ElideRight
+                }
+            }
+
+            Switch {
+                id: offlineKwsSwitch
+                objectName: "assistantOfflineKwsSwitch"
+                checked: root.model.offlineKwsEnabled
+                enabled: root.ready && !root.model.commandBusy
+                onToggled: {
+                    if (root.ready && checked !== root.model.offlineKwsEnabled)
+                        root.model.requestOfflineKwsEnabled(checked)
+                }
+            }
+        }
+
+        Label {
+            Layout.fillWidth: true
+            visible: root.model.offlineKwsErrorCode.length > 0
+            text: "离线唤醒提示：" + root.model.offlineKwsErrorCode
+            color: "#B45309"
+            font.pixelSize: 10
+            wrapMode: Text.Wrap
         }
 
         Label {

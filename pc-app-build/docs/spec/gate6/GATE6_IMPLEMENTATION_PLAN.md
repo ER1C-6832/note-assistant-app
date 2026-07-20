@@ -149,6 +149,8 @@ Windows 必须真实执行。macOS 若当前无设备，只能记录 `pending_re
 
 ## 4. Gate 6.2 — Offline KWS and Owner Handoff
 
+实施状态：代码与 Automated/Fake 已交付；Windows Real 待本地运行并回填报告。
+
 ### 目标
 
 在 idle 状态以本地 KWS 唤醒一次 streaming session，并验证长期麦克风所有权、设备恢复和模型打包。

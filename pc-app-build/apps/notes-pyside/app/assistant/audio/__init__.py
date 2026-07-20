@@ -57,6 +57,18 @@ from .models import (
     PcmFrame,
     VoiceActivitySnapshot,
 )
+from .kws_model_registry import (
+    DEFAULT_KWS_MODEL_DIRECTORY,
+    DEFAULT_KWS_WAKE_PHRASE,
+    KwsModelFiles,
+    KwsModelRegistry,
+    KwsModelSnapshot,
+)
+from .offline_kws import (
+    LocalKwsCaptureRuntime,
+    OfflineKwsCoordinator,
+    OfflineKwsSnapshot,
+)
 from .opus_codec import OpusUnavailableError, PyAvOpusEncoder
 from .ports import (
     AudioCapturePort,
@@ -119,8 +131,14 @@ __all__ = [
     "FakeOpusEncoder",
     "KeywordSpotResult",
     "KeywordSpotterPort",
+    "KwsModelFiles",
+    "KwsModelRegistry",
+    "KwsModelSnapshot",
+    "LocalKwsCaptureRuntime",
     "MicrophoneLeaseCoordinator",
     "MicrophoneOwner",
+    "OfflineKwsCoordinator",
+    "OfflineKwsSnapshot",
     "OpusEncoderPort",
     "OpusUnavailableError",
     "PCM_INGRESS_CAPACITY",
@@ -139,4 +157,6 @@ __all__ = [
     "TimedPcmFrame",
     "VoiceActivityDetectorPort",
     "VoiceActivitySnapshot",
+    "DEFAULT_KWS_MODEL_DIRECTORY",
+    "DEFAULT_KWS_WAKE_PHRASE",
 ]

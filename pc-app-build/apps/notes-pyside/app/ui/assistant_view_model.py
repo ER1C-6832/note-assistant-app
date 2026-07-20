@@ -36,6 +36,7 @@ from ..assistant.audio.session_supervisor import (
     AudioSessionSnapshot,
     AudioSessionSupervisor,
 )
+from ..assistant.audio.offline_kws import OfflineKwsCoordinator, OfflineKwsSnapshot
 
 CommandFactory = Callable[[], Awaitable[None]]
 
@@ -86,6 +87,7 @@ class AssistantViewModel(QObject):
     developerChanged = Signal()
     preferencesChanged = Signal()
     audioDeviceChanged = Signal()
+    offlineKwsChanged = Signal()
     operationFailed = Signal(str, str)
 
     def __init__(
@@ -95,12 +97,17 @@ class AssistantViewModel(QObject):
         preferences_store: AssistantPreferencesStore | None = None,
         initial_preferences: AssistantPreferences | None = None,
         audio_session_supervisor: AudioSessionSupervisor | None = None,
+        offline_kws: OfflineKwsCoordinator | None = None,
     ) -> None:
         super().__init__()
         self._controller = controller
         self._state = controller.state
         self._preferences_store = preferences_store
         self._audio_session_supervisor = audio_session_supervisor
+        self._offline_kws = offline_kws
+        self._offline_kws_snapshot = (
+            offline_kws.snapshot if offline_kws is not None else OfflineKwsSnapshot()
+        )
         self._audio_session_snapshot = (
             audio_session_supervisor.snapshot
             if audio_session_supervisor is not None
@@ -117,6 +124,9 @@ class AssistantViewModel(QObject):
             audio_session_supervisor.subscribe(self._accept_audio_session)
             if audio_session_supervisor is not None
             else None
+        )
+        self._unsubscribe_kws = (
+            offline_kws.subscribe(self._accept_offline_kws) if offline_kws is not None else None
         )
         self._developer_expanded = False
         self._operation_error = ""
@@ -409,6 +419,50 @@ class AssistantViewModel(QObject):
             return "尚未测试"
         return f"峰值 {result.get('peak_abs', 0)} · RMS {result.get('rms', 0)}"
 
+    @Property(bool, notify=offlineKwsChanged)
+    def offlineKwsEnabled(self) -> bool:
+        return self._offline_kws_snapshot.enabled
+
+    @Property(str, notify=offlineKwsChanged)
+    def offlineKwsStatus(self) -> str:
+        return self._offline_kws_snapshot.status
+
+    @Property(str, notify=offlineKwsChanged)
+    def offlineKwsStatusText(self) -> str:
+        labels = {
+            "disabled": "已关闭",
+            "listening": "正在本地等待唤醒",
+            "handoff": "正在进入语音会话",
+            "model_unavailable": "模型不可用",
+            "error": "启动失败",
+            "paused_voice_mode": "请先切换到连续对话",
+            "paused_route": "等待麦克风恢复",
+            "paused_playback": "播放期间暂停",
+            "paused_capture": "语音会话期间暂停",
+            "paused_microphone_busy": "麦克风正在使用",
+            "paused_runtime_busy": "会话期间暂停",
+            "paused_disabled": "助手已关闭",
+            "paused_for_assistant": "正在交接麦克风",
+            "closed": "已关闭",
+        }
+        return labels.get(self._offline_kws_snapshot.status, self._offline_kws_snapshot.status)
+
+    @Property(bool, notify=offlineKwsChanged)
+    def offlineKwsModelReady(self) -> bool:
+        return self._offline_kws_snapshot.model_status == "ready"
+
+    @Property(str, notify=offlineKwsChanged)
+    def offlineKwsModelSummary(self) -> str:
+        return self._offline_kws_snapshot.model_summary
+
+    @Property(str, notify=offlineKwsChanged)
+    def offlineKwsWakePhrase(self) -> str:
+        return self._offline_kws_snapshot.wake_phrase
+
+    @Property(str, notify=offlineKwsChanged)
+    def offlineKwsErrorCode(self) -> str:
+        return self._offline_kws_snapshot.error_code or ""
+
     @Property(int, notify=stateChanged)
     def capturedAudioFrames(self) -> int:
         return self._state.audio.captured_frames
@@ -623,6 +677,17 @@ class AssistantViewModel(QObject):
             return
         self._schedule("microphone_test", supervisor.microphone_test)
 
+    @Slot(bool)
+    def requestOfflineKwsEnabled(self, enabled: bool) -> None:
+        coordinator = self._offline_kws
+        if coordinator is None:
+            self._set_operation_error("离线唤醒尚未初始化")
+            return
+        self._schedule(
+            "set_offline_kws_enabled",
+            lambda: coordinator.set_enabled(bool(enabled)),
+        )
+
     @Slot(float, float)
     def requestLauncherPosition(self, x_ratio: float, y_ratio: float) -> None:
         next_preferences = replace(
@@ -740,6 +805,9 @@ class AssistantViewModel(QObject):
         if self._unsubscribe_audio is not None:
             self._unsubscribe_audio()
             self._unsubscribe_audio = None
+        if self._unsubscribe_kws is not None:
+            self._unsubscribe_kws()
+            self._unsubscribe_kws = None
         tasks = tuple(task for task in self._tasks if not task.done())
         for task in tasks:
             task.cancel()
@@ -752,6 +820,8 @@ class AssistantViewModel(QObject):
         await self._controller.start()
         if self._audio_session_supervisor is not None:
             await self._audio_session_supervisor.start()
+        if self._offline_kws is not None:
+            await self._offline_kws.start()
         await self._controller.ensure_device_identity()
 
     def _accept_state(self, state: AssistantState) -> None:
@@ -765,6 +835,12 @@ class AssistantViewModel(QObject):
             return
         self._audio_session_snapshot = snapshot
         self.audioDeviceChanged.emit()
+
+    def _accept_offline_kws(self, snapshot: OfflineKwsSnapshot) -> None:
+        if self._closed:
+            return
+        self._offline_kws_snapshot = snapshot
+        self.offlineKwsChanged.emit()
 
     def _schedule(self, operation: str, factory: CommandFactory) -> None:
         if self._closed:

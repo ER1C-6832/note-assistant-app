@@ -7,7 +7,7 @@ import queue
 import struct
 import threading
 import time
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, replace
 
 from .models import (
@@ -73,6 +73,7 @@ class MicrophoneLeaseCoordinator:
         self._route_generation = 0
         self._route_generation_provider = route_generation_provider
         self._lock = asyncio.Lock()
+        self._wakeword_yield_handler: Callable[[], Awaitable[None]] | None = None
 
     @property
     def generation(self) -> int | None:
@@ -100,12 +101,47 @@ class MicrophoneLeaseCoordinator:
         if owner is MicrophoneOwner.NONE:
             raise ValueError("NONE cannot acquire the microphone")
         async with self._lock:
+            if (
+                self._generation == generation
+                and self._owner is owner
+                and self._route_generation == route_generation
+            ):
+                return True
+            should_yield_wakeword = (
+                owner is MicrophoneOwner.ASSISTANT_CAPTURE
+                and self._owner is MicrophoneOwner.WAKEWORD_KWS
+                and self._wakeword_yield_handler is not None
+            )
+            yield_handler = self._wakeword_yield_handler if should_yield_wakeword else None
+            if self._generation is not None and yield_handler is None:
+                return False
+        if yield_handler is not None:
+            await yield_handler()
+        async with self._lock:
+            if (
+                self._generation == generation
+                and self._owner is owner
+                and self._route_generation == route_generation
+            ):
+                return True
             if self._generation is not None:
                 return False
             self._generation = generation
             self._owner = owner
             self._route_generation = route_generation
             return True
+
+    def bind_wakeword_yield_handler(
+        self,
+        handler: Callable[[], Awaitable[None]] | None,
+    ) -> None:
+        """Bind the only in-process KWS preemption hook.
+
+        The callback executes outside the coordinator lock so it may stop the
+        KWS stream and release its generation without deadlocking.
+        """
+
+        self._wakeword_yield_handler = handler
 
     async def release(
         self,

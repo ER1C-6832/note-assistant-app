@@ -18,6 +18,10 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+kws = [
+    "numpy>=1.26,<3",
+    "sherpa-onnx>=1.12,<2",
+]
 dev = [
     "pytest>=7.0",
     "pytest-asyncio>=0.23",

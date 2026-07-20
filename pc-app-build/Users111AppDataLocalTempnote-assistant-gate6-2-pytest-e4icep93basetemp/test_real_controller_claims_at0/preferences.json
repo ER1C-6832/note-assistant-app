@@ -1,0 +1,15 @@
+{
+  "audio_input_device_id": null,
+  "audio_input_preference_mode": "follow_system_default",
+  "audio_output_device_id": null,
+  "audio_output_preference_mode": "follow_system_default",
+  "conversation_text_enabled": true,
+  "launcher_x_ratio": 1.0,
+  "launcher_y_ratio": 1.0,
+  "offline_kws_enabled": true,
+  "schema_version": 1,
+  "streaming_barge_in_enabled": false,
+  "streaming_idle_timeout_ms": 8000,
+  "text_input_enabled": true,
+  "voice_interaction_mode": "streaming_conversation"
+}

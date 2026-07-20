@@ -747,10 +747,13 @@ def run_live_sherpa_kws_probe(
     input_device_index: int | None = None,
     sample_rate_hz: int = 16_000,
     cooldown_ms: int = 1_500,
+    required_hits: int = 2,
     ready_callback: Callable[[], None] | None = None,
 ) -> dict[str, object]:
     if not 2.0 <= duration_seconds <= 60.0:
         raise ValueError("duration_seconds must be between 2 and 60")
+    if not 1 <= required_hits <= 10:
+        raise ValueError("required_hits must be between 1 and 10")
     model.validate()
     try:
         import numpy as np
@@ -853,7 +856,7 @@ def run_live_sherpa_kws_probe(
 
     terminal = tracker.terminal_dict()
     runtime_ok = not errors and tracker.is_terminal_zero()
-    hit_requirement_met = len(hits) >= 2
+    hit_requirement_met = len(hits) >= required_hits
     acceptance = {
         "accepted": runtime_ok and hit_requirement_met,
         "required_distinct_hits": 2,
@@ -862,9 +865,11 @@ def run_live_sherpa_kws_probe(
         "failure_code": (
             None
             if runtime_ok and hit_requirement_met
-            else ("kws_keyword_not_detected_twice" if runtime_ok else "kws_probe_runtime_failed")
+            else ("kws_keyword_not_detected" if runtime_ok else "kws_probe_runtime_failed")
         ),
     }
+    if required_hits != 2:
+        acceptance["required_distinct_hits"] = required_hits
     return {
         "status": (
             "probe_complete"

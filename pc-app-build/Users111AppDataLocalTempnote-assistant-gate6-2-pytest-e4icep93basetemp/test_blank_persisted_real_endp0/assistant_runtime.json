@@ -1,0 +1,1 @@
+{"schema_version":1,"identity":null,"real":{"ota_url":"","authorization_url":"","activation_version":"","websocket_url":"","websocket_token":"","activated":false,"activation_code":"","activation_challenge":"","activation_message":"","last_ota_json_redacted":""},"fake":{"websocket_url":"","websocket_token":"","activated":false,"last_activation_json_redacted":""}}

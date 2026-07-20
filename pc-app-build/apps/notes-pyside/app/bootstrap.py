@@ -35,6 +35,8 @@ from .assistant import (
 )
 from .assistant.audio import (
     AssistantAudioEngine,
+    KwsModelRegistry,
+    OfflineKwsCoordinator,
     PyAvOpusEncoder,
 )
 from .assistant.audio.session_supervisor import AudioSessionSupervisor
@@ -79,6 +81,7 @@ class AssistantRuntime:
     identity_manager: DeviceIdentityManager
     audio_session_supervisor: AudioSessionSupervisor
     audio_engine: AssistantAudioEngine
+    offline_kws: OfflineKwsCoordinator
     mcp_coordinator: McpCoordinator
     controller: AssistantController
     view_model: AssistantViewModel
@@ -245,6 +248,12 @@ def create_assistant_runtime(
         audio_engine=audio_engine,
         microphone_coordinator=audio_session_supervisor.microphone_coordinator,
     )
+    offline_kws = OfflineKwsCoordinator(
+        controller,
+        preferences_store,
+        audio_session_supervisor,
+        KwsModelRegistry(paths.models_dir / "kws"),
+    )
 
     async def interrupt_active_audio_for_route_change() -> None:
         await playback_coordinator.cancel("audio_route_changed")
@@ -263,6 +272,7 @@ def create_assistant_runtime(
         identity_manager=identity_manager,
         audio_session_supervisor=audio_session_supervisor,
         audio_engine=audio_engine,
+        offline_kws=offline_kws,
         mcp_coordinator=coordinator,
         controller=controller,
         view_model=AssistantViewModel(
@@ -270,6 +280,7 @@ def create_assistant_runtime(
             preferences_store=preferences_store,
             initial_preferences=preferences,
             audio_session_supervisor=audio_session_supervisor,
+            offline_kws=offline_kws,
         ),
     )
 
@@ -359,6 +370,10 @@ def create_application_context(
     lifecycle.register_async_closer(
         "assistant-view-model",
         assistant_runtime.view_model.close,
+    )
+    lifecycle.register_async_closer(
+        "assistant-offline-kws",
+        assistant_runtime.offline_kws.close,
     )
 
     engine = QQmlApplicationEngine()

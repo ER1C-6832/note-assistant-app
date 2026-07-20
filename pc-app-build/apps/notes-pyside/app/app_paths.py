@@ -55,6 +55,16 @@ class AppPaths:
     def assistant_preferences(self) -> Path:
         return self.data_dir / "assistant_preferences.json"
 
+    @property
+    def models_dir(self) -> Path:
+        return self.root / "models"
+
     def ensure_directories(self) -> None:
-        for path in (self.root, self.data_dir, self.logs_dir, self.backups_dir):
+        for path in (
+            self.root,
+            self.data_dir,
+            self.logs_dir,
+            self.backups_dir,
+            self.models_dir,
+        ):
             path.mkdir(parents=True, exist_ok=True)
