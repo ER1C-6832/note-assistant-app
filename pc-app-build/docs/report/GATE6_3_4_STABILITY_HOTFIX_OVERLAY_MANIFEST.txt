@@ -1,0 +1,13 @@
+Gate 6.3/6.4 emergency stability hotfix overlay
+
+APPLY_GATE6_3_4_STABILITY_HOTFIX.ps1
+VERIFY_GATE6_3_4_STABILITY_HOTFIX.ps1
+.gitignore
+apps/notes-pyside/app/bootstrap.py
+apps/notes-pyside/app/assistant/stability_guard.py
+apps/notes-pyside/app/ui/assistant_view_model.py
+apps/notes-pyside/app/qml/components/AssistantVoiceModeSettings.qml
+tests/gate6_3_4_hotfix/conftest.py
+tests/gate6_3_4_hotfix/test_gate6_3_4_stability_guard.py
+docs/report/GATE6_3_4_EMERGENCY_STABILITY_HOTFIX_REPORT.md
+docs/report/GATE6_3_4_STABILITY_HOTFIX_OVERLAY_MANIFEST.txt

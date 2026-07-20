@@ -41,6 +41,7 @@ from ..assistant.audio.barge_in import (
     AcousticBargeInCoordinator,
     AcousticBargeInSnapshot,
 )
+from ..assistant.stability_guard import NATIVE_BARGE_IN_DISABLED_ERROR_CODE
 
 CommandFactory = Callable[[], Awaitable[None]]
 
@@ -115,7 +116,10 @@ class AssistantViewModel(QObject):
         self._acoustic_barge_in_snapshot = (
             acoustic_barge_in.snapshot
             if acoustic_barge_in is not None
-            else AcousticBargeInSnapshot()
+            else AcousticBargeInSnapshot(
+                status="stability_guard",
+                error_code=NATIVE_BARGE_IN_DISABLED_ERROR_CODE,
+            )
         )
         self._offline_kws_snapshot = (
             offline_kws.snapshot if offline_kws is not None else OfflineKwsSnapshot()
@@ -508,6 +512,7 @@ class AssistantViewModel(QObject):
             "paused_disconnected": "等待助手连接",
             "paused_microphone_busy": "麦克风正在使用",
             "unavailable": "AEC 后端不可用",
+            "stability_guard": "稳定性保护：插话暂时停用",
             "error": "插话监听异常",
             "closed": "已关闭",
         }
@@ -707,6 +712,9 @@ class AssistantViewModel(QObject):
 
     @Slot(bool)
     def requestStreamingBargeInEnabled(self, enabled: bool) -> None:
+        if enabled and self._acoustic_barge_in is None:
+            self._set_operation_error("声学插话已因稳定性保护暂时停用")
+            return
         self._schedule(
             "set_streaming_barge_in",
             lambda: self._controller.set_streaming_barge_in_enabled(bool(enabled)),

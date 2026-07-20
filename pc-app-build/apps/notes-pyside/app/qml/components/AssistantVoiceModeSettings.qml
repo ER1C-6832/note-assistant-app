@@ -84,7 +84,7 @@ Rectangle {
                           ? root.model.acousticBargeInStatusText
                           : (root.model.acousticBargeInAvailable
                              ? "回复播放时允许直接说话打断"
-                             : "需要安装本地 AEC 音频处理组件")
+                             : root.model.acousticBargeInStatusText)
                     color: root.model.acousticBargeInErrorCode.length > 0
                            ? "#B45309" : "#94A3B8"
                     font.pixelSize: 10

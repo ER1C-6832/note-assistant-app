@@ -45,6 +45,10 @@ from .assistant.controller import SystemRuntimeClock
 from .assistant.identity import LegacyPyXiaozhiIdentitySource
 from .assistant.mcp import Gate53ToolExecutor, UiCommandBus
 from .assistant.playback.coordinator import PlaybackCoordinator
+from .assistant.stability_guard import (
+    NATIVE_BARGE_IN_PRODUCT_ENABLED,
+    apply_native_barge_in_stability_guard,
+)
 from .lifecycle import ApplicationLifecycle
 from .notes import (
     DatabaseExecutor,
@@ -83,7 +87,7 @@ class AssistantRuntime:
     audio_session_supervisor: AudioSessionSupervisor
     audio_engine: AssistantAudioEngine
     offline_kws: OfflineKwsCoordinator
-    acoustic_barge_in: AcousticBargeInCoordinator
+    acoustic_barge_in: AcousticBargeInCoordinator | None
     mcp_coordinator: McpCoordinator
     controller: AssistantController
     view_model: AssistantViewModel
@@ -192,6 +196,14 @@ def create_assistant_runtime(
     config_store = RuntimeConfigStore(paths.assistant_runtime_config)
     preferences_store = AssistantPreferencesStore(paths.assistant_preferences)
     preferences = preferences_store.load()
+    # Gate 6.3/6.4 wired an experimental in-process WebRTC APM capture monitor
+    # into the production playback callback.  On Windows the native PyAudio/APM
+    # lifetime can race with playback/session teardown and terminate the whole
+    # process without a Python exception.  Fail closed until the monitor is
+    # isolated or its native teardown has real soak evidence.  Persisting the
+    # rollback is intentional: an already-enabled preference must not reactivate
+    # the unstable path after an application restart.
+    preferences = apply_native_barge_in_stability_guard(preferences_store, preferences)
     legacy_source = LegacyPyXiaozhiIdentitySource.from_local_app_data()
     identity_manager = DeviceIdentityManager(
         DeviceIdentityStore(config_store),
@@ -256,11 +268,15 @@ def create_assistant_runtime(
         audio_session_supervisor,
         KwsModelRegistry(paths.models_dir / "kws"),
     )
-    acoustic_barge_in = AcousticBargeInCoordinator(
-        controller,
-        audio_session_supervisor,
-        audio_engine,
-        playback_coordinator,
+    acoustic_barge_in = (
+        AcousticBargeInCoordinator(
+            controller,
+            audio_session_supervisor,
+            audio_engine,
+            playback_coordinator,
+        )
+        if NATIVE_BARGE_IN_PRODUCT_ENABLED
+        else None
     )
 
     async def interrupt_active_audio_for_route_change() -> None:
@@ -385,10 +401,11 @@ def create_application_context(
         "assistant-offline-kws",
         assistant_runtime.offline_kws.close,
     )
-    lifecycle.register_async_closer(
-        "assistant-acoustic-barge-in",
-        assistant_runtime.acoustic_barge_in.close,
-    )
+    if assistant_runtime.acoustic_barge_in is not None:
+        lifecycle.register_async_closer(
+            "assistant-acoustic-barge-in",
+            assistant_runtime.acoustic_barge_in.close,
+        )
 
     engine = QQmlApplicationEngine()
     context = engine.rootContext()
