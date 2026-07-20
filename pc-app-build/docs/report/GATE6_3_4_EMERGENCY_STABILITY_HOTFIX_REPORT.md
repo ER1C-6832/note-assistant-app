@@ -21,7 +21,9 @@ not allowed onto the normal conversation path.
 
 At startup, a previously persisted `streaming_barge_in_enabled=true` is atomically rewritten to
 `false`. If the preference file cannot be rewritten, the in-memory preference is still forced to
-`false` so the application can start safely.
+`false` so the application can start safely. The rewrite saves the complete already-loaded
+preference snapshot, preserving KWS, auto-connect, device route, and UI preferences even when the
+preference file has not been created yet.
 
 This guard does not alter:
 
@@ -40,6 +42,11 @@ The Gate 6.3/6.4 commit also contained a generated pytest temporary tree whose n
 `Users...AppDataLocalTempnote-assistant-...-pytest-`. The hotfix adds a targeted ignore rule and
 `APPLY_GATE6_3_4_STABILITY_HOTFIX.ps1` removes only matching directories under `pc-app-build`.
 Running `git add -A` after the cleanup stages their deletion from the next commit.
+
+The pre-existing deleted-note/tag regression now waits for the hard-delete mutation to become
+terminal before issuing the next delete command. This matches the QML contract, which disables tag
+actions while `mutationBusy` is true, and removes a full-suite-only timing race without weakening
+the tag usage assertion.
 
 ## Acceptance
 

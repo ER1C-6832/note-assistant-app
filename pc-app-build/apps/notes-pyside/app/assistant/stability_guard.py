@@ -22,7 +22,11 @@ def apply_native_barge_in_stability_guard(
 
     if NATIVE_BARGE_IN_PRODUCT_ENABLED or not preferences.streaming_barge_in_enabled:
         return preferences
+    guarded = replace(preferences, streaming_barge_in_enabled=False)
     try:
-        return store.update_streaming_barge_in_enabled(False)
+        # Save the already-loaded complete snapshot.  Calling an update helper
+        # here would reload an empty/new file and could reset unrelated KWS or
+        # auto-connect preferences to their defaults.
+        return store.save(guarded)
     except AssistantPreferencesError:
-        return replace(preferences, streaming_barge_in_enabled=False)
+        return guarded

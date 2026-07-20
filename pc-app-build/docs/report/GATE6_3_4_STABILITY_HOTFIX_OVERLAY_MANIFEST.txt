@@ -9,5 +9,6 @@ apps/notes-pyside/app/ui/assistant_view_model.py
 apps/notes-pyside/app/qml/components/AssistantVoiceModeSettings.qml
 tests/gate6_3_4_hotfix/conftest.py
 tests/gate6_3_4_hotfix/test_gate6_3_4_stability_guard.py
+tests/gate1_5/test_notes_view_model.py
 docs/report/GATE6_3_4_EMERGENCY_STABILITY_HOTFIX_REPORT.md
 docs/report/GATE6_3_4_STABILITY_HOTFIX_OVERLAY_MANIFEST.txt

@@ -233,7 +233,8 @@ async def test_deleted_note_tag_usage_and_hard_delete_refresh_without_restart(
 
     vm.requestBulkHardDeleteDeleted([7])
     await wait_until(
-        lambda: next(item for item in vm.tagItems if item["name"] == "客户")["deletable"]
+        lambda: not vm.mutationBusy
+        and next(item for item in vm.tagItems if item["name"] == "客户")["deletable"]
     )
     customer = next(item for item in vm.tagItems if item["name"] == "客户")
     assert customer["inUse"] is False

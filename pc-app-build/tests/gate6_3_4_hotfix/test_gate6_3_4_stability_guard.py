@@ -30,10 +30,10 @@ def test_guard_still_fails_closed_when_preference_rewrite_fails(monkeypatch, tmp
     store = AssistantPreferencesStore(tmp_path / "preferences.json")
     enabled = replace(AssistantPreferences(), streaming_barge_in_enabled=True)
 
-    def fail(_enabled: bool):
+    def fail(_preferences: AssistantPreferences):
         raise AssistantPreferencesError("simulated read-only preference file")
 
-    monkeypatch.setattr(store, "update_streaming_barge_in_enabled", fail)
+    monkeypatch.setattr(store, "save", fail)
 
     guarded = apply_native_barge_in_stability_guard(store, enabled)
 
