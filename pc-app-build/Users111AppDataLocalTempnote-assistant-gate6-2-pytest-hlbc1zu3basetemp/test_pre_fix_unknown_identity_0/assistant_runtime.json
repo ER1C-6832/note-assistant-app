@@ -1,0 +1,29 @@
+{
+  "fake": {
+    "activated": false,
+    "last_activation_json_redacted": "",
+    "websocket_token": "",
+    "websocket_url": ""
+  },
+  "identity": {
+    "client_id": "old-pc-client",
+    "device_id": "10:20:30:40:50:60",
+    "generation": 2,
+    "hmac_key": "old-pc-hmac",
+    "serial_number": "SN-OLD-PC",
+    "source": "legacy_config"
+  },
+  "real": {
+    "activated": false,
+    "activation_challenge": "",
+    "activation_code": "",
+    "activation_message": "",
+    "activation_version": "v2",
+    "authorization_url": "https://xiaozhi.me/",
+    "last_ota_json_redacted": "",
+    "ota_url": "https://api.tenclass.net/xiaozhi/ota/",
+    "websocket_token": "",
+    "websocket_url": ""
+  },
+  "schema_version": 1
+}

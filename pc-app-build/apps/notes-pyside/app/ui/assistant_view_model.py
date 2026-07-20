@@ -232,6 +232,10 @@ class AssistantViewModel(QObject):
     def textInputEnabled(self) -> bool:
         return self._preferences.text_input_enabled
 
+    @Property(bool, notify=preferencesChanged)
+    def assistantAutoConnectEnabled(self) -> bool:
+        return self._preferences.assistant_auto_connect_enabled
+
     @Property(float, notify=preferencesChanged)
     def launcherXRatio(self) -> float:
         return self._preferences.launcher_x_ratio
@@ -441,6 +445,7 @@ class AssistantViewModel(QObject):
             "paused_capture": "语音会话期间暂停",
             "paused_microphone_busy": "麦克风正在使用",
             "paused_runtime_busy": "会话期间暂停",
+            "paused_disconnected": "等待助手连接",
             "paused_disabled": "助手已关闭",
             "paused_for_assistant": "正在交接麦克风",
             "closed": "已关闭",
@@ -597,16 +602,29 @@ class AssistantViewModel(QObject):
 
         self._schedule("set_enabled", command)
 
+    @Slot(bool)
+    def requestAssistantAutoConnectEnabled(self, enabled: bool) -> None:
+        async def command() -> None:
+            store = self._preferences_store
+            if store is None:
+                raise RuntimeError("助手偏好存储尚未初始化")
+            saved = await asyncio.to_thread(
+                store.update_assistant_auto_connect_enabled,
+                bool(enabled),
+            )
+            self._preferences = replace(
+                self._preferences,
+                assistant_auto_connect_enabled=saved.assistant_auto_connect_enabled,
+            )
+            self.preferencesChanged.emit()
+            if saved.assistant_auto_connect_enabled:
+                await self._ensure_enabled_and_connected()
+
+        self._schedule("set_assistant_auto_connect", command)
+
     @Slot()
     def requestConnect(self) -> None:
-        async def command() -> None:
-            if not self._controller.state.enabled:
-                await self._controller.enable_assistant()
-            if not self._controller.state.identity.identity_ready:
-                await self._controller.ensure_device_identity()
-            await self._controller.connect()
-
-        self._schedule("connect", command)
+        self._schedule("connect", self._ensure_enabled_and_connected)
 
     @Slot()
     def requestDisconnect(self) -> None:
@@ -822,7 +840,23 @@ class AssistantViewModel(QObject):
             await self._audio_session_supervisor.start()
         if self._offline_kws is not None:
             await self._offline_kws.start()
+        if not self._controller.state.enabled:
+            await self._controller.enable_assistant()
         await self._controller.ensure_device_identity()
+        if self._preferences.assistant_auto_connect_enabled:
+            await self._ensure_enabled_and_connected()
+
+    async def _ensure_enabled_and_connected(self) -> None:
+        if not self._controller.state.enabled:
+            await self._controller.enable_assistant()
+        if not self._controller.state.identity.identity_ready:
+            await self._controller.ensure_device_identity()
+        state = self._controller.state
+        if (
+            not state.is_connected
+            and state.connection.status is AssistantConnectionStatus.DISCONNECTED
+        ):
+            await self._controller.connect()
 
     def _accept_state(self, state: AssistantState) -> None:
         if self._closed:

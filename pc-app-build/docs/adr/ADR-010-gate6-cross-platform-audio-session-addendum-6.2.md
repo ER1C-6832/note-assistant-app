@@ -1,6 +1,6 @@
 # ADR-010 Addendum: Gate 6.2 Offline KWS Ownership
 
-状态：Implemented; Windows Real acceptance pending  
+状态：Implemented; Windows acceptance correction delivered; corrected rerun pending  
 实施基线：`d02b928ef4e71b6ab8019423f1f8fdcd3064e3e6`
 
 ## Decision
@@ -15,11 +15,14 @@
 8. Cooldown and debounce reject duplicate hits. Reconciliation is coalesced so terminal notifications resume KWS exactly once.
 9. Model/backend errors affect only offline wake. The existing button and PTT paths remain available.
 10. Settings expose enablement, wake phrase and public model/status summaries; private model paths are not sent to QML.
+11. The assistant service is enabled on startup and auto-connect is default-on/configurable. Offline KWS remains default-off and cannot run until the transport is connected.
+12. Lease changes are observable lifecycle facts. Reconciliation retains notifications received while another reconciliation is active, preventing a terminal lease release from being lost.
 
 ## Consequences
 
 - Long-lived idle microphone use is explicit, default-off and represented by `WAKEWORD_KWS`.
 - No idle PCM enters Opus or transport uplink code.
+- KWS capture stops, joins and drains before ownership transfer; assistant capture always starts with its own fresh bounded queue.
 - KWS cannot be reused as the Gate 6.4 playback interruption detector.
 - Gate 6.3 may insert processed capture behind the frozen KWS/runtime ports without changing ownership semantics.
 - macOS remains deferred; this implementation claims Windows readiness only after the supplied Real acceptance succeeds.

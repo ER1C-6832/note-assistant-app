@@ -103,7 +103,8 @@ async def test_session_terminal_resumes_once_and_cooldown_rejects_duplicate(tmp_
             supervisor.snapshot.route_generation,
         )
         controller.finish_session()
-        await _wait_until(lambda: len(factory.instances) == 2)
+        await _wait_until(lambda: len(factory.instances) >= 2 and factory.instances[-1].active)
+        assert len(factory.instances) == 2
         assert coordinator.snapshot.resume_count == 2
 
         factory.instances[-1].emit_hit(at_ns=first_ns + 100_000_000)
@@ -196,8 +197,9 @@ async def test_playback_pauses_kws_and_resumes_one_generation(tmp_path: Path) ->
         assert coordinator.snapshot.status == "paused_playback"
 
         supervisor.set_playback_activity(PlaybackActivity.INACTIVE)
-        await _wait_until(lambda: len(factory.instances) == 2)
+        await _wait_until(lambda: len(factory.instances) >= 2 and factory.instances[-1].active)
         assert factory.instances[-1].active is True
+        assert len(factory.instances) == 2
         assert coordinator.snapshot.resume_count == 2
     finally:
         await coordinator.close()
@@ -217,10 +219,11 @@ async def test_route_generation_change_restarts_kws_once(tmp_path: Path) -> None
             DevicePreferenceMode.PIN_SPECIFIC_DEVICE,
             str(usb["key"]),
         )
-        await _wait_until(lambda: len(factory.instances) == 2)
+        await _wait_until(lambda: len(factory.instances) >= 2 and factory.instances[-1].active)
         assert supervisor.snapshot.route_generation > first_route_generation
         assert factory.instances[0].active is False
-        assert factory.instances[1].active is True
+        assert factory.instances[-1].active is True
+        assert len(factory.instances) == 2
         assert coordinator.snapshot.resume_count == 2
     finally:
         await coordinator.close()

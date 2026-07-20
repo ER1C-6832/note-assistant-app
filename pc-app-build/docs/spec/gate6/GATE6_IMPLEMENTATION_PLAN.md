@@ -4,7 +4,7 @@
 阶段数：5（6.0～6.4）  
 原则：每阶段必须可独立覆盖、回滚、验收；不得把全部音频风险留到 6.4。
 
-当前进度（2026-07-17）：Gate 6.0 `Accepted-Windows`，Gate 6.1 implementation complete / Windows real acceptance pending；macOS evidence deferred。Gate 6.2～6.4 未开始。
+当前进度（2026-07-20）：Gate 6.0 `Accepted-Windows`，Gate 6.1 已完成；Gate 6.2 代码、Automated/Fake 与 Windows 修正版已交付，等待修正版 Windows cumulative/Real 回填；Gate 6.3～6.4 未开始；macOS evidence deferred。
 
 ## 1. 共同规则
 

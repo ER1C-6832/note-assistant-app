@@ -74,6 +74,7 @@ class MicrophoneLeaseCoordinator:
         self._route_generation_provider = route_generation_provider
         self._lock = asyncio.Lock()
         self._wakeword_yield_handler: Callable[[], Awaitable[None]] | None = None
+        self._listeners: set[Callable[[], None]] = set()
 
     @property
     def generation(self) -> int | None:
@@ -129,7 +130,16 @@ class MicrophoneLeaseCoordinator:
             self._generation = generation
             self._owner = owner
             self._route_generation = route_generation
-            return True
+        self._notify_listeners()
+        return True
+
+    def subscribe(self, listener: Callable[[], None]) -> Callable[[], None]:
+        self._listeners.add(listener)
+
+        def unsubscribe() -> None:
+            self._listeners.discard(listener)
+
+        return unsubscribe
 
     def bind_wakeword_yield_handler(
         self,
@@ -159,7 +169,8 @@ class MicrophoneLeaseCoordinator:
             self._generation = None
             self._owner = MicrophoneOwner.NONE
             self._route_generation = 0
-            return True
+        self._notify_listeners()
+        return True
 
     async def transfer(
         self,
@@ -180,13 +191,17 @@ class MicrophoneLeaseCoordinator:
             self._generation = next_generation
             self._owner = next_owner
             self._route_generation = route_generation
-            return True
+        self._notify_listeners()
+        return True
 
     async def force_release(self) -> None:
         async with self._lock:
+            changed = self._generation is not None or self._owner is not MicrophoneOwner.NONE
             self._generation = None
             self._owner = MicrophoneOwner.NONE
             self._route_generation = 0
+        if changed:
+            self._notify_listeners()
 
     def public_dict(self) -> dict[str, object]:
         return {
@@ -194,6 +209,13 @@ class MicrophoneLeaseCoordinator:
             "lease_generation": self._generation,
             "route_generation": self._route_generation,
         }
+
+    def _notify_listeners(self) -> None:
+        for listener in tuple(self._listeners):
+            try:
+                listener()
+            except Exception:
+                continue
 
 
 class AssistantAudioEngine:

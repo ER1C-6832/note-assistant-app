@@ -838,6 +838,10 @@ def run_live_sherpa_kws_probe(
                     )
                     last_hit_ns = now_ns
                 spotter.reset_stream(stream)
+                if len(hits) >= required_hits:
+                    break
+            if len(hits) >= required_hits:
+                break
     except Exception as exc:
         errors.append(f"kws_live_failed:{type(exc).__name__}")
     finally:

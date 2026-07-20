@@ -22,6 +22,8 @@ from ..notes import (
     SoftDeleteCommand,
     TagCatalog,
     TagCatalogError,
+    TagInUseError,
+    TagValidationError,
     UpdateNoteCommand,
 )
 from .note_list_model import NoteListModel
@@ -474,6 +476,7 @@ class NotesViewModel(QObject):
             self._error_message = ""
             self.stateChanged.emit()
             self.statusChanged.emit()
+            await self._refresh_known_used_tags()
 
         async def guarded() -> None:
             try:
@@ -503,19 +506,18 @@ class NotesViewModel(QObject):
             self._set_mutation_busy(True)
             try:
                 result = await execute()
+                self._status_message = success_message
+                self._error_message = ""
+                self.statusChanged.emit()
+                succeeded(result)
+                await self._refresh_known_used_tags()
+                self.refreshCurrentView()
             except asyncio.CancelledError:
                 return
             except Exception as exc:
                 self._fail(operation, _error_message(exc))
-                return
             finally:
                 self._set_mutation_busy(False)
-
-            self._status_message = success_message
-            self._error_message = ""
-            self.statusChanged.emit()
-            succeeded(result)
-            self.refreshCurrentView()
 
         self._mutation_task = self._create_task(operation, run())
 
@@ -600,6 +602,18 @@ class NotesViewModel(QObject):
             # inUse/deletable can still change when a known tag appears in a note.
             self.tagsChanged.emit()
 
+    async def _refresh_known_used_tags(self) -> None:
+        active, deleted = await asyncio.gather(
+            self._query_service.list_all(),
+            self._query_service.list_deleted(),
+        )
+        used = {tag for note in (*active, *deleted) for tag in note.tags}
+        previous = self._known_used_tags
+        self._known_used_tags = used
+        additions = await asyncio.to_thread(self._tag_catalog.observe, used)
+        if used != previous or additions:
+            self.tagsChanged.emit()
+
     def _set_query_busy(self, value: bool) -> None:
         if self._query_busy == value:
             return
@@ -650,6 +664,10 @@ def _coerce_ids(values: Any) -> tuple[int, ...]:
 
 
 def _error_message(exc: Exception) -> str:
+    if isinstance(exc, TagInUseError):
+        return f"标签“{exc.tag}”仍被便签引用，暂时不能删除"
+    if isinstance(exc, TagValidationError):
+        return "该标签受保护或不是可删除的自定义标签"
     if isinstance(exc, (NoteServiceError, TagCatalogError, TypeError, ValueError)):
         return str(exc)
     return "便签操作失败，请查看日志后重试"

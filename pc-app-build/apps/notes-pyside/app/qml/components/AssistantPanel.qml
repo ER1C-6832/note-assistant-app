@@ -146,17 +146,10 @@ Rectangle {
                 }
             }
 
-            Switch {
-                id: enabledSwitch
-                enabled: root.ready && !root.model.commandBusy
-                checked: root.ready && root.model.enabled
-                Accessible.name: "启用小智助手"
-                onToggled: {
-                    if (!root.ready) return
-                    if (checked !== root.model.enabled) {
-                        root.model.requestSetEnabled(checked)
-                    }
-                }
+            Label {
+                text: root.ready && root.model.enabled ? "已启用" : "初始化中"
+                color: root.ready && root.model.enabled ? "#047857" : "#64748B"
+                font.pixelSize: 11
             }
         }
 

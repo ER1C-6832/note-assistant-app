@@ -1,6 +1,6 @@
 param(
     [string]$ModelDir = "",
-    [double]$Duration = 15.0,
+    [double]$Duration = 30.0,
     [int]$InputDeviceIndex = -1
 )
 

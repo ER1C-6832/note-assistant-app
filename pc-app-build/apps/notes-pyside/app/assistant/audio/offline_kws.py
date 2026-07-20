@@ -342,9 +342,11 @@ class OfflineKwsCoordinator:
         self._last_pause_ns: int | None = None
         self._loop: asyncio.AbstractEventLoop | None = None
         self._reconcile_task: asyncio.Task[None] | None = None
+        self._reconcile_requested = False
         self._operation_lock = asyncio.Lock()
         self._unsubscribe_state: Callable[[], None] | None = None
         self._unsubscribe_audio: Callable[[], None] | None = None
+        self._unsubscribe_lease: Callable[[], None] | None = None
         self._started = False
         self._closed = False
 
@@ -377,6 +379,7 @@ class OfflineKwsCoordinator:
         self._loop = asyncio.get_running_loop()
         self._unsubscribe_state = self._controller.subscribe(self._on_state)
         self._unsubscribe_audio = self._supervisor.subscribe(self._on_audio)
+        self._unsubscribe_lease = self._supervisor.microphone_coordinator.subscribe(self._on_lease)
         self._supervisor.microphone_coordinator.bind_wakeword_yield_handler(
             self.yield_to_assistant_capture
         )
@@ -441,6 +444,7 @@ class OfflineKwsCoordinator:
         if self._closed:
             return
         self._closed = True
+        self._reconcile_requested = False
         task = self._reconcile_task
         self._reconcile_task = None
         if task is not None and task is not asyncio.current_task() and not task.done():
@@ -455,6 +459,9 @@ class OfflineKwsCoordinator:
         if self._unsubscribe_audio is not None:
             self._unsubscribe_audio()
             self._unsubscribe_audio = None
+        if self._unsubscribe_lease is not None:
+            self._unsubscribe_lease()
+            self._unsubscribe_lease = None
         self._started = False
         self._listeners.clear()
 
@@ -634,7 +641,7 @@ class OfflineKwsCoordinator:
         if not state.enabled or self._controller.closed:
             return False, "paused_disabled"
         if not state.is_connected or state.phase is not AssistantPhase.CONNECTED:
-            return False, "paused_runtime_busy"
+            return False, "paused_disconnected"
         if (
             state.conversation.preferred_voice_mode
             is not VoiceInteractionMode.STREAMING_CONVERSATION
@@ -664,6 +671,9 @@ class OfflineKwsCoordinator:
     def _on_audio(self, _snapshot: AudioSessionSnapshot) -> None:
         self._schedule_reconcile()
 
+    def _on_lease(self) -> None:
+        self._schedule_reconcile()
+
     def _schedule_reconcile(self) -> None:
         if self._closed or not self._started:
             return
@@ -676,10 +686,14 @@ class OfflineKwsCoordinator:
             loop.call_soon_threadsafe(self._ensure_reconcile_task)
 
     def _ensure_reconcile_task(self) -> None:
+        self._reconcile_requested = True
         task = self._reconcile_task
         if task is not None and not task.done():
             return
-        task = asyncio.create_task(self.reconcile(), name="assistant-kws-reconcile")
+        task = asyncio.create_task(
+            self._reconcile_until_stable(),
+            name="assistant-kws-reconcile",
+        )
         self._reconcile_task = task
 
         def completed(done: asyncio.Task[None]) -> None:
@@ -687,6 +701,12 @@ class OfflineKwsCoordinator:
                 self._reconcile_task = None
 
         task.add_done_callback(completed)
+
+    async def _reconcile_until_stable(self) -> None:
+        while self._reconcile_requested and not self._closed:
+            self._reconcile_requested = False
+            await self.reconcile()
+            await asyncio.sleep(0)
 
     def _notify(self) -> None:
         snapshot = self.snapshot

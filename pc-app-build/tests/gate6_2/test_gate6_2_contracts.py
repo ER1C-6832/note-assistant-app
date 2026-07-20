@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import asyncio
 
 import pytest
 
@@ -13,8 +14,82 @@ from app.assistant.preferences import AssistantPreferencesStore
 def test_offline_kws_is_default_off_and_round_trips(tmp_path: Path) -> None:
     store = AssistantPreferencesStore(tmp_path / "preferences.json")
     assert store.load().offline_kws_enabled is False
+    assert store.load().assistant_auto_connect_enabled is True
     assert store.update_offline_kws_enabled(True).offline_kws_enabled is True
     assert store.load().offline_kws_enabled is True
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("auto_connect", (True, False))
+async def test_assistant_is_enabled_on_start_and_auto_connect_is_configurable(
+    tmp_path: Path,
+    auto_connect: bool,
+) -> None:
+    pytest.importorskip("PySide6.QtCore")
+    from app.assistant import AssistantController, DeviceIdentity
+    from app.assistant.testing import OpenSucceeded, ScriptedFakeTransport
+    from app.ui.assistant_view_model import AssistantViewModel
+
+    class IdentityManager:
+        async def ensure_identity(self):
+            return DeviceIdentity(
+                device_id="38:00:00:00:00:62",
+                client_id="gate6-2-auto-connect",
+                serial_number="gate6-2-auto-connect",
+                hmac_key="gate6-2-auto-connect",
+                generation=1,
+                source="test",
+            )
+
+        async def reset_identity(self):
+            return await self.ensure_identity()
+
+    store = AssistantPreferencesStore(tmp_path / "preferences.json")
+    store.update_assistant_auto_connect_enabled(auto_connect)
+    transport = ScriptedFakeTransport(
+        open_steps=(OpenSucceeded(session_id="gate6-2-auto-connect"),)
+    )
+    controller = AssistantController(
+        transport=transport,
+        clock=transport.clock,
+        identity_manager=IdentityManager(),
+    )
+    view_model = AssistantViewModel(
+        controller,
+        preferences_store=store,
+        initial_preferences=store.load(),
+    )
+    try:
+        await controller.use_fake_runtime()
+        view_model.initialize()
+        await controller.wait_for_state(lambda state: state.enabled)
+        if auto_connect:
+            await controller.wait_for_state(lambda state: state.is_connected)
+        else:
+            await asyncio.sleep(0.02)
+            assert controller.state.is_connected is False
+        assert controller.state.enabled is True
+    finally:
+        await view_model.close()
+        await controller.shutdown()
+
+
+def test_primary_panel_has_no_assistant_enable_switch() -> None:
+    root = Path(__file__).resolve().parents[2]
+    panel = (
+        root / "apps" / "notes-pyside" / "app" / "qml" / "components" / "AssistantPanel.qml"
+    ).read_text(encoding="utf-8")
+    settings = (
+        root
+        / "apps"
+        / "notes-pyside"
+        / "app"
+        / "qml"
+        / "components"
+        / "AssistantAudioDeviceSettings.qml"
+    ).read_text(encoding="utf-8")
+    assert "id: enabledSwitch" not in panel
+    assert "assistantAutoConnectSwitch" in settings
 
 
 def test_model_registry_distinguishes_missing_invalid_and_ready(tmp_path: Path) -> None:

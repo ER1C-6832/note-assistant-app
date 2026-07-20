@@ -30,6 +30,7 @@ class AssistantPreferences:
     voice_interaction_mode: VoiceInteractionMode = VoiceInteractionMode.HOLD_TO_TALK
     streaming_idle_timeout_ms: int = DEFAULT_STREAMING_IDLE_TIMEOUT_MS
     streaming_barge_in_enabled: bool = False
+    assistant_auto_connect_enabled: bool = True
     offline_kws_enabled: bool = False
     conversation_text_enabled: bool = True
     text_input_enabled: bool = True
@@ -128,6 +129,11 @@ class AssistantPreferencesStore:
 
     def update_offline_kws_enabled(self, enabled: bool) -> AssistantPreferences:
         return self.update(lambda current: replace(current, offline_kws_enabled=bool(enabled)))
+
+    def update_assistant_auto_connect_enabled(self, enabled: bool) -> AssistantPreferences:
+        return self.update(
+            lambda current: replace(current, assistant_auto_connect_enabled=bool(enabled))
+        )
 
     def update_launcher_position(self, x_ratio: float, y_ratio: float) -> AssistantPreferences:
         return self.update(
@@ -255,6 +261,10 @@ def _preferences_from_json(payload: object) -> AssistantPreferences:
         streaming_barge_in_enabled=_safe_bool(
             payload.get("streaming_barge_in_enabled"),
             default=False,
+        ),
+        assistant_auto_connect_enabled=_safe_bool(
+            payload.get("assistant_auto_connect_enabled"),
+            default=True,
         ),
         offline_kws_enabled=_safe_bool(
             payload.get("offline_kws_enabled"),

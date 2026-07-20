@@ -26,10 +26,12 @@ Rectangle {
         readonly property string offlineKwsWakePhrase: "小智"
         readonly property string offlineKwsErrorCode: ""
         readonly property bool commandBusy: false
+        readonly property bool assistantAutoConnectEnabled: true
         function requestRefreshAudioDevices() {}
         function requestSelectAudioDevice(direction, mode, key) {}
         function requestMicrophoneTest() {}
         function requestOfflineKwsEnabled(enabled) {}
+        function requestAssistantAutoConnectEnabled(enabled) {}
     }
 
     function selectedIndex(items) {
@@ -107,6 +109,40 @@ Rectangle {
                 onToggled: {
                     if (root.ready && checked !== root.model.offlineKwsEnabled)
                         root.model.requestOfflineKwsEnabled(checked)
+                }
+            }
+        }
+
+        RowLayout {
+            Layout.fillWidth: true
+
+            ColumnLayout {
+                Layout.fillWidth: true
+                spacing: 1
+
+                Label {
+                    text: "启动时自动连接助手"
+                    color: "#334155"
+                    font.pixelSize: 11
+                    font.bold: true
+                }
+
+                Label {
+                    Layout.fillWidth: true
+                    text: "助手默认启用；关闭此项后仅不再自动连接"
+                    color: "#64748B"
+                    font.pixelSize: 10
+                    wrapMode: Text.Wrap
+                }
+            }
+
+            Switch {
+                objectName: "assistantAutoConnectSwitch"
+                checked: root.model.assistantAutoConnectEnabled
+                enabled: root.ready && !root.model.commandBusy
+                onToggled: {
+                    if (root.ready && checked !== root.model.assistantAutoConnectEnabled)
+                        root.model.requestAssistantAutoConnectEnabled(checked)
                 }
             }
         }

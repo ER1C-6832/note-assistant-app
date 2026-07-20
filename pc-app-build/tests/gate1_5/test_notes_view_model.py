@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from dataclasses import replace
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -92,6 +93,12 @@ async def settle() -> None:
         await asyncio.sleep(0)
 
 
+async def wait_until(predicate, *, timeout: float = 1.0) -> None:
+    async with asyncio.timeout(timeout):
+        while not predicate():
+            await asyncio.sleep(0.001)
+
+
 @pytest.mark.asyncio
 async def test_selection_survives_refresh_by_note_id(tmp_path: Path) -> None:
     query = FakeQueryService()
@@ -176,4 +183,63 @@ async def test_invalid_mutation_is_rejected_without_service_call(tmp_path: Path)
     assert command.create_calls == []
     assert failures and failures[-1][0] == "create"
     assert vm.errorMessage
+    await vm.close()
+
+
+@pytest.mark.asyncio
+async def test_deleted_note_tag_usage_and_hard_delete_refresh_without_restart(
+    tmp_path: Path,
+) -> None:
+    deleted_note = replace(make_note(7), is_deleted=True)
+
+    class MutableQueryService(FakeQueryService):
+        def __init__(self) -> None:
+            super().__init__()
+            self.active = ()
+            self.deleted = (deleted_note,)
+
+    class MutatingCommandService(FakeCommandService):
+        def __init__(self, query: MutableQueryService) -> None:
+            super().__init__()
+            self._query = query
+
+        async def hard_delete(self, command):
+            ids = set(command.note_ids)
+            self._query.deleted = tuple(note for note in self._query.deleted if note.id not in ids)
+            return len(ids)
+
+    query = MutableQueryService()
+    catalog = TagCatalog(tmp_path / "custom_tags.json", default_tags=("客户",))
+    catalog.load()
+    vm = NotesViewModel(
+        MutatingCommandService(query),
+        query,
+        catalog,
+        NoteListModel(),
+        NoteListModel(),
+    )
+    failures = []
+    vm.operationFailed.connect(lambda operation, message: failures.append((operation, message)))
+
+    vm.loadDeleted()
+    await settle()
+    customer = next(item for item in vm.tagItems if item["name"] == "客户")
+    assert customer["inUse"] is True
+    assert customer["deletable"] is False
+
+    vm.requestDeleteTag("客户")
+    await wait_until(lambda: bool(failures))
+    assert failures[-1] == ("delete_tag", "标签“客户”仍被便签引用，暂时不能删除")
+
+    vm.requestBulkHardDeleteDeleted([7])
+    await wait_until(
+        lambda: next(item for item in vm.tagItems if item["name"] == "客户")["deletable"]
+    )
+    customer = next(item for item in vm.tagItems if item["name"] == "客户")
+    assert customer["inUse"] is False
+    assert customer["deletable"] is True
+
+    vm.requestDeleteTag("客户")
+    await wait_until(lambda: all(item["name"] != "客户" for item in vm.tagItems))
+    assert all(item["name"] != "客户" for item in vm.tagItems)
     await vm.close()

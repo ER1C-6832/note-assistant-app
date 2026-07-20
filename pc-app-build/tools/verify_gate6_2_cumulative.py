@@ -95,6 +95,8 @@ def main() -> int:
                 "baseline_expectation": "single-process Gate 1.1 through Gate 6.2",
                 "checks": results,
                 "offline_kws_default_enabled": False,
+                "assistant_default_enabled": True,
+                "assistant_auto_connect_default_enabled": True,
                 "idle_microphone_uploaded_frames": 0,
                 "product_aec_enabled": False,
                 "macos_status": "deferred_after_windows_gate6",

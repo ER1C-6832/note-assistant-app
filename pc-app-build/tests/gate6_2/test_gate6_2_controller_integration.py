@@ -106,10 +106,11 @@ async def test_real_controller_claims_atomic_kws_handoff_and_resumes_after_stop(
             lambda state: not state.conversation.streaming_session_active
         )
         for _ in range(100):
-            if len(factory.instances) == 2:
+            if len(factory.instances) >= 2 and factory.instances[-1].active:
                 break
             await asyncio.sleep(0.005)
         assert len(factory.instances) == 2
+        assert factory.instances[-1].active is True
         assert supervisor.microphone_coordinator.owner is MicrophoneOwner.WAKEWORD_KWS
         assert coordinator.snapshot.resume_count == 2
     finally:

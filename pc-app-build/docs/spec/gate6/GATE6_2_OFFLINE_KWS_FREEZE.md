@@ -1,6 +1,6 @@
 # Gate 6.2 Offline KWS and Owner Handoff Freeze
 
-状态：Implemented; Windows Real acceptance pending overlay run  
+状态：Implemented; Windows acceptance correction delivered; corrected rerun pending  
 实施基线：`d02b928ef4e71b6ab8019423f1f8fdcd3064e3e6`
 
 ## Product boundary
@@ -25,6 +25,15 @@ KWS may own the microphone only when all facts below are true:
 
 Every other state pauses KWS. Route generation change stops the old stream before a new generation may start.
 
+## Assistant startup policy
+
+- the assistant controller is enabled during every application startup;
+- connection is attempted automatically by default after identity initialization;
+- existing preference files without the new key inherit auto-connect enabled;
+- settings may disable future automatic connection attempts, but do not disable the assistant service;
+- the home panel exposes connection/retry state and no longer exposes an assistant enable switch;
+- KWS remains independently opt-in/default-off and still requires an established assistant connection.
+
 ## Ownership protocol
 
 1. Idle KWS acquires `(WAKEWORD_KWS, kws_generation, route_generation)`.
@@ -32,7 +41,7 @@ Every other state pauses KWS. Route generation change stops the old stream befor
 3. The lease transfers atomically to `(ASSISTANT_CAPTURE, next_capture_generation, route_generation)`.
 4. The controller command uses entry source `wakeword`; the normal Gate 3 effect claims the transferred lease idempotently.
 5. A simultaneous button/PTT start may ask KWS to yield. Only one assistant capture can claim the lease.
-6. Session terminal, route recovery or failed handoff schedules one coalesced reconciliation; duplicate notifications cannot create duplicate KWS streams.
+6. Session terminal, route recovery, lease release or failed handoff schedules one coalesced reconciliation; a dirty notification received during reconciliation is retained and duplicate notifications cannot create duplicate KWS streams.
 
 ## Failure policy
 

@@ -1,6 +1,6 @@
 # Gate 6.2 Implementation Report
 
-状态：Implementation complete; automated/Fake acceptance complete; Windows Real acceptance pending overlay run  
+状态：Implementation complete; Windows acceptance correction delivered; corrected Windows rerun pending  
 实施基线：`d02b928ef4e71b6ab8019423f1f8fdcd3064e3e6`  
 阶段：Offline KWS and Owner Handoff
 
@@ -16,6 +16,9 @@
 - session terminal resumes KWS once; disable and shutdown never resume it.
 - idle KWS frames are neither encoded nor uploaded; public diagnostics freeze `idle_uploaded_frames = 0`.
 - the settings sheet adds a default-off KWS switch, wake phrase, model summary, status and classified error.
+- the assistant is now always enabled at application startup and auto-connects by default; the home-page enable switch was removed, while connect/retry remains available.
+- auto-connect is configurable in the settings sheet and existing preference files inherit the enabled default.
+- KWS stop joins its worker and drains its private queue before microphone ownership transfers to assistant capture; KWS PCM cannot enter the assistant uplink queue.
 
 ## Model and dependency contract
 
@@ -40,8 +43,9 @@ sherpa-onnx-kws-zipformer-zh-en-3M-2025-12-20/
 compileall                          passed
 Black                              passed
 Ruff                               passed
-Gate 6.2 focused tests             14 passed
+Gate 6.2 focused tests             17 passed
 actual AssistantController handoff passed
+KWS/lease/tag focused regression  24 passed
 non-GUI historical tests           431 executed; Gate 6.2 regressions passed
 full Qt/QML smoke                  blocked locally: Linux image lacks libEGL.so.1
 ```
@@ -78,13 +82,13 @@ If the model is not already installed:
 powershell -ExecutionPolicy Bypass -File .\INSTALL_GATE6_2_KWS_MODEL.ps1
 ```
 
-Model package load plus one natural wake (one hit is sufficient):
+Model package load plus one natural wake (one hit is sufficient; the runner exits immediately after the first hit and uses a 30-second maximum window):
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\RUN_GATE6_2_REAL_KWS.ps1 -Duration 15
+powershell -ExecutionPolicy Bypass -File .\RUN_GATE6_2_REAL_KWS.ps1
 ```
 
-Then launch the app, select continuous-conversation mode, connect, enable offline wake in the audio settings, and verify:
+Then launch the app, select continuous-conversation mode and enable offline wake in the audio settings. The assistant should enable and connect automatically; manual connect/retry is only the fallback. Verify:
 
 1. idle status becomes local wake listening and no continuous idle upload is shown;
 2. say “小智” once: exactly one streaming session starts;
@@ -104,3 +108,13 @@ Then launch the app, select continuous-conversation mode, connect, enable offlin
 - AEC/NS processed microphone path is Gate 6.3.
 - playback-period acoustic barge-in is Gate 6.4 and must not reuse the KWS detector.
 - macOS remains deferred as requested.
+
+## Windows correction evidence
+
+The first Windows cumulative run supplied by the user reached `488 passed` but failed four Gate 6.2 assertions. All four were acceptance timing races: the tests observed a newly constructed Fake runtime before its `start()` call completed on the Windows scheduler. The assertions now wait for the observable active state and still require exactly two total instances and exactly one resume.
+
+The same run also exposed a real lifecycle gap: KWS reconciliation subscribed to assistant state and route state but not to the shared microphone lease. A session could therefore release `ASSISTANT_CAPTURE` after the last state notification and leave KWS paused. The lease now publishes changes, reconciliation coalesces dirty notifications without dropping them, and tests cover session terminal, playback terminal and route-generation replacement.
+
+The user's first 15-second one-hit model probe loaded the packaged model successfully but observed no hit. That result is retained as an inconclusive acoustic sample, not treated as proof that the model is invalid; an earlier live probe with the same model produced three hits. The corrected runner allows 30 seconds but returns immediately on the first accepted hit.
+
+The reported tag defect was also corrected in this overlay. Tag usage is recomputed from both active and soft-deleted notes, deleting an in-use tag produces a Chinese message, and hard-delete refreshes `inUse`/`deletable` without restarting the application.
