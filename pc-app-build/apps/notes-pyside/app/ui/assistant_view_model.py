@@ -749,9 +749,9 @@ class AssistantViewModel(QObject):
         self.commandStateChanged.emit()
 
     async def _initialize_runtime(self) -> None:
+        await self._controller.start()
         if self._audio_session_supervisor is not None:
             await self._audio_session_supervisor.start()
-        await self._controller.start()
         await self._controller.ensure_device_identity()
 
     def _accept_state(self, state: AssistantState) -> None:

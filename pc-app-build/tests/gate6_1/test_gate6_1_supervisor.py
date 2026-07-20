@@ -89,6 +89,7 @@ async def test_supervisor_owns_route_selection_and_reaches_terminal_zero(tmp_pat
     assert diagnostics["route_observer_running"] is False
     assert diagnostics["duplex_open_stream_count"] == 0
     assert diagnostics["pending_route_tasks"] == []
+    assert diagnostics["microphone_test_worker_alive"] is False
     assert observer.closed is True
     assert duplex.closed is True
 
@@ -108,6 +109,7 @@ async def test_supervisor_start_and_close_are_idempotent(tmp_path) -> None:
     await supervisor.close()
 
     assert supervisor.diagnostics()["microphone_lease"]["owner"] == "none"
+    assert supervisor.diagnostics()["microphone_test_worker_alive"] is False
 
 
 @pytest.mark.asyncio
@@ -184,4 +186,5 @@ async def test_microphone_test_uses_bounded_callback_capture(tmp_path, monkeypat
     assert result["rms"] == 100.0
     assert result["callback_status_error_count"] == 0
     assert supervisor.diagnostics()["microphone_lease"]["owner"] == "none"
+    assert supervisor.route_observer_running is True
     await supervisor.close()

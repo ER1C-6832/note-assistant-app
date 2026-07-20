@@ -47,3 +47,11 @@ def test_cumulative_verifier_isolates_windows_pytest_temp_cleanup() -> None:
     assert "PYTEST_DEBUG_TEMPROOT" in verifier
     assert "--basetemp=" in verifier
     assert "ignore_cleanup_errors=True" in verifier
+
+
+def test_view_model_starts_event_pump_before_device_discovery() -> None:
+    view_model = (APP / "ui" / "assistant_view_model.py").read_text(encoding="utf-8")
+
+    controller_start = view_model.index("await self._controller.start()")
+    audio_start = view_model.index("await self._audio_session_supervisor.start()")
+    assert controller_start < audio_start

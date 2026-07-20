@@ -7,6 +7,7 @@ import platform
 import threading
 import time
 from collections.abc import Callable
+from contextlib import contextmanager
 from typing import Any
 
 from .gate6_contracts import (
@@ -81,6 +82,7 @@ class PyAudioDeviceRegistry:
     def __init__(self, *, pyaudio_factory: PyAudioFactory | None = None) -> None:
         self._factory = pyaudio_factory
         self._lock = threading.RLock()
+        self._native_operation_lock = threading.RLock()
         self._snapshot_generation = 0
         self._route_generation = 0
         self._last_snapshot_signature: tuple[object, ...] | None = None
@@ -89,6 +91,17 @@ class PyAudioDeviceRegistry:
         self._index_by_id: dict[str, int] = {}
 
     def snapshot(self) -> AudioDeviceSnapshot:
+        with self.native_operation():
+            return self._snapshot_native()
+
+    @contextmanager
+    def native_operation(self):
+        """Serialize short PortAudio manager lifetimes across observer and tests."""
+
+        with self._native_operation_lock:
+            yield
+
+    def _snapshot_native(self) -> AudioDeviceSnapshot:
         try:
             manager = self._create_manager()
         except Exception as exc:

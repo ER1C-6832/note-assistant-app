@@ -69,10 +69,13 @@ class FakeRouteObserver:
         self.sink = sink
         self.running = True
 
-    def close(self) -> None:
+    def stop(self) -> None:
         self.running = False
-        self.closed = True
         self.sink = None
+
+    def close(self) -> None:
+        self.stop()
+        self.closed = True
 
 
 class FakeDuplexSession:

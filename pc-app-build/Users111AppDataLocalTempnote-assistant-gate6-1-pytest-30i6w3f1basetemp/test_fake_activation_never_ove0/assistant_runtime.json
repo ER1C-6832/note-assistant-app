@@ -1,0 +1,29 @@
+{
+  "fake": {
+    "activated": true,
+    "last_activation_json_redacted": "{\"fake\":true,\"websocket\":{\"token\":\"***\",\"url\":\"wss://fake.local/xiaozhi/64e6e25f\"}}",
+    "websocket_token": "gate2.2-fake-token",
+    "websocket_url": "wss://fake.local/xiaozhi/64e6e25f"
+  },
+  "identity": {
+    "client_id": "64e6e25f-5a1a-4628-a08e-b58865c5539f",
+    "device_id": "9c:12:21:97:37:8e",
+    "generation": 1,
+    "hmac_key": "4f89fd7af2b94f80ded735ffcffe161e778b33c0ad7c8aca6291d29761a1cc05",
+    "serial_number": "SN-EF1E992A-9c122197378e",
+    "source": "machine_fingerprint"
+  },
+  "real": {
+    "activated": true,
+    "activation_challenge": "",
+    "activation_code": "",
+    "activation_message": "",
+    "activation_version": "v2",
+    "authorization_url": "https://auth.example/devices",
+    "last_ota_json_redacted": "",
+    "ota_url": "https://ota.example/v1",
+    "websocket_token": "real-token",
+    "websocket_url": "wss://real.example/ws"
+  },
+  "schema_version": 1
+}

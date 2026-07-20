@@ -78,8 +78,8 @@ Packaging-environment evidence:
 compileall                         passed
 Black --check                     passed (316 files unchanged)
 Ruff                              passed
-Gate 6.1 focused tests            13 passed
-non-GUI cumulative regression     467 passed
+Gate 6.1 focused tests            14 passed
+non-GUI cumulative regression     468 passed
 Gate 6.1 Fake session             gate6_1_fake_session_complete
 qmllint new/changed QML           passed without warnings
 full QML/application smoke        blocked locally: Linux image lacks libEGL.so.1
@@ -94,6 +94,9 @@ Windows follow-up correction after the first overlay run:
 - Gate 6.1 cumulative verification now assigns one fresh `PYTEST_DEBUG_TEMPROOT` to the complete nested verifier tree and ignores only final removal errors for that private temporary root;
 - the local microphone level test now uses PyAudio callback capture with a monotonic duration budget instead of blocking `stream.read()` calls;
 - zero callback frames is a semantic failure, and the real runner emits structured failed JSON instead of ending with an unclassified traceback.
+- controller event-pump startup now precedes asynchronous PortAudio device discovery, so slow Windows enumeration cannot make the bounded QML smoke report a false negative;
+- registry enumeration and the short microphone test serialize their native PortAudio manager lifetimes; route polling pauses during the test and resumes exactly once after successful cleanup;
+- a daemonized native-test worker has a hard duration-plus-six-second watchdog, so a stuck driver returns a classified failure instead of holding the verifier indefinitely.
 
 Primary command:
 

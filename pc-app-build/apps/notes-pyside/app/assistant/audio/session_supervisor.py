@@ -199,6 +199,7 @@ class AudioSessionSupervisor:
             "rms": 0.0,
             "error_code": None,
         }
+        self._microphone_test_thread: threading.Thread | None = None
 
     @property
     def snapshot(self) -> AudioSessionSnapshot:
@@ -213,6 +214,11 @@ class AudioSessionSupervisor:
     @property
     def route_observer_running(self) -> bool:
         return self._observer.running
+
+    @property
+    def microphone_test_worker_alive(self) -> bool:
+        thread = self._microphone_test_thread
+        return bool(thread and thread.is_alive())
 
     def subscribe(self, listener: AudioSessionListener) -> Callable[[], None]:
         with self._lock:
@@ -355,13 +361,17 @@ class AudioSessionSupervisor:
                 "rms": 0.0,
                 "error_code": None,
             }
+        observer_was_running = self.route_observer_running
         self.set_capture_activity(CaptureActivity.ASSISTANT)
         try:
             try:
-                result = await asyncio.to_thread(
-                    self._microphone_test_sync,
+                if observer_was_running:
+                    await asyncio.to_thread(self._observer.stop)
+                bounded_duration = max(0.25, min(float(duration_seconds), 3.0))
+                result = await self._run_microphone_test_bounded(
                     route,
-                    max(0.25, min(float(duration_seconds), 3.0)),
+                    bounded_duration,
+                    timeout_seconds=bounded_duration + 6.0,
                 )
             except Exception as exc:
                 with self._lock:
@@ -380,6 +390,8 @@ class AudioSessionSupervisor:
                 route.route_generation,
             )
             self.set_capture_activity(CaptureActivity.INACTIVE)
+            if observer_was_running and not self.microphone_test_worker_alive and not self._closed:
+                await asyncio.to_thread(self._observer.start, self._on_route_event)
         with self._lock:
             self._last_microphone_test = result
         self._notify()
@@ -430,6 +442,7 @@ class AudioSessionSupervisor:
                 "overflow_count": capture_stats.overflow_count,
             },
             "microphone_test": self.last_microphone_test,
+            "microphone_test_worker_alive": self.microphone_test_worker_alive,
             "macos_status": "deferred_after_windows_gate6",
         }
 
@@ -458,6 +471,48 @@ class AudioSessionSupervisor:
             )
             self._listeners.clear()
         self._started = False
+
+    async def _run_microphone_test_bounded(
+        self,
+        route: ResolvedAudioRoute,
+        duration_seconds: float,
+        *,
+        timeout_seconds: float,
+    ) -> dict[str, object]:
+        if self.microphone_test_worker_alive:
+            raise RuntimeError("a microphone test worker is already running")
+        completed = threading.Event()
+        outcome: dict[str, object] = {}
+
+        def run() -> None:
+            try:
+                outcome["result"] = self._microphone_test_sync(route, duration_seconds)
+            except BaseException as exc:
+                outcome["error"] = exc
+            finally:
+                completed.set()
+
+        worker = threading.Thread(
+            target=run,
+            name="assistant-microphone-test",
+            daemon=True,
+        )
+        self._microphone_test_thread = worker
+        worker.start()
+        deadline = time.monotonic() + timeout_seconds
+        while not completed.is_set() and time.monotonic() < deadline:
+            await asyncio.sleep(0.02)
+        if not completed.is_set():
+            raise TimeoutError("microphone test exceeded its native timeout")
+        worker.join(timeout=0.1)
+        self._microphone_test_thread = None
+        error = outcome.get("error")
+        if isinstance(error, BaseException):
+            raise error
+        result = outcome.get("result")
+        if not isinstance(result, dict):
+            raise RuntimeError("microphone test returned no result")
+        return result
 
     def _on_route_event(self, event: AudioRouteEvent) -> None:
         if event.kind is RouteEventKind.INTERRUPTED:
@@ -571,6 +626,15 @@ class AudioSessionSupervisor:
             import pyaudio
         except ImportError as exc:
             raise RuntimeError("pyaudio is not installed") from exc
+        with self.registry.native_operation():
+            return self._microphone_test_native(route, duration_seconds, pyaudio)
+
+    def _microphone_test_native(
+        self,
+        route: ResolvedAudioRoute,
+        duration_seconds: float,
+        pyaudio,
+    ) -> dict[str, object]:
         manager = pyaudio.PyAudio()
         stream = None
         peak = 0

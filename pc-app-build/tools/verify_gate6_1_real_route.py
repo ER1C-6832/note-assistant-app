@@ -20,6 +20,7 @@ from app.assistant.preferences import AssistantPreferencesStore  # noqa: E402
 
 async def _run(include_microphone_test: bool, duration: float) -> tuple[dict[str, object], bool]:
     with tempfile.TemporaryDirectory(prefix="note-assistant-gate6-1-real-") as directory:
+        print("[Gate 6.1] Resolving the real audio route...", file=sys.stderr, flush=True)
         supervisor = AudioSessionSupervisor(
             AssistantPreferencesStore(Path(directory) / "preferences.json")
         )
@@ -27,14 +28,25 @@ async def _run(include_microphone_test: bool, duration: float) -> tuple[dict[str
             await supervisor.start()
             microphone_test: dict[str, object] = {"status": "not_run"}
             if include_microphone_test:
+                print(
+                    f"[Gate 6.1] Capturing microphone levels for {duration:g} second(s)...",
+                    file=sys.stderr,
+                    flush=True,
+                )
                 try:
                     microphone_test = await supervisor.microphone_test(duration_seconds=duration)
                 except Exception:
                     microphone_test = supervisor.last_microphone_test
+                print(
+                    f"[Gate 6.1] Microphone stage: {microphone_test.get('status')}",
+                    file=sys.stderr,
+                    flush=True,
+                )
             before_close = supervisor.diagnostics()
             input_items = supervisor.input_device_items()
             output_items = supervisor.output_device_items()
         finally:
+            print("[Gate 6.1] Closing route resources...", file=sys.stderr, flush=True)
             await supervisor.close()
         terminal = supervisor.diagnostics()
         passed = all(
@@ -48,6 +60,7 @@ async def _run(include_microphone_test: bool, duration: float) -> tuple[dict[str
                 terminal["route_observer_running"] is False,
                 terminal["duplex_open_stream_count"] == 0,
                 terminal["pending_route_tasks"] == [],
+                terminal["microphone_test_worker_alive"] is False,
                 not include_microphone_test or microphone_test.get("status") == "complete",
             )
         )
