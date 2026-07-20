@@ -1,0 +1,42 @@
+Gate 6.3+6.4 Windows Audio Closeout Overlay
+Base repository: ER1C-6832/note-assistant-app
+Base branch: rewrite/single-process-runtime
+Base commit: ed62ea77de908a7281fd6ec94bae590b6fd4e91f
+
+INSTALL_GATE6_3_4_AUDIO_PROCESSING.ps1
+RUN_GATE6_3_4_REAL_BARGE_IN.ps1
+VERIFY_GATE6_3_4.ps1
+apps/notes-pyside/app/assistant/audio/__init__.py
+apps/notes-pyside/app/assistant/audio/barge_in.py
+apps/notes-pyside/app/assistant/audio/engine.py
+apps/notes-pyside/app/assistant/audio/session_supervisor.py
+apps/notes-pyside/app/assistant/audio/webrtc_apm.py
+apps/notes-pyside/app/assistant/network/websocket_transport.py
+apps/notes-pyside/app/assistant/playback/coordinator.py
+apps/notes-pyside/app/assistant/playback/ports.py
+apps/notes-pyside/app/assistant/playback/pyaudio_output.py
+apps/notes-pyside/app/assistant/playback/runtime_controller.py
+apps/notes-pyside/app/assistant/playback/runtime_effects.py
+apps/notes-pyside/app/assistant/playback/runtime_events.py
+apps/notes-pyside/app/assistant/playback/two_turn_controller.py
+apps/notes-pyside/app/assistant/playback/two_turn_state_machine.py
+apps/notes-pyside/app/bootstrap.py
+apps/notes-pyside/app/qml/components/AssistantVoiceModeSettings.qml
+apps/notes-pyside/app/ui/assistant_view_model.py
+docs/adr/ADR-010-gate6-cross-platform-audio-session-addendum-6.3-6.4.md
+docs/report/GATE6_3_4_IMPLEMENTATION_REPORT.md
+docs/report/GATE6_3_4_OVERLAY_MANIFEST.txt
+docs/spec/gate6/GATE6_3_4_WINDOWS_AUDIO_CLOSEOUT_FREEZE.md
+docs/spec/gate6/GATE6_IMPLEMENTATION_PLAN.md
+docs/spec/gate6/GATE6_SPEC_INDEX.md
+docs/spec/gate6/GATE6_SPEC_MANIFEST.json
+pyproject.toml
+tests/gate6_3_4/conftest.py
+tests/gate6_3_4/test_gate6_3_4_audio_contract.py
+tests/gate6_3_4/test_gate6_3_4_coordinator.py
+tests/gate6_3_4/test_gate6_3_4_state_machine.py
+tools/verify_gate6_3_4_cumulative.py
+tools/verify_gate6_3_4_fake_barge_in.py
+tools/verify_gate6_3_4_real_barge_in.py
+
+Excluded: .git, venv, caches, database, config, identity, token, logs, PCM/audio, KWS models.

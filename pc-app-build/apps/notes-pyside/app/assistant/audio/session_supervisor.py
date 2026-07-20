@@ -411,6 +411,13 @@ class AudioSessionSupervisor:
             self._snapshot = replace(self._snapshot, playback_activity=activity)
         self._notify_threadsafe()
 
+    def set_processing_state(self, state: ProcessingState) -> None:
+        with self._lock:
+            if self._snapshot.processing_state is state:
+                return
+            self._snapshot = replace(self._snapshot, processing_state=state)
+        self._notify_threadsafe()
+
     def record_stale_callback(self) -> None:
         with self._lock:
             self._snapshot = replace(

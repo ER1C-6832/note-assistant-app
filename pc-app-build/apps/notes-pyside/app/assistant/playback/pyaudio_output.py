@@ -3,12 +3,18 @@
 from __future__ import annotations
 
 import asyncio
+import time
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
 from .models import PcmAudioFormat, TtsStreamContext
-from .ports import ConsumedCallback, DrainedCallback, PcmPlaybackSource
+from .ports import (
+    ConsumedCallback,
+    DrainedCallback,
+    PcmPlaybackSource,
+    RenderReferenceCallback,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -96,6 +102,8 @@ class PyAudioOutputAdapter:
         pyaudio_factory: Callable[[], Any] | None = None,
         close_timeout_seconds: float = 2.0,
         poll_interval_seconds: float = 0.01,
+        render_reference_callback: RenderReferenceCallback | None = None,
+        clock_ns: Callable[[], int] = time.perf_counter_ns,
     ) -> None:
         if close_timeout_seconds <= 0 or poll_interval_seconds <= 0:
             raise ValueError("output timeouts must be positive")
@@ -103,6 +111,8 @@ class PyAudioOutputAdapter:
         self._pyaudio_factory = pyaudio_factory
         self._close_timeout_seconds = close_timeout_seconds
         self._poll_interval_seconds = poll_interval_seconds
+        self._render_reference_callback = render_reference_callback
+        self._clock_ns = clock_ns
         self._manager: Any | None = None
         self._stream: Any | None = None
         self._source: PcmPlaybackSource | None = None
@@ -115,6 +125,7 @@ class PyAudioOutputAdapter:
         self._drain_reported = False
         self._closed = False
         self._callback_status_error_count = 0
+        self._playback_generation = 0
 
     @property
     def device_public_name(self) -> str | None:
@@ -135,7 +146,6 @@ class PyAudioOutputAdapter:
         consumed_callback: ConsumedCallback,
         drained_callback: DrainedCallback,
     ) -> None:
-        del context
         if self._stream is not None or self._closed:
             raise RuntimeError("PyAudio output is already open or closed")
         if source.pcm_format != self._plan.pcm_format:
@@ -144,6 +154,7 @@ class PyAudioOutputAdapter:
         self._source = source
         self._consumed_callback = consumed_callback
         self._drained_callback = drained_callback
+        self._playback_generation = context.playback_generation
         await asyncio.to_thread(self._open_sync)
 
     async def start(self) -> None:
@@ -203,6 +214,7 @@ class PyAudioOutputAdapter:
         self._source = None
         self._consumed_callback = None
         self._drained_callback = None
+        self._playback_generation = 0
         self._closed = True
 
     def _open_sync(self) -> None:
@@ -248,6 +260,17 @@ class PyAudioOutputAdapter:
             )
         if real_bytes < byte_count:
             payload += b"\x00" * (byte_count - real_bytes)
+        render_sink = self._render_reference_callback
+        if render_sink is not None and self._playback_generation > 0:
+            try:
+                render_sink(
+                    self._playback_generation,
+                    source.pcm_format,
+                    payload,
+                    self._clock_ns(),
+                )
+            except Exception:
+                pass
         terminal = source.terminal_and_empty
         if terminal:
             self._terminal_submitted = True

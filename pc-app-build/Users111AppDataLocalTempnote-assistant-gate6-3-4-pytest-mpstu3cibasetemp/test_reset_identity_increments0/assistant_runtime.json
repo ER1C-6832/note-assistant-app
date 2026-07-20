@@ -1,0 +1,29 @@
+{
+  "fake": {
+    "activated": false,
+    "last_activation_json_redacted": "",
+    "websocket_token": "",
+    "websocket_url": ""
+  },
+  "identity": {
+    "client_id": "4f164550-5ca6-447c-865f-730c1b76de76",
+    "device_id": "4e:f2:26:88:42:76",
+    "generation": 2,
+    "hmac_key": "5a9e75dfc73da38926d4f126af45bc5dc305f307adc969fa7814878b24b5b2a2",
+    "serial_number": "AB5DCBB8BFBC4804A315676652FB0E96",
+    "source": "explicit_reset"
+  },
+  "real": {
+    "activated": false,
+    "activation_challenge": "",
+    "activation_code": "",
+    "activation_message": "",
+    "activation_version": "v2",
+    "authorization_url": "https://auth.example/devices",
+    "last_ota_json_redacted": "",
+    "ota_url": "https://ota.example/v1",
+    "websocket_token": "",
+    "websocket_url": ""
+  },
+  "schema_version": 1
+}

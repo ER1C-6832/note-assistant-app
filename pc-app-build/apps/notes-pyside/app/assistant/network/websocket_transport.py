@@ -445,7 +445,15 @@ class RealWebSocketTransport:
         event_sink: EventSink,
     ) -> None:
         active = await self._require_voice_session(generation, event_sink)
-        if active is None or not self._voice_matches(active, turn_token, capture_generation):
+        if active is None:
+            return
+        matches_active_turn = self._voice_matches(active, turn_token, capture_generation)
+        completed_playback_barge_in = bool(
+            reason == "acoustic_barge_in"
+            and active.active_voice_turn_token is None
+            and active.active_capture_generation is None
+        )
+        if not matches_active_turn and not completed_playback_barge_in:
             return
         payload = self._builder.abort(active.session_id, reason)
         await self._enqueue_and_wait(active, payload)
@@ -459,7 +467,8 @@ class RealWebSocketTransport:
                 raw_json_redacted=payload,
             )
         )
-        await self._complete_voice_turn(active, reason=reason)
+        if matches_active_turn:
+            await self._complete_voice_turn(active, reason=reason)
 
     async def close(
         self,

@@ -26,6 +26,7 @@ from .pyaudio_output import (
     PyAudioOutputPlan,
     probe_default_output_plan,
 )
+from .ports import RenderReferenceCallback
 from .runtime_events import (
     ActualPlaybackEnded,
     ActualPlaybackStarted,
@@ -51,6 +52,7 @@ class PlaybackCoordinator:
         stream_start_timeout_seconds: float = 6.0,
         decoder_progress_timeout_seconds: float = 6.0,
         playback_activity_sink: PlaybackActivitySink | None = None,
+        render_reference_sink: RenderReferenceCallback | None = None,
         engine_factory: (
             Callable[
                 [
@@ -71,6 +73,7 @@ class PlaybackCoordinator:
         self._decoder_progress_timeout_seconds = decoder_progress_timeout_seconds
         self._engine_factory = engine_factory or self._make_real_engine
         self._playback_activity_sink = playback_activity_sink
+        self._render_reference_sink = render_reference_sink
         self._event_sink: RuntimeEventSink | None = None
         self._runtime_state_provider: RuntimeStateProvider | None = None
         self._bound_generation: int | None = None
@@ -82,9 +85,16 @@ class PlaybackCoordinator:
         self._last_latency_sample: dict[str, float | None] = {}
         self._watchdog_task: asyncio.Task[None] | None = None
         self._lock = asyncio.Lock()
+        self._invalidated_turns: dict[tuple[int, int], None] = {}
 
     def bind_runtime_state_provider(self, provider: RuntimeStateProvider) -> None:
         self._runtime_state_provider = provider
+
+    def bind_render_reference_sink(
+        self,
+        sink: RenderReferenceCallback | None,
+    ) -> None:
+        self._render_reference_sink = sink
 
     def streaming_generation_for_turn(self, turn_token: int) -> int | None:
         provider = self._runtime_state_provider
@@ -160,6 +170,8 @@ class PlaybackCoordinator:
                 "unsupported_downlink_codec",
                 f"unsupported downlink codec: {wire_format.codec}",
             )
+            return None
+        if (connection_generation, turn_token) in self._invalidated_turns:
             return None
         async with self._lock:
             if connection_generation != self._bound_generation:
@@ -309,6 +321,11 @@ class PlaybackCoordinator:
     async def _cancel_locked(self, reason: str) -> None:
         await self._cancel_watchdog()
         engine = self._engine
+        context = self._context
+        if context is not None and reason.startswith("acoustic_barge_in"):
+            self._invalidated_turns[(context.connection_generation, context.turn_token)] = None
+            if len(self._invalidated_turns) > 256:
+                self._invalidated_turns.pop(next(iter(self._invalidated_turns)))
         self._engine = None
         self._context = None
         self._output_plan = None
@@ -541,7 +558,11 @@ class PlaybackCoordinator:
                 plan.pcm_format,
                 clock_ns=self._clock_ns,
             ),
-            output_factory=lambda: PyAudioOutputAdapter(plan),
+            output_factory=lambda: PyAudioOutputAdapter(
+                plan,
+                render_reference_callback=self._render_reference_sink,
+                clock_ns=self._clock_ns,
+            ),
             event_sink=event_sink,
             clock_ns=self._clock_ns,
             encoded_budget_ms=2_000,

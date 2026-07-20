@@ -19,3 +19,12 @@ class StartActualPlayback(AssistantEffect):
 class CancelActualPlayback(AssistantEffect):
     playback_generation: int
     reason: str
+
+
+@dataclass(frozen=True, slots=True)
+class AbortPlaybackTurn(AssistantEffect):
+    connection_generation: int
+    playback_generation: int
+    turn_token: int
+    capture_generation: int
+    reason: str

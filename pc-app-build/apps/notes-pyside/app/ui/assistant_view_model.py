@@ -37,6 +37,10 @@ from ..assistant.audio.session_supervisor import (
     AudioSessionSupervisor,
 )
 from ..assistant.audio.offline_kws import OfflineKwsCoordinator, OfflineKwsSnapshot
+from ..assistant.audio.barge_in import (
+    AcousticBargeInCoordinator,
+    AcousticBargeInSnapshot,
+)
 
 CommandFactory = Callable[[], Awaitable[None]]
 
@@ -88,6 +92,7 @@ class AssistantViewModel(QObject):
     preferencesChanged = Signal()
     audioDeviceChanged = Signal()
     offlineKwsChanged = Signal()
+    acousticBargeInChanged = Signal()
     operationFailed = Signal(str, str)
 
     def __init__(
@@ -98,6 +103,7 @@ class AssistantViewModel(QObject):
         initial_preferences: AssistantPreferences | None = None,
         audio_session_supervisor: AudioSessionSupervisor | None = None,
         offline_kws: OfflineKwsCoordinator | None = None,
+        acoustic_barge_in: AcousticBargeInCoordinator | None = None,
     ) -> None:
         super().__init__()
         self._controller = controller
@@ -105,6 +111,12 @@ class AssistantViewModel(QObject):
         self._preferences_store = preferences_store
         self._audio_session_supervisor = audio_session_supervisor
         self._offline_kws = offline_kws
+        self._acoustic_barge_in = acoustic_barge_in
+        self._acoustic_barge_in_snapshot = (
+            acoustic_barge_in.snapshot
+            if acoustic_barge_in is not None
+            else AcousticBargeInSnapshot()
+        )
         self._offline_kws_snapshot = (
             offline_kws.snapshot if offline_kws is not None else OfflineKwsSnapshot()
         )
@@ -127,6 +139,11 @@ class AssistantViewModel(QObject):
         )
         self._unsubscribe_kws = (
             offline_kws.subscribe(self._accept_offline_kws) if offline_kws is not None else None
+        )
+        self._unsubscribe_barge_in = (
+            acoustic_barge_in.subscribe(self._accept_acoustic_barge_in)
+            if acoustic_barge_in is not None
+            else None
         )
         self._developer_expanded = False
         self._operation_error = ""
@@ -467,6 +484,39 @@ class AssistantViewModel(QObject):
     @Property(str, notify=offlineKwsChanged)
     def offlineKwsErrorCode(self) -> str:
         return self._offline_kws_snapshot.error_code or ""
+
+    @Property(bool, notify=acousticBargeInChanged)
+    def acousticBargeInAvailable(self) -> bool:
+        return self._acoustic_barge_in_snapshot.available
+
+    @Property(bool, notify=acousticBargeInChanged)
+    def acousticBargeInMonitorActive(self) -> bool:
+        return self._acoustic_barge_in_snapshot.monitor_active
+
+    @Property(str, notify=acousticBargeInChanged)
+    def acousticBargeInStatusText(self) -> str:
+        labels = {
+            "disabled": "已关闭",
+            "waiting_for_session": "等待连续会话",
+            "waiting_for_playback": "回复播放时待命",
+            "monitoring": "正在监听插话",
+            "confirming": "检测到插话",
+            "handoff": "正在交接麦克风",
+            "promoted": "已打断并开始聆听",
+            "paused_capture": "麦克风正在使用",
+            "paused_route": "等待音频设备恢复",
+            "paused_disconnected": "等待助手连接",
+            "paused_microphone_busy": "麦克风正在使用",
+            "unavailable": "AEC 后端不可用",
+            "error": "插话监听异常",
+            "closed": "已关闭",
+        }
+        status = self._acoustic_barge_in_snapshot.status
+        return labels.get(status, status)
+
+    @Property(str, notify=acousticBargeInChanged)
+    def acousticBargeInErrorCode(self) -> str:
+        return self._acoustic_barge_in_snapshot.error_code or ""
 
     @Property(int, notify=stateChanged)
     def capturedAudioFrames(self) -> int:
@@ -826,6 +876,9 @@ class AssistantViewModel(QObject):
         if self._unsubscribe_kws is not None:
             self._unsubscribe_kws()
             self._unsubscribe_kws = None
+        if self._unsubscribe_barge_in is not None:
+            self._unsubscribe_barge_in()
+            self._unsubscribe_barge_in = None
         tasks = tuple(task for task in self._tasks if not task.done())
         for task in tasks:
             task.cancel()
@@ -840,6 +893,8 @@ class AssistantViewModel(QObject):
             await self._audio_session_supervisor.start()
         if self._offline_kws is not None:
             await self._offline_kws.start()
+        if self._acoustic_barge_in is not None:
+            await self._acoustic_barge_in.start()
         if not self._controller.state.enabled:
             await self._controller.enable_assistant()
         await self._controller.ensure_device_identity()
@@ -875,6 +930,12 @@ class AssistantViewModel(QObject):
             return
         self._offline_kws_snapshot = snapshot
         self.offlineKwsChanged.emit()
+
+    def _accept_acoustic_barge_in(self, snapshot: AcousticBargeInSnapshot) -> None:
+        if self._closed:
+            return
+        self._acoustic_barge_in_snapshot = snapshot
+        self.acousticBargeInChanged.emit()
 
     def _schedule(self, operation: str, factory: CommandFactory) -> None:
         if self._closed:

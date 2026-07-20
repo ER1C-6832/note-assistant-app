@@ -16,6 +16,9 @@ Rectangle {
         readonly property bool commandBusy: false
         readonly property bool streamingBargeInEnabled: false
         readonly property bool streamingCapabilityReady: false
+        readonly property bool acousticBargeInAvailable: false
+        readonly property string acousticBargeInStatusText: "不可用"
+        readonly property string acousticBargeInErrorCode: ""
         function requestVoiceInteractionMode(value) {}
         function requestStreamingBargeInEnabled(value) {}
     }
@@ -77,10 +80,13 @@ Rectangle {
                 }
                 Label {
                     Layout.fillWidth: true
-                    text: root.ready && root.model.streamingCapabilityReady
-                          ? "回复播放时允许直接说话打断"
-                          : "Gate 4.2 激活；当前只保存默认偏好"
-                    color: "#94A3B8"
+                    text: root.model.streamingBargeInEnabled
+                          ? root.model.acousticBargeInStatusText
+                          : (root.model.acousticBargeInAvailable
+                             ? "回复播放时允许直接说话打断"
+                             : "需要安装本地 AEC 音频处理组件")
+                    color: root.model.acousticBargeInErrorCode.length > 0
+                           ? "#B45309" : "#94A3B8"
                     font.pixelSize: 10
                     wrapMode: Text.Wrap
                 }
@@ -89,6 +95,7 @@ Rectangle {
             Switch {
                 enabled: root.ready
                          && root.streamingSelected
+                         && root.model.acousticBargeInAvailable
                          && !root.model.commandBusy
                 checked: root.ready && root.model.streamingBargeInEnabled
                 onToggled: {

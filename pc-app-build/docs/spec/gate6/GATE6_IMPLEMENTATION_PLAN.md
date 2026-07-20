@@ -4,7 +4,7 @@
 阶段数：5（6.0～6.4）  
 原则：每阶段必须可独立覆盖、回滚、验收；不得把全部音频风险留到 6.4。
 
-当前进度（2026-07-20）：Gate 6.0 `Accepted-Windows`，Gate 6.1 已完成；Gate 6.2 代码、Automated/Fake 与 Windows 修正版已交付，等待修正版 Windows cumulative/Real 回填；Gate 6.3～6.4 未开始；macOS evidence deferred。
+当前进度（2026-07-20）：Gate 6.0 `Accepted-Windows`，Gate 6.1、6.2 已完成；Gate 6.3+6.4 已按 Windows 收口范围合并交付，等待 Windows cumulative/真实声学插话签字；macOS evidence deferred。
 
 ## 1. 共同规则
 
@@ -207,6 +207,8 @@ KWS 不作为播放期 interruption detector。
 
 ## 5. Gate 6.3 — AEC/NS Processing
 
+实施状态：与 Gate 6.4 合并交付。产品采用 AEC-only；NS 因 Windows double-talk 近端保留证据不足而延后，AGC 关闭。详见 `GATE6_3_4_WINDOWS_AUDIO_CLOSEOUT_FREEZE.md`。
+
 ### 目标
 
 建立可验证的 processed microphone path，并证明播放期 far-end-only 不会被轻易判成近端语音；本阶段不执行真实 barge-in。
@@ -259,6 +261,8 @@ barge_in_vad_profile
 - terminal matrix 全零。
 
 ## 6. Gate 6.4 — Acoustic Barge-in and Final Closeout
+
+实施状态：与 Gate 6.3 合并交付；Windows Automated/Fake 与 Real runner 已提供，等待本地签字。
 
 ### 目标
 

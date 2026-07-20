@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from ..effects import AssistantEffect, StartStreamingConversation
 from .runtime_controller import AssistantController as PlaybackAssistantController
+from .runtime_events import AcousticBargeInConfirmed
 from .two_turn_state_machine import TwoTurnConversationStateMachine
 
 
@@ -61,6 +62,25 @@ class AssistantController(PlaybackAssistantController):
     @property
     def auto_next_turn_last_latency_ms(self) -> float | None:
         return self._auto_next_turn_last_latency_ms
+
+    async def confirm_acoustic_barge_in(
+        self,
+        *,
+        playback_generation: int,
+        monitor_generation: int,
+        next_capture_generation: int,
+    ) -> None:
+        state = self.state
+        await self._submit_command(
+            AcousticBargeInConfirmed(
+                at_ns=self._clock.now_ns(),
+                connection_generation=state.connection.connection_generation,
+                streaming_generation=state.conversation.streaming_generation,
+                playback_generation=playback_generation,
+                monitor_generation=monitor_generation,
+                next_capture_generation=next_capture_generation,
+            )
+        )
 
     async def _apply_effects(self, effects: tuple[AssistantEffect, ...]) -> None:
         ordinary: list[AssistantEffect] = []

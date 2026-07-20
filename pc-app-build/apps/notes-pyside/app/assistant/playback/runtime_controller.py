@@ -11,7 +11,7 @@ from ..effects import (
     StopStreamingConversation,
 )
 from .coordinator import PlaybackCoordinator
-from .runtime_effects import CancelActualPlayback, StartActualPlayback
+from .runtime_effects import AbortPlaybackTurn, CancelActualPlayback, StartActualPlayback
 from .runtime_state_machine import PlaybackConversationStateMachine
 
 
@@ -19,6 +19,16 @@ class PlaybackEffectRunner(EffectRunner):
     def __init__(self, *, playback_coordinator: PlaybackCoordinator, **kwargs) -> None:
         super().__init__(**kwargs)
         self._playback_coordinator = playback_coordinator
+        self._barge_playback_cancel_count = 0
+        self._barge_abort_count = 0
+
+    @property
+    def barge_playback_cancel_count(self) -> int:
+        return self._barge_playback_cancel_count
+
+    @property
+    def barge_abort_count(self) -> int:
+        return self._barge_abort_count
 
     @property
     def playback_task_running(self) -> bool:
@@ -69,6 +79,21 @@ class PlaybackEffectRunner(EffectRunner):
                 effect.reason,
                 playback_generation=effect.playback_generation,
             )
+            return
+        if isinstance(effect, AbortPlaybackTurn):
+            await self._playback_coordinator.cancel(
+                effect.reason,
+                playback_generation=effect.playback_generation,
+            )
+            self._barge_playback_cancel_count += 1
+            await self._transport.abort(
+                effect.connection_generation,
+                effect.turn_token,
+                effect.capture_generation,
+                effect.reason,
+                self._event_sink,
+            )
+            self._barge_abort_count += 1
             return
         await super().execute(effect)
 
@@ -155,6 +180,14 @@ class AssistantController(BaseAssistantController):
     @property
     def playback_output_plan(self):
         return getattr(self._effect_runner, "playback_output_plan", None)
+
+    @property
+    def barge_playback_cancel_count(self) -> int:
+        return int(getattr(self._effect_runner, "barge_playback_cancel_count", 0))
+
+    @property
+    def barge_abort_count(self) -> int:
+        return int(getattr(self._effect_runner, "barge_abort_count", 0))
 
 
 def _coordinator_from_transport(transport) -> PlaybackCoordinator | None:

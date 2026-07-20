@@ -16,6 +16,7 @@ from .models import (
 PlaybackEventSink = Callable[[PlaybackSignal], Awaitable[None]]
 ConsumedCallback = Callable[[int, int], None]
 DrainedCallback = Callable[[], None]
+RenderReferenceCallback = Callable[[int, PcmAudioFormat, bytes, int], None]
 
 
 class OpusDecoderPort(Protocol):

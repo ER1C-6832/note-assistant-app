@@ -21,6 +21,8 @@ Gate 6 不重写 Gate 2～5 已验证的 WebSocket、Controller、状态机、�
 6.4  Acoustic barge-in, settings completion and cumulative closeout
 ```
 
+Windows 收口实施将 6.3 与 6.4 合并为一个交付批次；依赖顺序和验收语义不变。macOS 延后。
+
 依赖顺序不可颠倒：
 
 ```text
@@ -38,6 +40,7 @@ KWS 不依赖 AEC，但依赖 6.1 的长期麦克风所有权和设备恢复；�
 | `GATE6_ANDROID_REFERENCE_AUDIT.md` | Android 已验证事实、可复用原则与 PC 不可照搬项 |
 | `GATE6_IMPLEMENTATION_PLAN.md` | 6.0～6.4 的实施顺序、交付物与退出条件 |
 | `GATE6_TEST_AND_ACCEPTANCE_PLAN.md` | Automated/Fake/Real、设备、异常和资源终态矩阵 |
+| `GATE6_3_4_WINDOWS_AUDIO_CLOSEOUT_FREEZE.md` | Windows 合并实施的 DSP、状态、失败与验收最终值 |
 | `GATE6_SPEC_MANIFEST.json` | 冻结文件集合和关键决策机器可读摘要 |
 | `../../adr/ADR-010-gate6-cross-platform-audio-session.md` | 不可逆架构决策 |
 
@@ -54,8 +57,8 @@ KWS 不依赖 AEC，但依赖 6.1 的长期麦克风所有权和设备恢复；�
 ## 4. 当前冻结默认值
 
 ```text
-AEC                automatic
-NS                 automatic / conservative
+AEC                Windows playback monitor enabled when opted in
+NS                 Windows product disabled; capability retained
 AGC                disabled
 KWS                disabled until user opt-in
 Acoustic barge-in  disabled until user opt-in and processed path ready
@@ -87,4 +90,3 @@ Gate 6 只有满足以下条件才可按对应等级签字：
 - system interruption、hotplug、disable、shutdown 后资源全零；
 - Gate 1 through Gate 6 累计回归通过；
 - 单进程、单 event loop、单 sender、单 Controller state writer 保持。
-

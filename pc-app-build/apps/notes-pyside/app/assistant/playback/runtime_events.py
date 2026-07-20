@@ -74,3 +74,12 @@ class RuntimePlaybackFailed(AssistantEvent):
     turn_token: int
     code: str
     message: str
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class AcousticBargeInConfirmed(AssistantEvent):
+    connection_generation: int
+    streaming_generation: int
+    playback_generation: int
+    monitor_generation: int
+    next_capture_generation: int

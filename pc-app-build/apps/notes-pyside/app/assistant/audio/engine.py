@@ -74,6 +74,7 @@ class MicrophoneLeaseCoordinator:
         self._route_generation_provider = route_generation_provider
         self._lock = asyncio.Lock()
         self._wakeword_yield_handler: Callable[[], Awaitable[None]] | None = None
+        self._barge_in_yield_handler: Callable[[], Awaitable[None]] | None = None
         self._listeners: set[Callable[[], None]] = set()
 
     @property
@@ -113,7 +114,16 @@ class MicrophoneLeaseCoordinator:
                 and self._owner is MicrophoneOwner.WAKEWORD_KWS
                 and self._wakeword_yield_handler is not None
             )
-            yield_handler = self._wakeword_yield_handler if should_yield_wakeword else None
+            should_yield_barge_in = (
+                owner is MicrophoneOwner.ASSISTANT_CAPTURE
+                and self._owner is MicrophoneOwner.BARGE_IN_MONITOR
+                and self._barge_in_yield_handler is not None
+            )
+            yield_handler = (
+                self._wakeword_yield_handler
+                if should_yield_wakeword
+                else (self._barge_in_yield_handler if should_yield_barge_in else None)
+            )
             if self._generation is not None and yield_handler is None:
                 return False
         if yield_handler is not None:
@@ -152,6 +162,14 @@ class MicrophoneLeaseCoordinator:
         """
 
         self._wakeword_yield_handler = handler
+
+    def bind_barge_in_yield_handler(
+        self,
+        handler: Callable[[], Awaitable[None]] | None,
+    ) -> None:
+        """Bind the playback monitor preemption hook used by manual/auto capture."""
+
+        self._barge_in_yield_handler = handler
 
     async def release(
         self,
@@ -255,6 +273,7 @@ class AssistantAudioEngine:
         self._stop_event: threading.Event | None = None
         self._worker_done: threading.Event | None = None
         self._failure: AudioEngineFailure | None = None
+        self._staged_pre_roll: dict[int, tuple[PcmFrame, ...]] = {}
         self._metrics = _Metrics()
         self._closed = False
 
@@ -319,11 +338,47 @@ class AssistantAudioEngine:
                 daemon=True,
             )
             self._worker.start()
+            staged = self._staged_pre_roll.pop(generation, ())
+        for frame in staged:
+            self._accept_frame(frame)
         try:
             await asyncio.to_thread(self._capture.start, generation, self._accept_frame)
         except Exception:
             await self.cancel_capture(generation, reason="capture_start_failed")
             raise
+
+    def stage_processed_pre_roll(
+        self,
+        generation: int,
+        frames: tuple[PcmFrame, ...],
+    ) -> None:
+        """Stage bounded processed monitor frames without putting PCM in Runtime events."""
+
+        if generation < 0:
+            raise ValueError("capture generation cannot be negative")
+        bounded = tuple(frames[-self._pcm_capacity :])
+        normalized = tuple(
+            PcmFrame(
+                generation=generation,
+                sequence=index,
+                captured_at_ns=frame.captured_at_ns,
+                pcm16_le=frame.pcm16_le,
+            )
+            for index, frame in enumerate(bounded)
+        )
+        for frame in normalized:
+            frame.validate()
+        with self._state_lock:
+            if self._closed or self._active_generation is not None:
+                raise AudioEngineBusyError("cannot stage pre-roll while capture is active")
+            self._staged_pre_roll = {generation: normalized}
+
+    def clear_staged_pre_roll(self, generation: int | None = None) -> None:
+        with self._state_lock:
+            if generation is None:
+                self._staged_pre_roll.clear()
+            else:
+                self._staged_pre_roll.pop(generation, None)
 
     async def next_packet(self, generation: int) -> EncodedAudioPacket | None:
         while True:
@@ -517,6 +572,7 @@ class AssistantAudioEngine:
             await self.finish_generation(generation)
         await asyncio.to_thread(self._capture.close)
         with self._state_lock:
+            self._staged_pre_roll.clear()
             self._closed = True
 
     def _accept_frame(self, frame: PcmFrame) -> bool:

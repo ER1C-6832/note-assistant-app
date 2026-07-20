@@ -7,6 +7,7 @@ from .engine import (
     AudioEngineGenerationError,
     MicrophoneLeaseCoordinator,
 )
+from .barge_in import AcousticBargeInCoordinator, AcousticBargeInSnapshot
 from .fake_audio import (
     AudioCaptureBusyError,
     AudioCaptureGenerationError,
@@ -88,6 +89,8 @@ from .vad import EnergyVadConfig, EnergyVoiceActivityDetector
 
 __all__ = [
     "AssistantAudioEngine",
+    "AcousticBargeInCoordinator",
+    "AcousticBargeInSnapshot",
     "AudioCaptureBusyError",
     "AudioCaptureGenerationError",
     "AudioCapturePort",

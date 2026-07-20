@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "gate": "6",
-  "status": "frozen_for_implementation",
+  "status": "gate6_3_4_windows_implemented_real_pending",
   "repository": "ER1C-6832/note-assistant-app",
   "branch": "rewrite/single-process-runtime",
   "baseline_commit": "2bd25c3677cf2aecd2784d089e8f971c40bb377e",
@@ -33,8 +33,8 @@
     }
   ],
   "frozen_defaults": {
-    "aec": "automatic",
-    "noise_suppression": "automatic_conservative",
+    "aec": "windows_playback_monitor_enabled_when_opted_in",
+    "noise_suppression": "windows_product_disabled_after_double_talk_evidence",
     "agc": "disabled",
     "kws": "disabled_until_user_opt_in",
     "acoustic_barge_in": "disabled_until_user_opt_in_and_processing_ready",
@@ -44,7 +44,7 @@
     "second_process": false
   },
   "backend_policy": {
-    "selected_backend": "pending_gate6_0_real_probe",
+    "selected_backend": "aec_audio_processing_1_0_1_windows",
     "candidates": [
       "webrtc_apm",
       "windows_system_or_endpoint_aec",
@@ -61,8 +61,8 @@
     "GATE6_AUDIO_DEVICE_KWS_AEC_BARGE_IN_SPEC.md",
     "GATE6_ANDROID_REFERENCE_AUDIT.md",
     "GATE6_IMPLEMENTATION_PLAN.md",
-    "GATE6_TEST_AND_ACCEPTANCE_PLAN.md"
+    "GATE6_TEST_AND_ACCEPTANCE_PLAN.md",
+    "GATE6_3_4_WINDOWS_AUDIO_CLOSEOUT_FREEZE.md"
   ],
   "adr": "../../adr/ADR-010-gate6-cross-platform-audio-session.md"
 }
-

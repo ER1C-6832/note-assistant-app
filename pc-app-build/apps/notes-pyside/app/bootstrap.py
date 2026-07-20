@@ -34,6 +34,7 @@ from .assistant import (
     ToolRegistry,
 )
 from .assistant.audio import (
+    AcousticBargeInCoordinator,
     AssistantAudioEngine,
     KwsModelRegistry,
     OfflineKwsCoordinator,
@@ -82,6 +83,7 @@ class AssistantRuntime:
     audio_session_supervisor: AudioSessionSupervisor
     audio_engine: AssistantAudioEngine
     offline_kws: OfflineKwsCoordinator
+    acoustic_barge_in: AcousticBargeInCoordinator
     mcp_coordinator: McpCoordinator
     controller: AssistantController
     view_model: AssistantViewModel
@@ -254,6 +256,12 @@ def create_assistant_runtime(
         audio_session_supervisor,
         KwsModelRegistry(paths.models_dir / "kws"),
     )
+    acoustic_barge_in = AcousticBargeInCoordinator(
+        controller,
+        audio_session_supervisor,
+        audio_engine,
+        playback_coordinator,
+    )
 
     async def interrupt_active_audio_for_route_change() -> None:
         await playback_coordinator.cancel("audio_route_changed")
@@ -273,6 +281,7 @@ def create_assistant_runtime(
         audio_session_supervisor=audio_session_supervisor,
         audio_engine=audio_engine,
         offline_kws=offline_kws,
+        acoustic_barge_in=acoustic_barge_in,
         mcp_coordinator=coordinator,
         controller=controller,
         view_model=AssistantViewModel(
@@ -281,6 +290,7 @@ def create_assistant_runtime(
             initial_preferences=preferences,
             audio_session_supervisor=audio_session_supervisor,
             offline_kws=offline_kws,
+            acoustic_barge_in=acoustic_barge_in,
         ),
     )
 
@@ -374,6 +384,10 @@ def create_application_context(
     lifecycle.register_async_closer(
         "assistant-offline-kws",
         assistant_runtime.offline_kws.close,
+    )
+    lifecycle.register_async_closer(
+        "assistant-acoustic-barge-in",
+        assistant_runtime.acoustic_barge_in.close,
     )
 
     engine = QQmlApplicationEngine()
