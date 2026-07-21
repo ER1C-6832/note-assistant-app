@@ -43,6 +43,17 @@ def test_transport_keeps_raw_binary_outside_runtime_event_queue() -> None:
     assert "payload=" not in source.split("route_binary(payload)", maxsplit=1)[1]
 
 
+def test_playback_watchdog_starts_at_sentence_media_boundary() -> None:
+    source = NETWORK_FILE.read_text(encoding="utf-8")
+    dispatch = source.split("async def _dispatch_protocol_event", maxsplit=1)[1]
+    dispatch = dispatch.split("async def _begin_tts_stream", maxsplit=1)[0]
+    assert 'normalized == "sentence_start"' in dispatch
+    assert 'normalized == "start"' not in dispatch
+    assert "active.generation not in self._current_streams" in dispatch
+    source = NETWORK_FILE.read_text(encoding="utf-8")
+    assert "self._current_streams.pop(active.generation, None)" in source
+
+
 def test_coordinator_is_single_engine_owner() -> None:
     source = inspect.getsource(PlaybackCoordinator)
     assert "self._engine" in source

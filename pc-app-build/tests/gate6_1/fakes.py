@@ -63,6 +63,9 @@ class FakeRouteObserver:
     def __init__(self) -> None:
         self.running = False
         self.closed = False
+        self.paused = False
+        self.pause_calls = 0
+        self.resume_calls = 0
         self.sink = None
 
     def start(self, sink) -> None:
@@ -76,6 +79,16 @@ class FakeRouteObserver:
     def close(self) -> None:
         self.stop()
         self.closed = True
+
+    def pause(self) -> None:
+        self.paused = True
+        self.pause_calls += 1
+
+    def resume(self) -> None:
+        if self.closed:
+            return
+        self.paused = False
+        self.resume_calls += 1
 
 
 class FakeDuplexSession:

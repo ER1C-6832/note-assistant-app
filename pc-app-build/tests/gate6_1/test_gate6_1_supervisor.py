@@ -2,6 +2,9 @@ from __future__ import annotations
 
 import asyncio
 import sys
+import threading
+import time
+from contextlib import contextmanager
 from types import SimpleNamespace
 
 import pytest
@@ -9,7 +12,9 @@ import pytest
 from app.assistant.audio.device_registry import PyAudioDeviceRegistry
 from app.assistant.audio.duplex_buffers import BoundedTimedPcmBuffer
 from app.assistant.audio.gate6_contracts import (
+    AudioDeviceSnapshot,
     AudioRouteState,
+    CaptureActivity,
     DeviceDirection,
     DevicePreferenceMode,
     PlaybackActivity,
@@ -17,6 +22,7 @@ from app.assistant.audio.gate6_contracts import (
     TimedPcmFrame,
 )
 from app.assistant.audio.session_supervisor import AudioSessionSupervisor
+from app.assistant.audio.route_observer import PollingAudioRouteObserver
 from app.assistant.preferences import AssistantPreferencesStore
 
 from fakes import FakeDuplexSession, FakePyAudioManager, FakeRouteObserver
@@ -110,6 +116,82 @@ async def test_supervisor_start_and_close_are_idempotent(tmp_path) -> None:
 
     assert supervisor.diagnostics()["microphone_lease"]["owner"] == "none"
     assert supervisor.diagnostics()["microphone_test_worker_alive"] is False
+
+
+@pytest.mark.asyncio
+async def test_active_capture_or_playback_pauses_route_polling_until_both_idle(tmp_path) -> None:
+    observer = FakeRouteObserver()
+    supervisor = AudioSessionSupervisor(
+        AssistantPreferencesStore(tmp_path / "preferences.json"),
+        registry=PyAudioDeviceRegistry(pyaudio_factory=FakePyAudioManager),
+        route_observer=observer,
+        duplex_session=FakeDuplexSession(),
+    )
+    await supervisor.start()
+
+    supervisor.set_capture_activity(CaptureActivity.ASSISTANT)
+    assert observer.paused is True
+    assert observer.pause_calls == 1
+
+    supervisor.set_playback_activity(PlaybackActivity.BUFFERING)
+    supervisor.set_capture_activity(CaptureActivity.INACTIVE)
+    assert observer.paused is True
+
+    supervisor.set_playback_activity(PlaybackActivity.INACTIVE)
+    assert observer.paused is False
+    assert observer.resume_calls == 1
+    await supervisor.close()
+
+
+def test_route_observer_pause_drains_inflight_snapshot_before_returning() -> None:
+    class BlockingRegistry:
+        def __init__(self) -> None:
+            self.lock = threading.RLock()
+            self.snapshot_started = threading.Event()
+            self.release_snapshot = threading.Event()
+            self.snapshot_calls = 0
+
+        @contextmanager
+        def native_operation(self):
+            with self.lock:
+                yield
+
+        def snapshot(self) -> AudioDeviceSnapshot:
+            with self.native_operation():
+                self.snapshot_calls += 1
+                self.snapshot_started.set()
+                self.release_snapshot.wait(1.0)
+                return AudioDeviceSnapshot(self.snapshot_calls, (), time.perf_counter_ns())
+
+    registry = BlockingRegistry()
+    observer = PollingAudioRouteObserver(
+        registry, poll_interval_seconds=0.01, join_timeout_seconds=1.0
+    )
+    observer.start(lambda _event: None)
+    assert registry.snapshot_started.wait(1.0)
+
+    pause_finished = threading.Event()
+
+    def pause() -> None:
+        observer.pause()
+        pause_finished.set()
+
+    pause_thread = threading.Thread(target=pause)
+    pause_thread.start()
+    assert not pause_finished.wait(0.05)
+    registry.release_snapshot.set()
+    assert pause_finished.wait(1.0)
+    calls_while_paused = registry.snapshot_calls
+    time.sleep(0.05)
+    assert registry.snapshot_calls == calls_while_paused
+
+    observer.resume()
+    deadline = time.monotonic() + 1.0
+    while registry.snapshot_calls == calls_while_paused and time.monotonic() < deadline:
+        time.sleep(0.01)
+    assert registry.snapshot_calls > calls_while_paused
+    observer.close()
+    pause_thread.join(1.0)
 
 
 @pytest.mark.asyncio

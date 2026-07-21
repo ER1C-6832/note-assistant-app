@@ -28,6 +28,7 @@ class PollingAudioRouteObserver:
         self._sink: RouteEventSink | None = None
         self._thread: threading.Thread | None = None
         self._stop_event = threading.Event()
+        self._pause_event = threading.Event()
         self._closed = False
 
     @property
@@ -62,6 +63,21 @@ class PollingAudioRouteObserver:
         with self._lock:
             self._sink = None
 
+    def pause(self) -> None:
+        """Quiesce polling before another component opens a native audio stream."""
+
+        self._pause_event.set()
+        # Drain an enumeration which passed the pause check before it can race
+        # a capture/output PyAudio initialization or lifetime transition.
+        with self._registry.native_operation():
+            return
+
+    def resume(self) -> None:
+        with self._lock:
+            if self._closed:
+                return
+        self._pause_event.clear()
+
     def close(self) -> None:
         with self._lock:
             if self._closed:
@@ -73,8 +89,14 @@ class PollingAudioRouteObserver:
     def _run(self) -> None:
         previous_generation: int | None = None
         while not self._stop_event.is_set():
+            if self._pause_event.is_set():
+                self._stop_event.wait(self._poll_interval_seconds)
+                continue
             try:
-                snapshot = self._registry.snapshot()
+                with self._registry.native_operation():
+                    if self._pause_event.is_set():
+                        continue
+                    snapshot = self._registry.snapshot()
                 if previous_generation is None:
                     previous_generation = snapshot.generation
                 elif snapshot.generation != previous_generation:

@@ -337,10 +337,11 @@ class AudioSessionSupervisor:
             route.output_device.opaque_device_id,
             DeviceDirection.OUTPUT,
         )
-        return probe_output_plan(
-            device_index=index,
-            device_public_name=route.output_device.public_name,
-        )
+        with self.registry.native_operation():
+            return probe_output_plan(
+                device_index=index,
+                device_public_name=route.output_device.public_name,
+            )
 
     async def microphone_test(self, *, duration_seconds: float = 1.0) -> dict[str, object]:
         route = self.current_route()
@@ -398,18 +399,43 @@ class AudioSessionSupervisor:
         return dict(result)
 
     def set_capture_activity(self, activity: CaptureActivity) -> None:
+        if activity is not CaptureActivity.INACTIVE:
+            self._pause_route_observation()
         with self._lock:
             if self._snapshot.capture_activity is activity:
                 return
             self._snapshot = replace(self._snapshot, capture_activity=activity)
+        if activity is CaptureActivity.INACTIVE:
+            self._resume_route_observation_if_idle()
         self._notify_threadsafe()
 
     def set_playback_activity(self, activity: PlaybackActivity) -> None:
+        if activity is not PlaybackActivity.INACTIVE:
+            self._pause_route_observation()
         with self._lock:
             if self._snapshot.playback_activity is activity:
                 return
             self._snapshot = replace(self._snapshot, playback_activity=activity)
+        if activity is PlaybackActivity.INACTIVE:
+            self._resume_route_observation_if_idle()
         self._notify_threadsafe()
+
+    def _pause_route_observation(self) -> None:
+        pause = getattr(self._observer, "pause", None)
+        if callable(pause):
+            pause()
+
+    def _resume_route_observation_if_idle(self) -> None:
+        with self._lock:
+            idle = (
+                self._snapshot.capture_activity is CaptureActivity.INACTIVE
+                and self._snapshot.playback_activity is PlaybackActivity.INACTIVE
+            )
+        if not idle or self._closed:
+            return
+        resume = getattr(self._observer, "resume", None)
+        if callable(resume):
+            resume()
 
     def set_processing_state(self, state: ProcessingState) -> None:
         with self._lock:

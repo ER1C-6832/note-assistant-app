@@ -97,7 +97,10 @@ class RealWebSocketTransport(BaseRealWebSocketTransport):
                 self._downlink_formats[active.generation] = event.audio_format
         elif isinstance(event, TtsState):
             normalized = event.state.strip().lower()
-            if normalized == "start":
+            # Xiaozhi sends `start` before LLM/TTS generation.  Only
+            # `sentence_start` is the media boundary immediately preceding the
+            # first Opus packet, so the short no-binary watchdog starts here.
+            if normalized == "sentence_start" and active.generation not in self._current_streams:
                 await self._begin_tts_stream(active, event, now)
             elif is_terminal_tts_state(normalized):
                 await self._end_tts_stream(active, normalized, now)
@@ -141,7 +144,7 @@ class RealWebSocketTransport(BaseRealWebSocketTransport):
         )
 
     async def _end_tts_stream(self, active, state: str, now: int) -> None:
-        current = self._current_streams.get(active.generation)
+        current = self._current_streams.pop(active.generation, None)
         if current is None:
             return
         stream_sequence, playback_generation, turn_token = current
