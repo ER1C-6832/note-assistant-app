@@ -139,6 +139,12 @@ class XiaozhiMessageRouter:
                 "max_tool_calls_per_turn",
                 "max_output_tokens_per_request",
                 "warn_at_percent",
+                "available_tool_count",
+                "selected_tool_count",
+                "selected_tool_schema_chars",
+                "max_tools_per_request",
+                "max_tool_schema_chars_per_request",
+                "max_message_chars_per_request",
             )
             optional_integer_fields = (
                 "input_tokens",
@@ -187,6 +193,15 @@ class XiaozhiMessageRouter:
                     usage.get("budget_status"), "unknown"
                 ),
                 budget_reason=_optional_limited_text(usage.get("budget_reason")),
+                budget_profile=_limited_text(
+                    usage.get("budget_profile"), "default"
+                ),
+                request_route=_limited_text(
+                    usage.get("request_route"), "unknown"
+                ),
+                routing_reason=_optional_limited_text(
+                    usage.get("routing_reason")
+                ),
                 provider_usage_complete=usage.get(
                     "provider_usage_complete", False
                 ),

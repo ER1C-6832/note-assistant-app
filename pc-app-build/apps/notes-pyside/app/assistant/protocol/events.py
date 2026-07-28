@@ -87,6 +87,15 @@ class TokenUsage(ProtocolEvent):
     max_output_tokens_per_request: int = 0
     warn_at_percent: int = 0
     output_cap_enforced: bool = False
+    budget_profile: str = "default"
+    request_route: str = "unknown"
+    routing_reason: str | None = None
+    available_tool_count: int = 0
+    selected_tool_count: int = 0
+    selected_tool_schema_chars: int = 0
+    max_tools_per_request: int = 0
+    max_tool_schema_chars_per_request: int = 0
+    max_message_chars_per_request: int = 0
 
 
 @dataclass(frozen=True, slots=True)

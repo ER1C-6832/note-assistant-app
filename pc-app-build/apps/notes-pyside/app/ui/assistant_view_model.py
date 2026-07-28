@@ -684,8 +684,22 @@ class AssistantViewModel(QObject):
             if usage.output_cap_enforced
             else "当前适配器未确认"
         )
+        route_labels = {
+            "chat": "普通聊天（无工具）",
+            "tool": "工具请求（候选工具）",
+        }
+        route = route_labels.get(usage.request_route, usage.request_route or "未知")
+        if usage.request_route == "tool":
+            route_detail = (
+                f"；候选 {usage.selected_tool_count}/"
+                f"{usage.available_tool_count}；Schema "
+                f"{usage.selected_tool_schema_chars} 字符"
+            )
+        else:
+            route_detail = "；工具 Schema 0"
         return (
             f"模型：{usage.model or '未知'}\n"
+            f"路径：{route}{route_detail}\n"
             f"本轮：{exact_total} Token（输入 {input_tokens} / 输出 {output_tokens}）\n"
             f"已知累计：{usage.known_total_tokens} / {limit}"
             f"（{self.tokenBudgetProgress}%）\n"

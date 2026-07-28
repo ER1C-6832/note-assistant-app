@@ -58,6 +58,15 @@ def _wire_payload() -> str:
                 "max_output_tokens_per_request": 200,
                 "warn_at_percent": 80,
                 "output_cap_enforced": True,
+                "budget_profile": "tool",
+                "request_route": "tool",
+                "routing_reason": "explicit_tool_candidates",
+                "available_tool_count": 38,
+                "selected_tool_count": 2,
+                "selected_tool_schema_chars": 900,
+                "max_tools_per_request": 5,
+                "max_tool_schema_chars_per_request": 5000,
+                "max_message_chars_per_request": 9000,
             },
         },
         ensure_ascii=False,
@@ -72,6 +81,8 @@ def test_token_usage_router_is_typed_and_rejects_invalid_counts() -> None:
     assert event.model == "glm-test"
     assert event.total_tokens == 1030
     assert event.max_total_tokens_per_turn == 12000
+    assert event.request_route == "tool"
+    assert event.selected_tool_count == 2
 
     invalid = router.route_text(
         '{"type":"token_usage","usage":{"known_total_tokens":-1}}'
@@ -111,6 +122,15 @@ def test_token_usage_reducer_keeps_explicit_budget_snapshot() -> None:
             max_output_tokens_per_request=200,
             warn_at_percent=80,
             output_cap_enforced=True,
+            budget_profile="tool",
+            request_route="tool",
+            routing_reason="explicit_tool_candidates",
+            available_tool_count=38,
+            selected_tool_count=2,
+            selected_tool_schema_chars=900,
+            max_tools_per_request=5,
+            max_tool_schema_chars_per_request=5000,
+            max_message_chars_per_request=9000,
             raw_json_redacted=_wire_payload(),
         ),
     ).state
@@ -120,6 +140,8 @@ def test_token_usage_reducer_keeps_explicit_budget_snapshot() -> None:
     assert state.token_usage.provider_usage_complete is True
     assert state.token_usage.max_total_tokens_per_turn == 12000
     assert state.token_usage.output_cap_enforced is True
+    assert state.token_usage.request_route == "tool"
+    assert state.token_usage.selected_tool_count == 2
     assert state.protocol.last_protocol_event == "TokenUsageReceived"
 
 

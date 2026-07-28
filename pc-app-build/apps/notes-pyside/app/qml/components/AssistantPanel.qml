@@ -588,7 +588,7 @@ Rectangle {
                 }
 
                 Label {
-                    text: "Token 与预算"
+                    text: "Token、路径与预算"
                     color: "#334155"
                     font.bold: true
                 }

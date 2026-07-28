@@ -697,6 +697,19 @@ class RealWebSocketTransport:
                     max_output_tokens_per_request=event.max_output_tokens_per_request,
                     warn_at_percent=event.warn_at_percent,
                     output_cap_enforced=event.output_cap_enforced,
+                    budget_profile=event.budget_profile,
+                    request_route=event.request_route,
+                    routing_reason=event.routing_reason,
+                    available_tool_count=event.available_tool_count,
+                    selected_tool_count=event.selected_tool_count,
+                    selected_tool_schema_chars=event.selected_tool_schema_chars,
+                    max_tools_per_request=event.max_tools_per_request,
+                    max_tool_schema_chars_per_request=(
+                        event.max_tool_schema_chars_per_request
+                    ),
+                    max_message_chars_per_request=(
+                        event.max_message_chars_per_request
+                    ),
                     raw_json_redacted=event.raw_json_redacted,
                 )
             )

@@ -206,6 +206,14 @@ def _public_result(state, identity, paths: AppPaths, status: str, prompt: str) -
             "provider_usage_complete": state.token_usage.provider_usage_complete,
             "llm_calls_started": state.token_usage.llm_calls_started,
             "tool_call_count": state.token_usage.tool_call_count,
+            "budget_profile": state.token_usage.budget_profile,
+            "request_route": state.token_usage.request_route,
+            "routing_reason": state.token_usage.routing_reason,
+            "available_tool_count": state.token_usage.available_tool_count,
+            "selected_tool_count": state.token_usage.selected_tool_count,
+            "selected_tool_schema_chars": (
+                state.token_usage.selected_tool_schema_chars
+            ),
             "budget_enabled": state.token_usage.budget_enabled,
             "budget_status": state.token_usage.budget_status,
             "budget_reason": state.token_usage.budget_reason,

@@ -38,6 +38,12 @@ def test_view_model_exposes_explicit_budget_and_enforcement_status() -> None:
             max_total_tokens_per_turn=12000,
             max_output_tokens_per_request=200,
             output_cap_enforced=True,
+            budget_profile="tool",
+            request_route="tool",
+            routing_reason="explicit_tool_candidates",
+            available_tool_count=38,
+            selected_tool_count=2,
+            selected_tool_schema_chars=900,
         ),
     )
     view_model = AssistantViewModel(_StateOnlyController(state))
@@ -47,3 +53,5 @@ def test_view_model_exposes_explicit_budget_and_enforcement_status() -> None:
     assert view_model.tokenBudgetProgress == 9
     assert "1030 / 12000" in view_model.tokenUsageSummary
     assert "输出硬限制：已执行（每次 ≤ 200）" in view_model.tokenUsageSummary
+    assert "路径：工具请求（候选工具）" in view_model.tokenUsageSummary
+    assert "候选 2/38" in view_model.tokenUsageSummary
