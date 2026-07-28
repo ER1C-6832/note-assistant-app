@@ -20,6 +20,7 @@ from ..events import (
     ProtocolUnknownMessageReceived,
     ServerHelloReceived,
     TextTurnCompleted,
+    TokenUsageReceived,
     TransportClosed,
     TransportFailed,
     TransportOpened,
@@ -33,6 +34,7 @@ from ..protocol import (
     McpEnvelope,
     ProtocolError,
     ServerHello,
+    TokenUsage,
     TtsState,
     UnknownJson,
     XiaozhiMessageBuilder,
@@ -666,6 +668,38 @@ class RealWebSocketTransport:
                     delay_seconds=TEXT_TTS_FALLBACK_SECONDS,
                     reason="tts_state_fallback",
                 )
+            return
+        if isinstance(event, TokenUsage):
+            await active.event_sink(
+                TokenUsageReceived(
+                    at_ns=now,
+                    generation=active.generation,
+                    session_id=event.session_id,
+                    turn_id=event.turn_id,
+                    model=event.model,
+                    api_call_count=event.api_call_count,
+                    llm_calls_started=event.llm_calls_started,
+                    tool_call_count=event.tool_call_count,
+                    tool_followup_count=event.tool_followup_count,
+                    input_tokens=event.input_tokens,
+                    output_tokens=event.output_tokens,
+                    total_tokens=event.total_tokens,
+                    known_total_tokens=event.known_total_tokens,
+                    provider_usage_complete=event.provider_usage_complete,
+                    duration_ms=event.duration_ms,
+                    status=event.status,
+                    budget_enabled=event.budget_enabled,
+                    budget_status=event.budget_status,
+                    budget_reason=event.budget_reason,
+                    max_total_tokens_per_turn=event.max_total_tokens_per_turn,
+                    max_llm_calls_per_turn=event.max_llm_calls_per_turn,
+                    max_tool_calls_per_turn=event.max_tool_calls_per_turn,
+                    max_output_tokens_per_request=event.max_output_tokens_per_request,
+                    warn_at_percent=event.warn_at_percent,
+                    output_cap_enforced=event.output_cap_enforced,
+                    raw_json_redacted=event.raw_json_redacted,
+                )
+            )
             return
         if isinstance(event, UnknownJson):
             await active.event_sink(

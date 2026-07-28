@@ -249,6 +249,33 @@ class ProtocolState:
 
 
 @dataclass(frozen=True, slots=True)
+class TokenUsageState:
+    observed: bool = False
+    turn_id: str | None = None
+    model: str | None = None
+    api_call_count: int = 0
+    llm_calls_started: int = 0
+    tool_call_count: int = 0
+    tool_followup_count: int = 0
+    input_tokens: int | None = None
+    output_tokens: int | None = None
+    total_tokens: int | None = None
+    known_total_tokens: int = 0
+    provider_usage_complete: bool = False
+    duration_ms: int = 0
+    status: str = "unknown"
+    budget_enabled: bool = False
+    budget_status: str = "unknown"
+    budget_reason: str | None = None
+    max_total_tokens_per_turn: int = 0
+    max_llm_calls_per_turn: int = 0
+    max_tool_calls_per_turn: int = 0
+    max_output_tokens_per_request: int = 0
+    warn_at_percent: int = 0
+    output_cap_enforced: bool = False
+
+
+@dataclass(frozen=True, slots=True)
 class RecoveryState:
     reconnect_attempt: int = 0
     last_reconnect_decision: str | None = None
@@ -309,6 +336,7 @@ class AssistantState:
     audio: AudioState = AudioState()
     conversation: ConversationState = ConversationState()
     protocol: ProtocolState = ProtocolState()
+    token_usage: TokenUsageState = TokenUsageState()
     recovery: RecoveryState = RecoveryState()
     mcp: McpRuntimeState = McpRuntimeState()
     diagnostics: RuntimeDiagnostics = RuntimeDiagnostics()

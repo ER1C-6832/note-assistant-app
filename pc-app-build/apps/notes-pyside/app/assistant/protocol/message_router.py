@@ -14,6 +14,7 @@ from .events import (
     ProtocolError,
     ProtocolEvent,
     ServerHello,
+    TokenUsage,
     TtsState,
     UnknownJson,
 )
@@ -118,6 +119,83 @@ class XiaozhiMessageRouter:
                 session_id=session_id,
                 raw_json_redacted=redacted,
             )
+        if message_type == "token_usage":
+            usage = payload.get("usage")
+            if not isinstance(usage, Mapping):
+                return ProtocolError(
+                    error="token_usage_missing_usage",
+                    raw_text_redacted=redacted,
+                    raw_json_redacted=redacted,
+                )
+            integer_fields = (
+                "api_call_count",
+                "llm_calls_started",
+                "tool_call_count",
+                "tool_followup_count",
+                "known_total_tokens",
+                "duration_ms",
+                "max_total_tokens_per_turn",
+                "max_llm_calls_per_turn",
+                "max_tool_calls_per_turn",
+                "max_output_tokens_per_request",
+                "warn_at_percent",
+            )
+            optional_integer_fields = (
+                "input_tokens",
+                "output_tokens",
+                "total_tokens",
+            )
+            normalized_integers: dict[str, int] = {}
+            normalized_optional: dict[str, int | None] = {}
+            for field in integer_fields:
+                value = usage.get(field, 0)
+                if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+                    return ProtocolError(
+                        error=f"token_usage_invalid_{field}",
+                        raw_text_redacted=redacted,
+                        raw_json_redacted=redacted,
+                    )
+                normalized_integers[field] = value
+            for field in optional_integer_fields:
+                value = usage.get(field)
+                if value is not None and (
+                    isinstance(value, bool) or not isinstance(value, int) or value < 0
+                ):
+                    return ProtocolError(
+                        error=f"token_usage_invalid_{field}",
+                        raw_text_redacted=redacted,
+                        raw_json_redacted=redacted,
+                    )
+                normalized_optional[field] = value
+            for field in (
+                "provider_usage_complete",
+                "budget_enabled",
+                "output_cap_enforced",
+            ):
+                if not isinstance(usage.get(field, False), bool):
+                    return ProtocolError(
+                        error=f"token_usage_invalid_{field}",
+                        raw_text_redacted=redacted,
+                        raw_json_redacted=redacted,
+                    )
+            return TokenUsage(
+                session_id=session_id,
+                turn_id=_optional_limited_text(usage.get("turn_id")),
+                model=_optional_limited_text(usage.get("model")),
+                status=_limited_text(usage.get("status"), "unknown"),
+                budget_status=_limited_text(
+                    usage.get("budget_status"), "unknown"
+                ),
+                budget_reason=_optional_limited_text(usage.get("budget_reason")),
+                provider_usage_complete=usage.get(
+                    "provider_usage_complete", False
+                ),
+                budget_enabled=usage.get("budget_enabled", False),
+                output_cap_enforced=usage.get("output_cap_enforced", False),
+                raw_json_redacted=redacted,
+                **normalized_integers,
+                **normalized_optional,
+            )
         return UnknownJson(
             message_type=message_type,
             session_id=session_id,
@@ -210,3 +288,13 @@ def _text(value: object) -> str:
 def _optional_text(value: object) -> str | None:
     cleaned = _text(value)
     return cleaned or None
+
+
+def _limited_text(value: object, default: str) -> str:
+    cleaned = _text(value)
+    return cleaned[:128] if cleaned else default
+
+
+def _optional_limited_text(value: object) -> str | None:
+    cleaned = _text(value)
+    return cleaned[:128] if cleaned else None

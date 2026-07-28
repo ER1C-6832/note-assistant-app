@@ -9,6 +9,7 @@ from .events import (
     ProtocolError,
     ProtocolEvent,
     ServerHello,
+    TokenUsage,
     TtsState,
     UnknownJson,
 )
@@ -29,6 +30,7 @@ __all__ = [
     "ProtocolError",
     "ProtocolEvent",
     "ServerHello",
+    "TokenUsage",
     "TtsState",
     "UnknownJson",
     "XiaozhiMessageBuilder",

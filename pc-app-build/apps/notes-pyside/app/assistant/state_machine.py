@@ -88,6 +88,7 @@ from .events import (
     SystemAudioRecovered,
     TextSubmitted,
     TextTurnCompleted,
+    TokenUsageReceived,
     ToolsListSimulationRequested,
     TtsStateReceived,
     VoiceActivityChanged,
@@ -121,6 +122,7 @@ from .state import (
     IdentityPublicState,
     MicrophoneOwner,
     StreamingConversationState,
+    TokenUsageState,
     VoiceActivityState,
     VoiceInteractionMode,
 )
@@ -172,6 +174,8 @@ class ConversationStateMachine:
             return self._text_turn_completed(current, event)
         if isinstance(event, ProtocolMessageObserved):
             return self._protocol_observed(current, event)
+        if isinstance(event, TokenUsageReceived):
+            return self._token_usage_received(current, event)
         if isinstance(event, ProtocolUnknownMessageReceived):
             return self._protocol_unknown(current, event)
         if isinstance(event, ProtocolInvalidMessageReceived):
@@ -2426,6 +2430,57 @@ class ConversationStateMachine:
                 last_protocol_error=None,
             ),
             status_text=f"收到协议事件：{event.message_type}",
+        )
+        return self._transition(state, event)
+
+    def _token_usage_received(
+        self,
+        current: AssistantState,
+        event: TokenUsageReceived,
+    ) -> Transition:
+        if self._is_stale_connection_event(current, event.generation):
+            return Transition.unchanged(current)
+        if event.session_id and event.session_id != current.connection.session_id:
+            return Transition.unchanged(current)
+        token_usage = TokenUsageState(
+            observed=True,
+            turn_id=event.turn_id,
+            model=event.model,
+            api_call_count=event.api_call_count,
+            llm_calls_started=event.llm_calls_started,
+            tool_call_count=event.tool_call_count,
+            tool_followup_count=event.tool_followup_count,
+            input_tokens=event.input_tokens,
+            output_tokens=event.output_tokens,
+            total_tokens=event.total_tokens,
+            known_total_tokens=event.known_total_tokens,
+            provider_usage_complete=event.provider_usage_complete,
+            duration_ms=event.duration_ms,
+            status=event.status,
+            budget_enabled=event.budget_enabled,
+            budget_status=event.budget_status,
+            budget_reason=event.budget_reason,
+            max_total_tokens_per_turn=event.max_total_tokens_per_turn,
+            max_llm_calls_per_turn=event.max_llm_calls_per_turn,
+            max_tool_calls_per_turn=event.max_tool_calls_per_turn,
+            max_output_tokens_per_request=event.max_output_tokens_per_request,
+            warn_at_percent=event.warn_at_percent,
+            output_cap_enforced=event.output_cap_enforced,
+        )
+        state = replace(
+            current,
+            token_usage=token_usage,
+            protocol=replace(
+                current.protocol,
+                last_server_json_redacted=event.raw_json_redacted,
+                last_protocol_event="TokenUsageReceived",
+                last_protocol_error=None,
+            ),
+            status_text=(
+                f"Token：{event.known_total_tokens}/"
+                f"{event.max_total_tokens_per_turn or '-'} · "
+                f"{event.budget_status}"
+            ),
         )
         return self._transition(state, event)
 

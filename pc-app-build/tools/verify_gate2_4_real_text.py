@@ -196,6 +196,27 @@ def _public_result(state, identity, paths: AppPaths, status: str, prompt: str) -
         "last_protocol_event": state.protocol.last_protocol_event,
         "last_protocol_error": state.protocol.last_protocol_error,
         "last_binary_size_bytes": state.protocol.last_binary_size_bytes,
+        "token_usage": {
+            "observed": state.token_usage.observed,
+            "model": state.token_usage.model,
+            "input_tokens": state.token_usage.input_tokens,
+            "output_tokens": state.token_usage.output_tokens,
+            "total_tokens": state.token_usage.total_tokens,
+            "known_total_tokens": state.token_usage.known_total_tokens,
+            "provider_usage_complete": state.token_usage.provider_usage_complete,
+            "llm_calls_started": state.token_usage.llm_calls_started,
+            "tool_call_count": state.token_usage.tool_call_count,
+            "budget_enabled": state.token_usage.budget_enabled,
+            "budget_status": state.token_usage.budget_status,
+            "budget_reason": state.token_usage.budget_reason,
+            "max_total_tokens_per_turn": (
+                state.token_usage.max_total_tokens_per_turn
+            ),
+            "max_output_tokens_per_request": (
+                state.token_usage.max_output_tokens_per_request
+            ),
+            "output_cap_enforced": state.token_usage.output_cap_enforced,
+        },
         "error_code": state.error.code if state.error else None,
         "error_message": _redact_message(state.error.message) if state.error else None,
         "config_path": str(paths.assistant_runtime_config),

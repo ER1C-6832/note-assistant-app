@@ -588,6 +588,65 @@ Rectangle {
                 }
 
                 Label {
+                    text: "Token 与预算"
+                    color: "#334155"
+                    font.bold: true
+                }
+
+                Rectangle {
+                    Layout.fillWidth: true
+                    implicitHeight: tokenBudgetColumn.implicitHeight + 16
+                    radius: 10
+                    color: root.model.tokenUsageAvailable
+                           ? (root.model.tokenBudgetStatus === "已阻断"
+                              ? "#FEF2F2" : "#F8FAFC")
+                           : "#F8FAFC"
+                    border.color: root.model.tokenBudgetStatus === "已阻断"
+                                  ? "#FCA5A5" : "#E2E8F0"
+
+                    ColumnLayout {
+                        id: tokenBudgetColumn
+                        anchors.fill: parent
+                        anchors.margins: 8
+                        spacing: 6
+
+                        RowLayout {
+                            Layout.fillWidth: true
+
+                            Label {
+                                Layout.fillWidth: true
+                                text: root.model.tokenBudgetStatus
+                                color: root.model.tokenBudgetStatus === "已阻断"
+                                       ? "#B91C1C" : "#334155"
+                                font.bold: true
+                            }
+
+                            Label {
+                                text: String(root.model.tokenBudgetProgress) + "%"
+                                color: "#64748B"
+                                font.pixelSize: 11
+                            }
+                        }
+
+                        ProgressBar {
+                            Layout.fillWidth: true
+                            from: 0
+                            to: 100
+                            value: root.model.tokenBudgetProgress
+                            visible: root.model.tokenUsageAvailable
+                        }
+
+                        Label {
+                            Layout.fillWidth: true
+                            text: root.model.tokenUsageSummary
+                            wrapMode: Text.Wrap
+                            color: "#475569"
+                            font.pixelSize: 10
+                        }
+                    }
+                }
+
+                Label {
                     text: "协议（已脱敏）"
                     color: "#334155"
                     font.bold: true

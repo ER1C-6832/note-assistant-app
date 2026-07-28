@@ -618,6 +618,84 @@ class AssistantViewModel(QObject):
     def lastProtocolError(self) -> str:
         return self._state.protocol.last_protocol_error or ""
 
+    @Property(bool, notify=stateChanged)
+    def tokenUsageAvailable(self) -> bool:
+        return self._state.token_usage.observed
+
+    @Property(str, notify=stateChanged)
+    def tokenBudgetStatus(self) -> str:
+        usage = self._state.token_usage
+        if not usage.observed:
+            return "尚无数据"
+        if not usage.budget_enabled:
+            return "预算未启用"
+        labels = {
+            "within_budget": "预算内",
+            "warning": "接近上限",
+            "limit_reached_after_response": "本次响应后已达上限",
+            "blocked": "已阻断",
+            "disabled": "预算未启用",
+        }
+        return labels.get(usage.budget_status, usage.budget_status or "未知")
+
+    @Property(int, notify=stateChanged)
+    def tokenBudgetProgress(self) -> int:
+        usage = self._state.token_usage
+        if not usage.observed or usage.max_total_tokens_per_turn <= 0:
+            return 0
+        return min(
+            100,
+            round(
+                usage.known_total_tokens
+                * 100
+                / usage.max_total_tokens_per_turn
+            ),
+        )
+
+    @Property(str, notify=stateChanged)
+    def tokenUsageSummary(self) -> str:
+        usage = self._state.token_usage
+        if not usage.observed:
+            return "完成一轮对话后显示服务端统计。"
+        exact_total = (
+            str(usage.total_tokens)
+            if usage.total_tokens is not None
+            else "未知"
+        )
+        input_tokens = (
+            str(usage.input_tokens)
+            if usage.input_tokens is not None
+            else "未知"
+        )
+        output_tokens = (
+            str(usage.output_tokens)
+            if usage.output_tokens is not None
+            else "未知"
+        )
+        limit = (
+            str(usage.max_total_tokens_per_turn)
+            if usage.max_total_tokens_per_turn > 0
+            else "未设置"
+        )
+        reason = f"\n原因：{usage.budget_reason}" if usage.budget_reason else ""
+        completeness = "完整" if usage.provider_usage_complete else "不完整"
+        output_cap = (
+            f"已执行（每次 ≤ {usage.max_output_tokens_per_request}）"
+            if usage.output_cap_enforced
+            else "当前适配器未确认"
+        )
+        return (
+            f"模型：{usage.model or '未知'}\n"
+            f"本轮：{exact_total} Token（输入 {input_tokens} / 输出 {output_tokens}）\n"
+            f"已知累计：{usage.known_total_tokens} / {limit}"
+            f"（{self.tokenBudgetProgress}%）\n"
+            f"LLM：{usage.llm_calls_started} 次；工具："
+            f"{usage.tool_call_count} 次；统计：{completeness}\n"
+            f"输出硬限制：{output_cap}\n"
+            f"预算：{self.tokenBudgetStatus}；回合状态：{usage.status}"
+            f"{reason}"
+        )
+
     @Property("QVariantList", notify=stateChanged)
     def capabilityItems(self) -> list[dict[str, object]]:
         return [
