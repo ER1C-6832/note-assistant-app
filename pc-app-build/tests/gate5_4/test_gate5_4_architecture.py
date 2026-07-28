@@ -34,7 +34,7 @@ def test_spoken_cleanup_only_enriches_read_query_path() -> None:
     )
 
     assert "extract_search_terms" in read_executor
-    assert "extract_explicit_note_id" in read_executor
+    assert "extract_explicit_note_id" not in read_executor
     assert "extract_search_terms" not in mutation_executor
     assert "extract_explicit_note_id" not in mutation_executor
 

@@ -76,7 +76,7 @@ async def test_verbose_search_and_resolve_find_precise_topic(runtime) -> None:
 
 
 @pytest.mark.asyncio
-async def test_explicit_id_inside_long_sentence_resolves_exactly(runtime) -> None:
+async def test_explicit_number_inside_long_sentence_never_resolves_database_id(runtime) -> None:
     registry, commands, _queries, _bus = runtime
     first = await commands.create(CreateNoteCommand("第一条", "", (), source=NoteSource.MANUAL))
     await commands.create(CreateNoteCommand("第二条", "", (), source=NoteSource.MANUAL))
@@ -88,8 +88,10 @@ async def test_explicit_id_inside_long_sentence_resolves_exactly(runtime) -> Non
         {"query": f"麻烦打开编号为 {first.id} 的那条便签"},
     )
 
-    assert result.result["resolution_status"] == "resolved"
-    assert result.result["note_id"] == first.id
+    assert not (
+        result.status == "success"
+        and result.result.get("note_id") == first.id
+    )
 
 
 @pytest.mark.asyncio
@@ -130,5 +132,7 @@ async def test_numeric_title_is_not_silently_reinterpreted_as_note_id(runtime) -
 
     assert by_title.result["resolution_status"] == "resolved"
     assert by_title.result["note_id"] == numeric_title.id
-    assert by_id.result["resolution_status"] == "resolved"
-    assert by_id.result["note_id"] == numeric_id.id
+    assert not (
+        by_id.status == "success"
+        and by_id.result.get("note_id") == numeric_id.id
+    )

@@ -208,6 +208,26 @@ async def test_coordinator_disconnect_invalidates_session_pending(runtime) -> No
 
     await coordinator.open_generation(7, response_sink=response_sink, lifecycle_sink=lifecycle_sink)
     assert coordinator.bind_session(7, "session-7")
+    resolved = coordinator.submit_nowait(
+        7,
+        "session-7",
+        {
+            "jsonrpc": "2.0",
+            "id": "resolve-delete-target",
+            "method": "tools/call",
+            "params": {
+                "name": "notes.resolve",
+                "arguments": {"exact_title": "disconnect"},
+            },
+        },
+    )
+    assert resolved.accepted
+    for _ in range(100):
+        if responses:
+            break
+        await asyncio.sleep(0.01)
+    assert len(responses) == 1
+
     submission = coordinator.submit_nowait(
         7,
         "session-7",
@@ -223,11 +243,11 @@ async def test_coordinator_disconnect_invalidates_session_pending(runtime) -> No
     )
     assert submission.accepted
     for _ in range(100):
-        if responses:
+        if len(responses) >= 2:
             break
         await asyncio.sleep(0.01)
-    assert len(responses) == 1
-    content = json.loads(responses[0]["result"]["content"][0]["text"])
+    assert len(responses) == 2
+    content = json.loads(responses[1]["result"]["content"][0]["text"])
     assert content["status"] == "requires_confirmation"
     assert executor.pending_confirmation_count == 1
 

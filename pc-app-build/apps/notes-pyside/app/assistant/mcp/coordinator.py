@@ -33,6 +33,8 @@ from .contracts import (
     McpResponseSink,
     RequestId,
     ToolCall,
+    ToolResult,
+    ToolRisk,
 )
 from .jsonrpc import (
     error_response,
@@ -88,6 +90,37 @@ class _GenerationContext:
     inflight: dict[DedupeKey, _Inflight] = field(default_factory=dict, repr=False)
     completed: OrderedDict[DedupeKey, _Completed] = field(default_factory=OrderedDict, repr=False)
     responses_sent: int = 0
+    target_grants: dict[int, tuple[str, float]] = field(
+        default_factory=dict, repr=False
+    )
+
+
+_TARGET_GRANT_TTL_SECONDS = 120.0
+_ID_MUTATING_TOOLS = frozenset(
+    {
+        "notes.append",
+        "notes.update_title",
+        "notes.replace_content",
+        "notes.convert_type",
+        "notes.pin",
+        "notes.delete",
+        "notes.restore",
+        "tags.bind",
+    }
+)
+_ID_READ_TOOLS = frozenset({"notes.get", "ui.open_note"})
+_TARGET_PRODUCER_TOOLS = frozenset(
+    {
+        "notes.resolve",
+        "notes.search",
+        "notes.list_recent",
+        "notes.list_by_tag",
+        "notes.list_deleted",
+        "notes.list_todos",
+        "notes.list_pinned",
+        "notes.create",
+    }
+)
 
 
 class McpCoordinator:
@@ -427,30 +460,41 @@ class McpCoordinator:
                 "tool_not_found",
             )
         risk = descriptor.risk.value
-        try:
-            result = await self._registry.call(
-                ToolCall(
-                    request_id=request.request_id,
-                    tool_name=name,
-                    arguments=dict(arguments),
-                    connection_generation=context.generation,
-                    session_id=context.session_id,
+        blocked = self._target_provenance_failure(context, name, arguments)
+        if blocked is not None:
+            result = ToolResult(
+                status="blocked",
+                message=blocked,
+                tool_name=name,
+                risk=descriptor.risk,
+                error_code="untrusted_note_target",
+            )
+        else:
+            try:
+                result = await self._registry.call(
+                    ToolCall(
+                        request_id=request.request_id,
+                        tool_name=name,
+                        arguments=dict(arguments),
+                        connection_generation=context.generation,
+                        session_id=context.session_id,
+                    )
                 )
-            )
-        except SchemaValidationError as exc:
-            return (
-                invalid_params(request.request_id, str(exc)),
-                name,
-                risk,
-                "invalid_params",
-            )
-        except KeyError:
-            return (
-                method_not_found(request.request_id, "Tool not found"),
-                name,
-                None,
-                "tool_not_found",
-            )
+            except SchemaValidationError as exc:
+                return (
+                    invalid_params(request.request_id, str(exc)),
+                    name,
+                    risk,
+                    "invalid_params",
+                )
+            except KeyError:
+                return (
+                    method_not_found(request.request_id, "Tool not found"),
+                    name,
+                    None,
+                    "tool_not_found",
+                )
+            self._update_target_grants(context, name, result)
 
         result_json = json.dumps(
             result.public_dict(),
@@ -474,6 +518,79 @@ class McpCoordinator:
             },
         )
         return response, name, risk, result.status
+
+    @staticmethod
+    def _argument_note_ids(arguments: Mapping[str, object]) -> set[int]:
+        values: list[object] = []
+        if "note_id" in arguments:
+            values.append(arguments.get("note_id"))
+        note_ids = arguments.get("note_ids")
+        if isinstance(note_ids, list):
+            values.extend(note_ids)
+        result: set[int] = set()
+        for value in values:
+            if isinstance(value, bool):
+                continue
+            try:
+                note_id = int(value)
+            except (TypeError, ValueError):
+                continue
+            if note_id > 0:
+                result.add(note_id)
+        return result
+
+    def _target_provenance_failure(
+        self,
+        context: _GenerationContext,
+        tool_name: str,
+        arguments: Mapping[str, object],
+    ) -> str | None:
+        if tool_name not in _ID_MUTATING_TOOLS | _ID_READ_TOOLS:
+            return None
+        requested = self._argument_note_ids(arguments)
+        now = time.monotonic()
+        context.target_grants = {
+            note_id: grant
+            for note_id, grant in context.target_grants.items()
+            if grant[1] >= now
+        }
+        required = "resolved" if tool_name in _ID_MUTATING_TOOLS else "readable"
+        unauthorized = {
+            note_id
+            for note_id in requested
+            if note_id not in context.target_grants
+            or (
+                required == "resolved"
+                and context.target_grants[note_id][0] != "resolved"
+            )
+        }
+        if not requested or unauthorized:
+            return "目标尚未按便签标题唯一定位，操作未执行"
+        return None
+
+    @staticmethod
+    def _update_target_grants(
+        context: _GenerationContext, tool_name: str, result: ToolResult
+    ) -> None:
+        if tool_name in _ID_MUTATING_TOOLS:
+            for note_id in result.affected_note_ids:
+                context.target_grants.pop(note_id, None)
+            return
+        if result.status != "success" or tool_name not in _TARGET_PRODUCER_TOOLS:
+            return
+        affected = set(result.affected_note_ids)
+        if not affected:
+            return
+        payload = result.result if isinstance(result.result, Mapping) else {}
+        unique_resolve = (
+            tool_name == "notes.resolve"
+            and payload.get("resolution_status") == "resolved"
+            and len(affected) == 1
+        )
+        level = "resolved" if unique_resolve else "readable"
+        expires_at = time.monotonic() + _TARGET_GRANT_TTL_SECONDS
+        for note_id in affected:
+            context.target_grants[note_id] = (level, expires_at)
 
     @staticmethod
     def _fingerprint(request: McpRequest) -> str:

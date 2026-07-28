@@ -148,8 +148,10 @@ async def test_eight_read_tools_use_current_note_data_and_todo_semantics() -> No
     assert pinned.affected_note_ids == (1,)
 
     resolved = await _call(registry, 8, "notes.resolve", {"query": "编号 2"})
-    assert resolved.result["resolution_status"] == "resolved"
-    assert resolved.result["note_id"] == 2
+    assert not (
+        resolved.status == "success"
+        and resolved.result.get("note_id") == 2
+    )
 
 
 @pytest.mark.asyncio
@@ -186,8 +188,10 @@ async def test_bare_numeric_query_prefers_title_while_labelled_number_uses_id() 
 
     assert by_title.result["resolution_status"] == "resolved"
     assert by_title.result["note_id"] == numeric_title.id
-    assert by_id.result["resolution_status"] == "resolved"
-    assert by_id.result["note_id"] == numeric_id.id
+    assert not (
+        by_id.status == "success"
+        and by_id.result.get("note_id") == numeric_id.id
+    )
 
 
 @pytest.mark.asyncio

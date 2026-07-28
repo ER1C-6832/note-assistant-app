@@ -37,7 +37,7 @@ def test_every_tool_has_chinese_intent_routing_guidance() -> None:
         assert len(descriptor.description) >= 24
 
     assert "不能猜" in TOOL_INTENT_DESCRIPTIONS["notes.resolve"]
-    assert "单独的‘119’" in TOOL_INTENT_DESCRIPTIONS["notes.resolve"]
+    assert "任何数字都必须按标题或关键词" in TOOL_INTENT_DESCRIPTIONS["notes.resolve"]
     assert "ui.show_todos" in TOOL_INTENT_DESCRIPTIONS
     assert "不是文件" in TOOL_INTENT_DESCRIPTIONS["notes.search"]
     assert (
@@ -57,8 +57,8 @@ def test_verbose_spoken_query_normalization_is_deterministic() -> None:
     assert "包装问题" in verbose_terms
     assert extract_search_terms("打开“客户报价”那条便签")[0] == "客户报价"
     assert extract_search_terms("帮我找一下会议记录") == ("会议记录",)
-    assert extract_explicit_note_id("麻烦读取编号为 12 的便签") == 12
-    assert extract_explicit_note_id("打开第3号笔记") == 3
+    assert extract_explicit_note_id("麻烦读取编号为 12 的便签") is None
+    assert extract_explicit_note_id("打开第3号笔记") is None
     assert extract_explicit_note_id("编号 3 和编号 4") is None
     assert extract_explicit_note_id("119") is None
     assert extract_search_terms("标题叫119的便签")[0] == "119"

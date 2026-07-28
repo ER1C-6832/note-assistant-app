@@ -28,6 +28,28 @@ class CountingExecutor:
         )
 
 
+class ProvenanceExecutor(CountingExecutor):
+    async def execute(self, call: ToolCall, descriptor: ToolDescriptor) -> ToolResult:
+        self.calls += 1
+        if call.tool_name == "notes.resolve":
+            return ToolResult(
+                status="success",
+                message="resolved",
+                tool_name=call.tool_name,
+                risk=descriptor.risk,
+                affected_note_ids=(7,),
+                result={"resolution_status": "resolved", "note_id": 7},
+            )
+        return ToolResult(
+            status="requires_confirmation",
+            message="pending",
+            tool_name=call.tool_name,
+            risk=descriptor.risk,
+            requires_confirmation=True,
+            affected_note_ids=(7,),
+        )
+
+
 async def _opened(
     *, executor: CountingExecutor | None = None, queue_capacity: int = 16
 ) -> tuple[McpCoordinator, list[dict], list[dict]]:
@@ -54,6 +76,63 @@ async def _wait_for_count(values: list[object], count: int) -> None:
     async with asyncio.timeout(2.0):
         while len(values) < count:
             await asyncio.sleep(0)
+
+
+@pytest.mark.asyncio
+async def test_protocol_blocks_raw_note_id_until_unique_resolver_grants_it() -> None:
+    executor = ProvenanceExecutor()
+    coordinator, responses, _lifecycle = await _opened(executor=executor)
+    try:
+        direct = {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "tools/call",
+            "params": {"name": "notes.delete", "arguments": {"note_ids": [3]}},
+        }
+        assert coordinator.submit_nowait(1, "session-1", direct).accepted
+        await _wait_for_count(responses, 1)
+        blocked = json.loads(responses[-1]["result"]["content"][0]["text"])
+        assert blocked["status"] == "blocked"
+        assert blocked["error_code"] == "untrusted_note_target"
+        assert executor.calls == 0
+
+        resolve = {
+            "jsonrpc": "2.0",
+            "id": 2,
+            "method": "tools/call",
+            "params": {
+                "name": "notes.resolve",
+                "arguments": {"exact_title": "3"},
+            },
+        }
+        assert coordinator.submit_nowait(1, "session-1", resolve).accepted
+        await _wait_for_count(responses, 2)
+
+        wrong = {
+            "jsonrpc": "2.0",
+            "id": 3,
+            "method": "tools/call",
+            "params": {"name": "notes.delete", "arguments": {"note_ids": [3]}},
+        }
+        assert coordinator.submit_nowait(1, "session-1", wrong).accepted
+        await _wait_for_count(responses, 3)
+        assert json.loads(responses[-1]["result"]["content"][0]["text"])[
+            "status"
+        ] == "blocked"
+
+        trusted = {
+            "jsonrpc": "2.0",
+            "id": 4,
+            "method": "tools/call",
+            "params": {"name": "notes.delete", "arguments": {"note_ids": [7]}},
+        }
+        assert coordinator.submit_nowait(1, "session-1", trusted).accepted
+        await _wait_for_count(responses, 4)
+        pending = json.loads(responses[-1]["result"]["content"][0]["text"])
+        assert pending["status"] == "requires_confirmation"
+        assert executor.calls == 2
+    finally:
+        await coordinator.close()
 
 
 @pytest.mark.asyncio

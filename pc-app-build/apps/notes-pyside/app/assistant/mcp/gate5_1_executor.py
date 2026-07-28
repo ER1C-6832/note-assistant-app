@@ -11,7 +11,6 @@ from ...notes import Note, NoteQueryService, NoteServiceError
 from .constants import MCP_MAX_RESULT_BYTES
 from .contracts import JsonValue, ToolCall, ToolDescriptor, ToolExecutor, ToolResult
 from .intent_rules import (
-    extract_explicit_note_id,
     extract_search_terms,
     is_contextual_reference,
 )
@@ -239,15 +238,6 @@ class Gate51ToolExecutor:
         limit = int(args.get("limit", 5))
         exact_title = str(args.get("exact_title", "")).strip()
         query = str(args.get("query", "")).strip()
-
-        # Bare digits are valid titles/search terms. Only an explicitly labelled
-        # phrase such as “编号 119 / ID 119 / 第119号便签” selects by database id.
-        explicit_id = extract_explicit_note_id(query)
-        if explicit_id is not None:
-            note = await self._queries.get(explicit_id, include_deleted=scope != "active")
-            if note is not None and _scope_matches(note, scope):
-                return _Resolution("resolved", (note,))
-            return _Resolution("not_found", ())
 
         pool = await self._queries.list_scope_bounded(scope, max(100, limit * 20))
         if exact_title:

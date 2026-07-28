@@ -13,12 +13,6 @@ import unicodedata
 _QUOTED_TEXT = re.compile(
     r"[\"“”'‘’《》〈〉【】]([^\"“”'‘’《》〈〉【】]{1,200})[\"“”'‘’《》〈〉【】]"
 )
-_EXPLICIT_ID_PATTERNS = (
-    re.compile(r"(?:便签|笔记)?\s*(?:编号|id|ID)\s*(?:是|为|等于|#|:|：)?\s*(\d{1,10})"),
-    re.compile(r"第\s*(\d{1,10})\s*(?:号|个)?\s*(?:便签|笔记)"),
-    re.compile(r"(?:便签|笔记)\s*#\s*(\d{1,10})"),
-)
-
 # Ordered longest-first so a specific phrase is removed before a shorter part.
 _FILLER_PHRASES = tuple(
     sorted(
@@ -184,16 +178,10 @@ def normalize_spoken_text(value: str) -> str:
 
 
 def extract_explicit_note_id(value: str) -> int | None:
-    """Extract one explicitly labelled positive note id from conversational text."""
+    """Deprecated safety shim: user-visible speech never denotes a database ID."""
 
-    text = unicodedata.normalize("NFKC", str(value)).strip()
-    matches: list[int] = []
-    for pattern in _EXPLICIT_ID_PATTERNS:
-        for raw in pattern.findall(text):
-            note_id = int(raw)
-            if note_id > 0 and note_id not in matches:
-                matches.append(note_id)
-    return matches[0] if len(matches) == 1 else None
+    del value
+    return None
 
 
 def is_contextual_reference(value: str) -> bool:
@@ -262,22 +250,21 @@ def _append_term(result: list[str], value: str) -> None:
 TOOL_INTENT_DESCRIPTIONS: dict[str, str] = {
     "notes.resolve": (
         "解析一个可能含糊的便签目标，只定位、不修改。适用于‘刚才那条’‘那个关于包装的便签’"
-        "‘标题叫客户报价的’或带明确编号的长句。只有‘编号 119’‘ID 119’‘第119号便签’才按"
-        "数据库 ID 解析；单独的‘119’或‘标题叫119’必须先按标题/关键词匹配。若候选不唯一必须返回"
-        " ambiguous，绝不能猜第一条；后续读取、编辑、删除或打开界面时使用返回的 note_id。"
+        "‘标题叫客户报价的’。用户界面不展示数据库编号，因此任何数字都必须按标题或关键词"
+        "解析，绝不能把用户口述数字直接当内部 ID。若候选不唯一必须返回 ambiguous，绝不能猜第一条。"
     ),
     "notes.search": (
         "按关键词和可选标签搜索小智便签，返回有界摘要。适用于‘查便签’‘找一下王总报价’"
         "‘麻烦看看之前记的包装问题’等口语或啰嗦表达；不是文件搜索，也不是系统记事本。"
-        "需要修改含糊目标时先搜索或 resolve，再使用明确 note_id。"
+        "需要修改目标时必须先调用 resolve 唯一定位，搜索结果不能直接授权写入。"
     ),
     "notes.list_recent": (
         "列出最近更新的活动便签。适用于‘最近几条便签’‘我刚记了什么’‘把最新五条念一下’。"
         "不要用它代替关键词搜索，也不要把置顶顺序当作最近更新时间。"
     ),
     "notes.get": (
-        "按明确 note_id 读取一条便签的公开字段。适用于‘读一下编号 12’。目标只有标题或描述时先调用"
-        " notes.resolve/notes.search；读取回收站内容时设置 include_deleted=true。"
+        "读取一条已经由本轮 resolve/search 返回的便签。用户给标题或描述时必须先调用"
+        " notes.resolve/notes.search；不得把口述数字直接当内部 ID。"
     ),
     "notes.list_by_tag": (
         "按精确标签列出活动便签。适用于‘列出客户标签下的便签’‘看看会议分类’。"
@@ -298,7 +285,7 @@ TOOL_INTENT_DESCRIPTIONS: dict[str, str] = {
         "不得虚构内容。"
     ),
     "notes.append": (
-        "向明确便签末尾追加内容并保留标题和标签。适用于‘在那条后面补一句’‘给编号 12 加上…’。"
+        "向已由 resolve 唯一定位的便签末尾追加内容并保留标题和标签。适用于‘在那条后面补一句’。"
         "目标含糊时先 resolve/search；用户要求整体覆盖时应使用 notes.replace_content。"
     ),
     "notes.update_title": (
@@ -314,7 +301,7 @@ TOOL_INTENT_DESCRIPTIONS: dict[str, str] = {
         "‘这项不再是待办了’。目标含糊时先 resolve/search。"
     ),
     "notes.pin": (
-        "置顶或取消置顶一组明确便签。适用于‘把这几条置顶’‘取消编号 3 的置顶’；pinned=true/false"
+        "置顶或取消置顶一组已经安全定位的便签。适用于‘把这几条置顶’；pinned=true/false"
         "必须按用户意图设置，超过 5 条需要确认。"
     ),
     "notes.delete": (
@@ -322,7 +309,7 @@ TOOL_INTENT_DESCRIPTIONS: dict[str, str] = {
         "目标含糊时必须先 resolve/search，不能猜测或跳过确认。"
     ),
     "notes.restore": (
-        "从回收站恢复明确便签。适用于‘把刚才删的恢复’‘还原编号 8’；先用 list_deleted/resolve"
+        "从回收站恢复明确便签。适用于‘把刚才删的恢复’；先用 list_deleted/resolve"
         "明确目标，超过 5 条需要确认。"
     ),
     "tags.create": (
