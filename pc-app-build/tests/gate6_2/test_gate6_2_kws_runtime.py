@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import asyncio
+import queue
+import threading
 import time
 from pathlib import Path
 
@@ -14,7 +16,7 @@ from app.assistant.audio.gate6_contracts import (
     PlaybackActivity,
 )
 from app.assistant.audio.kws_model_registry import KwsModelRegistry
-from app.assistant.audio.offline_kws import OfflineKwsCoordinator
+from app.assistant.audio.offline_kws import LocalKwsCaptureRuntime, OfflineKwsCoordinator
 from app.assistant.audio.session_supervisor import AudioSessionSupervisor
 from app.assistant.preferences import AssistantPreferencesStore
 from app.assistant.audio.sherpa_kws import KwsBackendError
@@ -68,6 +70,46 @@ async def _build(tmp_path: Path):
     return store, supervisor, controller, factory, coordinator
 
 
+def test_native_spotter_create_reset_and_close_share_worker_thread() -> None:
+    calls: list[tuple[str, int]] = []
+
+    class ThreadOwnedSpotter:
+        def reset(self, _generation: int) -> None:
+            calls.append(("reset", threading.get_ident()))
+
+        def close(self) -> None:
+            calls.append(("close", threading.get_ident()))
+
+    def factory(_model) -> ThreadOwnedSpotter:
+        calls.append(("create", threading.get_ident()))
+        return ThreadOwnedSpotter()
+
+    runtime = LocalKwsCaptureRuntime(
+        object(),  # type: ignore[arg-type]
+        object(),  # type: ignore[arg-type]
+        spotter_factory=factory,  # type: ignore[arg-type]
+    )
+    runtime._generation = 7
+    frames: queue.Queue[object] = queue.Queue()
+    startup: queue.Queue[Exception | None] = queue.Queue(maxsize=1)
+    stop_event = threading.Event()
+    worker = threading.Thread(
+        target=runtime._worker_main,
+        args=(7, 1, frames, stop_event, startup, lambda _result: None),
+    )
+
+    worker.start()
+    assert startup.get(timeout=1.0) is None
+    frames.put(runtime._sentinel)
+    worker.join(timeout=1.0)
+
+    assert not worker.is_alive()
+    assert [name for name, _thread_id in calls] == ["create", "reset", "close"]
+    owner_threads = {thread_id for _name, thread_id in calls}
+    assert len(owner_threads) == 1
+    assert owner_threads != {threading.get_ident()}
+
+
 @pytest.mark.asyncio
 async def test_one_hit_creates_at_most_one_session_and_hands_off_owner(tmp_path: Path) -> None:
     _store, supervisor, controller, factory, coordinator = await _build(tmp_path)
@@ -103,7 +145,13 @@ async def test_session_terminal_resumes_once_and_cooldown_rejects_duplicate(tmp_
             supervisor.snapshot.route_generation,
         )
         controller.finish_session()
-        await _wait_until(lambda: len(factory.instances) >= 2 and factory.instances[-1].active)
+        await _wait_until(
+            lambda: (
+                len(factory.instances) >= 2
+                and factory.instances[-1].active
+                and coordinator.snapshot.resume_count == 2
+            )
+        )
         assert len(factory.instances) == 2
         assert coordinator.snapshot.resume_count == 2
 
@@ -219,7 +267,13 @@ async def test_route_generation_change_restarts_kws_once(tmp_path: Path) -> None
             DevicePreferenceMode.PIN_SPECIFIC_DEVICE,
             str(usb["key"]),
         )
-        await _wait_until(lambda: len(factory.instances) >= 2 and factory.instances[-1].active)
+        await _wait_until(
+            lambda: (
+                len(factory.instances) >= 2
+                and factory.instances[-1].active
+                and coordinator.snapshot.resume_count == 2
+            )
+        )
         assert supervisor.snapshot.route_generation > first_route_generation
         assert factory.instances[0].active is False
         assert factory.instances[-1].active is True

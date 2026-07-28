@@ -41,6 +41,7 @@ if False:  # pragma: no cover - typing-only imports without a runtime cycle
 KWS_QUEUE_CAPACITY = 64
 KWS_COOLDOWN_MS = 1_500
 KWS_DEBOUNCE_MS = 250
+KWS_WORKER_START_TIMEOUT_SECONDS = 20.0
 KWS_AUDIO_FORMAT = PublicAudioFormat(16_000, 1, 2, 20)
 
 KwsHitSink = Callable[[KeywordSpotResult], None]
@@ -170,15 +171,14 @@ class LocalKwsCaptureRuntime:
             route.input_device.opaque_device_id,
             route.input_preference.direction,
         )
-        spotter = self._spotter_factory(self._model)
-        spotter.reset(generation)
         frames: queue.Queue[object] = queue.Queue(maxsize=self._queue_capacity)
+        startup: queue.Queue[Exception | None] = queue.Queue(maxsize=1)
         stop_event = threading.Event()
         capture = PyAudioCaptureAdapter(input_device_index=device_index)
         with self._lock:
             self._generation = generation
             self._route_generation = route_generation
-            self._spotter = spotter
+            self._spotter = None
             self._queue = frames
             self._stop_event = stop_event
             self._capture = capture
@@ -205,7 +205,14 @@ class LocalKwsCaptureRuntime:
 
         worker = threading.Thread(
             target=self._worker_main,
-            args=(generation, route_generation, frames, stop_event, spotter, hit_sink),
+            args=(
+                generation,
+                route_generation,
+                frames,
+                stop_event,
+                startup,
+                hit_sink,
+            ),
             name=f"assistant-kws-worker-{generation}",
             daemon=True,
         )
@@ -213,6 +220,15 @@ class LocalKwsCaptureRuntime:
             self._worker = worker
         worker.start()
         try:
+            try:
+                startup_result = startup.get(timeout=KWS_WORKER_START_TIMEOUT_SECONDS)
+            except queue.Empty as exc:
+                raise KwsBackendError(
+                    "kws_worker_start_timeout",
+                    "KWS worker did not initialize within the bounded timeout",
+                ) from exc
+            if startup_result is not None:
+                raise startup_result
             capture.start(generation, accept)
         except Exception:
             self.stop()
@@ -225,7 +241,6 @@ class LocalKwsCaptureRuntime:
             frames = self._queue
             stop_event = self._stop_event
             worker = self._worker
-            spotter = self._spotter
             self._generation = None
             self._capture = None
             self._stop_event = None
@@ -248,8 +263,6 @@ class LocalKwsCaptureRuntime:
         if worker is not None and worker is not threading.current_thread():
             worker.join(timeout=2.0)
         worker_still_alive = bool(worker and worker.is_alive())
-        if spotter is not None and not worker_still_alive:
-            spotter.close()
         if frames is not None and not worker_still_alive:
             while True:
                 try:
@@ -258,7 +271,8 @@ class LocalKwsCaptureRuntime:
                     break
         with self._lock:
             self._worker = worker if worker_still_alive else None
-            self._spotter = spotter if worker_still_alive else None
+            if not worker_still_alive:
+                self._spotter = None
             self._queue = frames if worker_still_alive else None
             if not worker_still_alive:
                 self._route_generation = 0
@@ -274,39 +288,58 @@ class LocalKwsCaptureRuntime:
         route_generation: int,
         frames: queue.Queue[object],
         stop_event: threading.Event,
-        spotter: SherpaOnnxKeywordSpotter,
+        startup: queue.Queue[Exception | None],
         hit_sink: KwsHitSink,
     ) -> None:
-        while not stop_event.is_set():
+        spotter: SherpaOnnxKeywordSpotter | None = None
+        try:
             try:
-                value = frames.get(timeout=0.1)
-            except queue.Empty:
-                continue
-            if value is self._sentinel:
-                break
-            frame = value
-            try:
-                timed = TimedPcmFrame(
-                    route_generation=route_generation,
-                    stream_generation=generation,
-                    sequence=frame.sequence,
-                    monotonic_ns=frame.captured_at_ns,
-                    audio_format=KWS_AUDIO_FORMAT,
-                    pcm16_le=frame.pcm16_le,
-                )
-                result = spotter.accept(
-                    ProcessedPcmFrame(
-                        source=timed,
-                        pcm16_le=timed.pcm16_le,
-                        processing_state=ProcessingState.BYPASS,
-                        backend_public_name="kws_raw_pcm",
+                spotter = self._spotter_factory(self._model)
+                spotter.reset(generation)
+                with self._lock:
+                    if self._generation == generation:
+                        self._spotter = spotter
+                startup.put_nowait(None)
+            except Exception as exc:
+                startup.put_nowait(exc)
+                return
+
+            while not stop_event.is_set():
+                try:
+                    value = frames.get(timeout=0.1)
+                except queue.Empty:
+                    continue
+                if value is self._sentinel:
+                    break
+                frame = value
+                try:
+                    timed = TimedPcmFrame(
+                        route_generation=route_generation,
+                        stream_generation=generation,
+                        sequence=frame.sequence,
+                        monotonic_ns=frame.captured_at_ns,
+                        audio_format=KWS_AUDIO_FORMAT,
+                        pcm16_le=frame.pcm16_le,
                     )
-                )
-                if result is not None and not stop_event.is_set():
-                    hit_sink(result)
-            except Exception:
-                stop_event.set()
-                break
+                    result = spotter.accept(
+                        ProcessedPcmFrame(
+                            source=timed,
+                            pcm16_le=timed.pcm16_le,
+                            processing_state=ProcessingState.BYPASS,
+                            backend_public_name="kws_raw_pcm",
+                        )
+                    )
+                    if result is not None and not stop_event.is_set():
+                        hit_sink(result)
+                except Exception:
+                    stop_event.set()
+                    break
+        finally:
+            if spotter is not None:
+                spotter.close()
+            with self._lock:
+                if self._spotter is spotter:
+                    self._spotter = None
 
 
 KwsRuntimeFactory = Callable[[KwsModelFiles, AudioSessionSupervisor], KwsCaptureRuntimePort]
