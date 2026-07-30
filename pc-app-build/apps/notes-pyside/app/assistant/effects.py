@@ -128,6 +128,19 @@ class CancelStreamingResponseTimeout(AssistantEffect):
 
 
 @dataclass(frozen=True, slots=True)
+class ScheduleVoiceCompletionCleanupTimeout(AssistantEffect):
+    connection_generation: int
+    capture_generation: int
+    turn_token: int
+    delay_seconds: float
+
+
+@dataclass(frozen=True, slots=True)
+class CancelVoiceCompletionCleanupTimeout(AssistantEffect):
+    pass
+
+
+@dataclass(frozen=True, slots=True)
 class AbortCurrentTurn(AssistantEffect):
     reason: str
 

@@ -14,6 +14,7 @@ from .effects import (
     CancelReconnect,
     CancelRuntimeEffects,
     CancelStreamingResponseTimeout,
+    CancelVoiceCompletionCleanupTimeout,
     CloseTransport,
     EnsureIdentity,
     OpenTransport,
@@ -21,6 +22,7 @@ from .effects import (
     RunActivation,
     ScheduleReconnect,
     ScheduleStreamingResponseTimeout,
+    ScheduleVoiceCompletionCleanupTimeout,
     SendText,
     SetStreamingBargeIn,
     SetVoiceInteractionMode,
@@ -65,6 +67,7 @@ from .events import (
     StreamingConversationStartRequested,
     StreamingConversationStopRequested,
     StreamingResponseTimeout,
+    VoiceCompletionCleanupTimeout,
     StreamingSessionStarted,
     StreamingSessionStopped,
     StreamingTurnSubmitted,
@@ -94,6 +97,7 @@ from .state import (
     VoiceInteractionMode,
 )
 from .state_machine import ConversationStateMachine
+from .runtime_trace import RuntimeTrace
 
 EventSink = Callable[[AssistantEvent], Awaitable[None]]
 StateListener = Callable[[AssistantState], None]
@@ -162,6 +166,7 @@ class EffectRunner:
         self._audio_uplink_task: asyncio.Task[None] | None = None
         self._streaming_vad_task: asyncio.Task[None] | None = None
         self._streaming_response_task: asyncio.Task[None] | None = None
+        self._voice_completion_cleanup_task: asyncio.Task[None] | None = None
         # Normal effects are separate tasks. These bounded ledgers make competing
         # stop/timeout/disconnect finalizers idempotent after they leave the event pump.
         self._finalized_streaming_turns: dict[tuple[int, int, int], None] = {}
@@ -179,6 +184,13 @@ class EffectRunner:
     def streaming_response_timer_running(self) -> bool:
         return (
             self._streaming_response_task is not None and not self._streaming_response_task.done()
+        )
+
+    @property
+    def voice_completion_cleanup_timer_running(self) -> bool:
+        return (
+            self._voice_completion_cleanup_task is not None
+            and not self._voice_completion_cleanup_task.done()
         )
 
     @property
@@ -282,6 +294,12 @@ class EffectRunner:
             return
         if isinstance(effect, CancelStreamingResponseTimeout):
             await self._cancel_streaming_response_timeout()
+            return
+        if isinstance(effect, ScheduleVoiceCompletionCleanupTimeout):
+            await self._schedule_voice_completion_cleanup_timeout(effect)
+            return
+        if isinstance(effect, CancelVoiceCompletionCleanupTimeout):
+            await self._cancel_voice_completion_cleanup_timeout()
             return
         if isinstance(effect, CancelRuntimeEffects):
             await self.cancel_runtime_effects(effect.reason)
@@ -793,6 +811,38 @@ class EffectRunner:
         task.cancel()
         await asyncio.gather(task, return_exceptions=True)
 
+    async def _schedule_voice_completion_cleanup_timeout(
+        self, effect: ScheduleVoiceCompletionCleanupTimeout
+    ) -> None:
+        await self._cancel_voice_completion_cleanup_timeout()
+
+        async def wait_and_fire() -> None:
+            await asyncio.sleep(max(0.05, effect.delay_seconds))
+            await self._event_sink(
+                VoiceCompletionCleanupTimeout(
+                    at_ns=self._clock.now_ns(),
+                    connection_generation=effect.connection_generation,
+                    capture_generation=effect.capture_generation,
+                    turn_token=effect.turn_token,
+                )
+            )
+
+        self._voice_completion_cleanup_task = asyncio.create_task(
+            wait_and_fire(),
+            name=(
+                "assistant-voice-completion-cleanup-"
+                f"{effect.capture_generation}-{effect.turn_token}"
+            ),
+        )
+
+    async def _cancel_voice_completion_cleanup_timeout(self) -> None:
+        task = self._voice_completion_cleanup_task
+        self._voice_completion_cleanup_task = None
+        if task is None or task.done():
+            return
+        task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
+
     async def _cancel_streaming_vad_task(self) -> None:
         task = self._streaming_vad_task
         self._streaming_vad_task = None
@@ -803,6 +853,7 @@ class EffectRunner:
 
     async def cancel_runtime_effects(self, reason: str) -> None:
         await self._cancel_streaming_response_timeout()
+        await self._cancel_voice_completion_cleanup_timeout()
         await self._cancel_streaming_vad_task()
         async with self._audio_lock:
             active = self._active_audio_effect
@@ -1033,6 +1084,7 @@ class AssistantController:
         preferences_store: AssistantPreferencesStore | None = None,
         audio_engine: AssistantAudioEngine | None = None,
         microphone_coordinator: MicrophoneLeaseCoordinator | None = None,
+        runtime_log_path=None,
     ) -> None:
         self._clock = clock or SystemRuntimeClock()
         self._state_machine = state_machine or ConversationStateMachine()
@@ -1059,6 +1111,7 @@ class AssistantController:
         self._accepting_commands = True
         self._shutdown_started = False
         self._closed = False
+        self._runtime_trace = RuntimeTrace(runtime_log_path)
 
     @property
     def state(self) -> AssistantState:
@@ -1091,6 +1144,10 @@ class AssistantController:
     @property
     def streaming_response_timer_running(self) -> bool:
         return self._effect_runner.streaming_response_timer_running
+
+    @property
+    def voice_completion_cleanup_timer_running(self) -> bool:
+        return self._effect_runner.voice_completion_cleanup_timer_running
 
     @property
     def audio_capture_active(self) -> bool:
@@ -1324,6 +1381,7 @@ class AssistantController:
         await self._cancel_effect_tasks()
         await self._effect_runner.shutdown()
         self._drain_unprocessed_events()
+        self._runtime_trace.close()
         self._closed = True
 
     async def _submit_command(self, event: AssistantEvent) -> None:
@@ -1345,9 +1403,16 @@ class AssistantController:
             event = queued.event
             try:
                 transition = self._state_machine.reduce(self._state, event)
+                previous_state = self._state
                 if transition.state is not self._state:
                     self._state = transition.state
                     await self._notify_state_changed()
+                self._runtime_trace.event(
+                    event=event,
+                    before=previous_state,
+                    after=self._state,
+                    effects=transition.effects,
+                )
                 await self._apply_effects(transition.effects)
                 if queued.processed is not None and not queued.processed.done():
                     queued.processed.set_result(None)

@@ -123,6 +123,7 @@ class AssistantController(BaseAssistantController):
         preferences_store=None,
         audio_engine=None,
         microphone_coordinator=None,
+        runtime_log_path=None,
     ) -> None:
         state_machine = state_machine or PlaybackConversationStateMachine()
         super().__init__(
@@ -136,6 +137,7 @@ class AssistantController(BaseAssistantController):
             preferences_store=preferences_store,
             audio_engine=audio_engine,
             microphone_coordinator=microphone_coordinator,
+            runtime_log_path=runtime_log_path,
         )
         coordinator = playback_coordinator or _coordinator_from_transport(transport)
         self._playback_coordinator = coordinator

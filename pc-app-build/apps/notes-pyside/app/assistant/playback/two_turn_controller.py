@@ -27,6 +27,7 @@ class AssistantController(PlaybackAssistantController):
         preferences_store=None,
         audio_engine=None,
         microphone_coordinator=None,
+        runtime_log_path=None,
     ) -> None:
         super().__init__(
             transport=transport,
@@ -40,6 +41,7 @@ class AssistantController(PlaybackAssistantController):
             preferences_store=preferences_store,
             audio_engine=audio_engine,
             microphone_coordinator=microphone_coordinator,
+            runtime_log_path=runtime_log_path,
         )
         self._auto_next_turn_keys: dict[tuple[int, int, int], None] = {}
         self._auto_next_turn_request_count = 0

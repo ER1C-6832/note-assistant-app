@@ -9,6 +9,7 @@ from .effects import (
     CancelReconnect,
     CancelRuntimeEffects,
     CancelStreamingResponseTimeout,
+    CancelVoiceCompletionCleanupTimeout,
     CloseTransport,
     EnsureIdentity,
     OpenTransport,
@@ -16,6 +17,7 @@ from .effects import (
     RunActivation,
     ScheduleReconnect,
     ScheduleStreamingResponseTimeout,
+    ScheduleVoiceCompletionCleanupTimeout,
     SendText,
     SetStreamingBargeIn,
     SetVoiceInteractionMode,
@@ -99,6 +101,7 @@ from .events import (
     UseFakeRuntimeRequested,
     UseRealRuntimeRequested,
     VoiceInteractionModeRequested,
+    VoiceCompletionCleanupTimeout,
     VoiceTurnCompleted,
 )
 from .errors import AssistantErrorCode
@@ -239,13 +242,25 @@ class ConversationStateMachine:
         if isinstance(event, AudioCountersUpdated):
             return self._audio_counters_updated(current, event)
         if isinstance(event, AudioCaptureStopped):
-            return self._audio_capture_stopped(current, event)
+            transition = self._audio_capture_stopped(current, event)
+            if (
+                current.conversation.pending_voice_turn_completion_token
+                == event.turn_token
+            ):
+                return Transition(
+                    transition.state,
+                    transition.effects
+                    + (CancelVoiceCompletionCleanupTimeout(),),
+                ).validated()
+            return transition
         if isinstance(event, AudioCaptureFailed):
             return self._audio_capture_failed(current, event)
         if isinstance(event, AudioUplinkOverflow):
             return self._audio_uplink_overflow(current, event)
         if isinstance(event, VoiceTurnCompleted):
             return self._voice_turn_completed(current, event)
+        if isinstance(event, VoiceCompletionCleanupTimeout):
+            return self._voice_completion_cleanup_timeout(current, event)
         if isinstance(
             event,
             (PlaybackStarted, PlaybackEnded, PlaybackCountersUpdated),
@@ -1498,7 +1513,14 @@ class ConversationStateMachine:
             phase = current.phase
             audio = current.audio
             status_text = "服务端回复已完成，正在释放麦克风"
-            effects: tuple[AssistantEffect, ...] = ()
+            effects = (
+                ScheduleVoiceCompletionCleanupTimeout(
+                    connection_generation=event.generation,
+                    capture_generation=event.capture_generation,
+                    turn_token=event.turn_token,
+                    delay_seconds=2.0,
+                ),
+            )
         elif current.conversation.streaming_session_active:
             conversation = replace(
                 current.conversation,
@@ -1569,6 +1591,77 @@ class ConversationStateMachine:
             error=None,
         )
         return self._transition(state, event, effects)
+
+    def _voice_completion_cleanup_timeout(
+        self,
+        current: AssistantState,
+        event: VoiceCompletionCleanupTimeout,
+    ) -> Transition:
+        if (
+            self._is_stale_connection_event(
+                current, event.connection_generation
+            )
+            or event.capture_generation != current.audio.capture_generation
+            or current.conversation.pending_voice_turn_completion_token
+            != event.turn_token
+        ):
+            return Transition.unchanged(current)
+        conversation = replace(
+            current.conversation,
+            active_entry_source=None,
+            active_voice_turn_token=None,
+            active_voice_turn_started_at_ns=None,
+            pending_voice_turn_completion_token=None,
+            last_completed_voice_turn_token=max(
+                current.conversation.last_completed_voice_turn_token,
+                event.turn_token,
+            ),
+            last_voice_turn_completed_at_ns=event.at_ns,
+            streaming_state=StreamingConversationState.INACTIVE,
+            streaming_session_active=False,
+            streaming_session_id=None,
+            active_streaming_turn_token=None,
+            last_completed_streaming_turn_token=max(
+                current.conversation.last_completed_streaming_turn_token,
+                event.turn_token,
+            ),
+            streaming_response_deadline_ns=None,
+            vad_state=VoiceActivityState.DISABLED,
+            vad_status_text="VAD 未启用",
+        )
+        state = replace(
+            current,
+            phase=(
+                AssistantPhase.CONNECTED
+                if current.is_connected
+                else current.phase
+            ),
+            audio=replace(
+                current.audio,
+                status=AssistantAudioStatus.IDLE,
+                microphone_owner=MicrophoneOwner.NONE,
+                active_capture_mode=None,
+                last_audio_summary="voice_completion_cleanup_timeout_recovered",
+            ),
+            conversation=conversation,
+            status_text="语音回复已完成，录音清理超时已自动恢复",
+            error=AssistantError(
+                code="voice_completion_cleanup_timeout",
+                message="capture cleanup callback did not arrive before timeout",
+                category=AssistantErrorCategory.AUDIO,
+                recoverable=True,
+                source_event=type(event).__name__,
+                occurred_at_ns=event.at_ns,
+            ),
+        )
+        return self._transition(
+            state,
+            event,
+            (
+                CancelVoiceCompletionCleanupTimeout(),
+                CancelRuntimeEffects(reason="voice_completion_cleanup_timeout"),
+            ),
+        )
 
     def _microphone_lease_changed(
         self,

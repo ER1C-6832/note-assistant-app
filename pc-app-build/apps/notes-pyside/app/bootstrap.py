@@ -261,6 +261,7 @@ def create_assistant_runtime(
         preferences_store=preferences_store,
         audio_engine=audio_engine,
         microphone_coordinator=audio_session_supervisor.microphone_coordinator,
+        runtime_log_path=paths.logs_dir / "pc-runtime.log",
     )
     offline_kws = OfflineKwsCoordinator(
         controller,

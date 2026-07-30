@@ -516,6 +516,13 @@ class StreamingResponseTimeout(AssistantEvent):
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
+class VoiceCompletionCleanupTimeout(AssistantEvent):
+    connection_generation: int
+    capture_generation: int
+    turn_token: int
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
 class StreamingSessionStopped(AssistantEvent):
     generation: int
     turn_token: int | None

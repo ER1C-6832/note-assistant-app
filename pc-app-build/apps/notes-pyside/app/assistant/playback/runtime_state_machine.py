@@ -5,7 +5,12 @@ from __future__ import annotations
 from dataclasses import replace
 
 from ..effects import AssistantEffect, CancelStreamingResponseTimeout
-from ..events import AssistantTextReceived, TtsStateReceived, VoiceTurnCompleted
+from ..events import (
+    AssistantTextReceived,
+    AudioCaptureStopped,
+    TtsStateReceived,
+    VoiceTurnCompleted,
+)
 from ..state import (
     AssistantAudioStatus,
     AssistantCapability,
@@ -50,6 +55,41 @@ class PlaybackConversationStateMachine(ConversationStateMachine):
             return self._playback_cancelled(current, event)
         if isinstance(event, RuntimePlaybackFailed):
             return self._playback_failed(current, event)
+        if isinstance(event, AudioCaptureStopped) and self._playback_active(current):
+            delegated = super().reduce(current, event)
+            return self._finish(
+                replace(
+                    delegated.state,
+                    phase=current.phase,
+                    audio=current.audio,
+                    status_text=current.status_text,
+                    error=current.error,
+                ),
+                event,
+                delegated.effects,
+            )
+        if (
+            isinstance(event, VoiceTurnCompleted)
+            and event.generation == current.connection.connection_generation
+            and event.turn_token == current.conversation.active_voice_turn_token
+            and event.had_assistant_text
+            and not self._playback_active(current)
+            and not self._playback_failed_state(current)
+        ):
+            delegated = super().reduce(current, event)
+            state = replace(
+                delegated.state,
+                status_text="已收到文字回复，但本轮未收到可播放的语音音频",
+                error=AssistantError(
+                    code="tts_audio_missing",
+                    message="assistant text completed without a playback stream",
+                    category=AssistantErrorCategory.AUDIO,
+                    recoverable=True,
+                    source_event=type(event).__name__,
+                    occurred_at_ns=event.at_ns,
+                ),
+            )
+            return self._finish(state, event, delegated.effects)
         if (
             self._playback_active(current)
             or self._playback_failed_state(current)
@@ -85,7 +125,18 @@ class PlaybackConversationStateMachine(ConversationStateMachine):
             or event.streaming_generation != current.conversation.streaming_generation
         ):
             return Transition.unchanged(current)
-        if current.audio.status is AssistantAudioStatus.RECORDING:
+        capture_stop_race = (
+            current.conversation.streaming_session_active
+            and current.conversation.streaming_state
+            in {
+                StreamingConversationState.SUBMITTING_TURN,
+                StreamingConversationState.STOPPING,
+            }
+        )
+        if (
+            current.audio.status is AssistantAudioStatus.RECORDING
+            and not capture_stop_race
+        ):
             state = replace(
                 current,
                 phase=AssistantPhase.ERROR,
