@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import sys
+from dataclasses import replace
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -117,3 +118,61 @@ async def test_generic_repository_error_is_mapped() -> None:
     assert captured.value.operation == "list_all"
     assert captured.value.code == "note_repository_error"
     assert isinstance(captured.value.cause, NoteRepositoryError)
+
+
+@pytest.mark.asyncio
+async def test_conversational_search_prefers_exact_tag_over_body_match() -> None:
+    customer_note = make_sample_note()
+    body_only_note = replace(
+        customer_note,
+        id=2,
+        title="屏幕样机",
+        content="完成后发给客户",
+        tags=("屏幕",),
+    )
+
+    class MultipleRepository(StubRepository):
+        def list_active(self):
+            self.calls.append(("list_active", ()))
+            return (customer_note, body_only_note)
+
+    service = NoteQueryService(
+        MultipleRepository(customer_note),
+        RecordingExecutor(),
+    )
+
+    results = await service.search_terms_filtered(
+        ("客户相关", "客户"),
+        limit=10,
+    )
+
+    assert results == (customer_note,)
+
+
+@pytest.mark.asyncio
+async def test_conversational_search_falls_back_to_full_text_without_exact_tag() -> None:
+    customer_note = make_sample_note()
+    manager_note = replace(
+        customer_note,
+        id=2,
+        title="联系王总",
+        content="确认报价",
+        tags=("跟进",),
+    )
+
+    class MultipleRepository(StubRepository):
+        def list_active(self):
+            self.calls.append(("list_active", ()))
+            return (customer_note, manager_note)
+
+    service = NoteQueryService(
+        MultipleRepository(customer_note),
+        RecordingExecutor(),
+    )
+
+    results = await service.search_terms_filtered(
+        ("王总相关", "王总"),
+        limit=10,
+    )
+
+    assert results == (manager_note,)

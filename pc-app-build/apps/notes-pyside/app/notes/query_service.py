@@ -135,6 +135,35 @@ class NoteQueryService:
 
         candidates = await self.list_scope_bounded(clean_scope, 200)
         tagged = tuple(note for note in candidates if all(tag in note.tags for tag in clean_tags))
+        exact_tag_term = next(
+            (
+                term
+                for term in clean_terms
+                if any(
+                    term == note_tag.casefold()
+                    for note in tagged
+                    for note_tag in note.tags
+                )
+            ),
+            None,
+        )
+        if exact_tag_term is not None:
+            pool = tuple(
+                note
+                for note in tagged
+                if any(
+                    exact_tag_term == note_tag.casefold()
+                    for note_tag in note.tags
+                )
+            )
+            return tuple(
+                sorted(
+                    pool,
+                    key=lambda note: (note.updated_at, note.id),
+                    reverse=True,
+                )[:safe_limit]
+            )
+
         primary = clean_terms[0]
         precise = tuple(note for note in tagged if _matches(note, primary))
         pool = precise or tuple(

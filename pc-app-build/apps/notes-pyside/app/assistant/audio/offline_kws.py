@@ -530,6 +530,11 @@ class OfflineKwsCoordinator:
             def hit_sink(result: KeywordSpotResult) -> None:
                 loop.call_soon_threadsafe(self._schedule_hit, generation, result)
 
+            # PortAudio managers are process-global on Windows. Quiesce and
+            # drain route enumeration before constructing/opening the KWS
+            # capture stream, otherwise PyAudio startup/teardown can race
+            # is_format_supported() and corrupt the native heap.
+            self._supervisor.set_capture_activity(CaptureActivity.WAKEWORD_KWS)
             await asyncio.to_thread(runtime.start, generation, route_generation, hit_sink)
         except Exception as exc:
             if runtime is not None:
@@ -539,6 +544,8 @@ class OfflineKwsCoordinator:
                 MicrophoneOwner.WAKEWORD_KWS,
                 route_generation,
             )
+            if self._supervisor.snapshot.capture_activity is CaptureActivity.WAKEWORD_KWS:
+                self._supervisor.set_capture_activity(CaptureActivity.INACTIVE)
             error_code = getattr(exc, "code", "kws_start_failed")
             self._snapshot = replace(
                 self._snapshot,
@@ -552,7 +559,6 @@ class OfflineKwsCoordinator:
         self._runtime = runtime
         self._generation = generation
         self._active_route_generation = route_generation
-        self._supervisor.set_capture_activity(CaptureActivity.WAKEWORD_KWS)
         self._snapshot = replace(
             self._snapshot,
             status="listening",

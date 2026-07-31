@@ -10,6 +10,7 @@ import pytest
 
 from app.assistant.audio.device_registry import PyAudioDeviceRegistry
 from app.assistant.audio.gate6_contracts import (
+    CaptureActivity,
     DeviceDirection,
     DevicePreferenceMode,
     MicrophoneOwner,
@@ -68,6 +69,98 @@ async def _build(tmp_path: Path):
     )
     await coordinator.start()
     return store, supervisor, controller, factory, coordinator
+
+
+@pytest.mark.asyncio
+async def test_kws_quiesces_route_observer_before_native_runtime_start(tmp_path: Path) -> None:
+    store = AssistantPreferencesStore(tmp_path / "preferences.json")
+    store.update_offline_kws_enabled(True)
+    observer = FakeRouteObserver()
+    supervisor = AudioSessionSupervisor(
+        store,
+        registry=PyAudioDeviceRegistry(pyaudio_factory=FakePyAudioManager),
+        route_observer=observer,
+        duplex_session=FakeDuplexSession(),
+    )
+    await supervisor.start()
+
+    class OrderingRuntime:
+        active = False
+        worker_alive = False
+        queue_size = 0
+        overflow_count = 0
+
+        def start(self, _generation: int, _route_generation: int, _hit_sink) -> None:
+            assert supervisor.snapshot.capture_activity is CaptureActivity.WAKEWORD_KWS
+            assert observer.paused is True
+            self.active = True
+            self.worker_alive = True
+
+        def stop(self) -> None:
+            self.active = False
+            self.worker_alive = False
+
+    coordinator = OfflineKwsCoordinator(
+        FakeController(),
+        store,
+        supervisor,
+        _install_fake_model(tmp_path),
+        runtime_factory=lambda _model, _supervisor: OrderingRuntime(),
+    )
+    try:
+        await coordinator.start()
+        assert coordinator.snapshot.status == "listening"
+        assert observer.paused is True
+    finally:
+        await coordinator.close()
+        assert supervisor.snapshot.capture_activity is CaptureActivity.INACTIVE
+        assert observer.paused is False
+        await supervisor.close()
+
+
+@pytest.mark.asyncio
+async def test_failed_kws_start_restores_idle_route_observation(tmp_path: Path) -> None:
+    store = AssistantPreferencesStore(tmp_path / "preferences.json")
+    store.update_offline_kws_enabled(True)
+    observer = FakeRouteObserver()
+    supervisor = AudioSessionSupervisor(
+        store,
+        registry=PyAudioDeviceRegistry(pyaudio_factory=FakePyAudioManager),
+        route_observer=observer,
+        duplex_session=FakeDuplexSession(),
+    )
+    await supervisor.start()
+
+    class FailingRuntime:
+        active = False
+        worker_alive = False
+        queue_size = 0
+        overflow_count = 0
+
+        def start(self, _generation: int, _route_generation: int, _hit_sink) -> None:
+            assert supervisor.snapshot.capture_activity is CaptureActivity.WAKEWORD_KWS
+            assert observer.paused is True
+            raise RuntimeError("fake KWS start failure")
+
+        def stop(self) -> None:
+            return None
+
+    coordinator = OfflineKwsCoordinator(
+        FakeController(),
+        store,
+        supervisor,
+        _install_fake_model(tmp_path),
+        runtime_factory=lambda _model, _supervisor: FailingRuntime(),
+    )
+    try:
+        await coordinator.start()
+        assert coordinator.snapshot.status == "error"
+        assert supervisor.snapshot.capture_activity is CaptureActivity.INACTIVE
+        assert supervisor.microphone_coordinator.owner is MicrophoneOwner.NONE
+        assert observer.paused is False
+    finally:
+        await coordinator.close()
+        await supervisor.close()
 
 
 def test_native_spotter_create_reset_and_close_share_worker_thread() -> None:
@@ -245,7 +338,13 @@ async def test_playback_pauses_kws_and_resumes_one_generation(tmp_path: Path) ->
         assert coordinator.snapshot.status == "paused_playback"
 
         supervisor.set_playback_activity(PlaybackActivity.INACTIVE)
-        await _wait_until(lambda: len(factory.instances) >= 2 and factory.instances[-1].active)
+        await _wait_until(
+            lambda: (
+                len(factory.instances) >= 2
+                and factory.instances[-1].active
+                and coordinator.snapshot.resume_count == 2
+            )
+        )
         assert factory.instances[-1].active is True
         assert len(factory.instances) == 2
         assert coordinator.snapshot.resume_count == 2

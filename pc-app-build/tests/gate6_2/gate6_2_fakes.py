@@ -72,6 +72,7 @@ class FakePyAudioManager:
 class FakeRouteObserver:
     running = False
     closed = False
+    paused = False
 
     def start(self, sink) -> None:
         self.sink = sink
@@ -83,6 +84,12 @@ class FakeRouteObserver:
     def close(self) -> None:
         self.stop()
         self.closed = True
+
+    def pause(self) -> None:
+        self.paused = True
+
+    def resume(self) -> None:
+        self.paused = False
 
 
 class FakeDuplexSession:
