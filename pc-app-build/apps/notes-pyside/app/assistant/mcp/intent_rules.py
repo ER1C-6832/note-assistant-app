@@ -157,6 +157,84 @@ _GENERIC_TOKENS = frozenset(
     }
 )
 
+_GENERIC_NOTE_QUERY_FILLERS = tuple(
+    sorted(
+        {
+            "麻烦你帮我",
+            "麻烦帮我",
+            "能不能帮我",
+            "可以帮我",
+            "请你帮我",
+            "帮我查一下",
+            "帮我找一下",
+            "帮我看看",
+            "帮我",
+            "给我",
+            "替我",
+            "麻烦",
+            "请问",
+            "请",
+            "能不能",
+            "可以不可以",
+            "可以",
+            "帮忙",
+            "搜索一下",
+            "查询一下",
+            "查找一下",
+            "找一下",
+            "查一下",
+            "搜一下",
+            "看一下",
+            "搜索",
+            "查询",
+            "查找",
+            "找找",
+            "查查",
+            "搜搜",
+            "看看",
+            "打开",
+            "读取",
+            "读一下",
+            "读",
+            "找",
+            "查",
+            "搜",
+            "看",
+            "任意一个",
+            "随便一个",
+            "随便一条",
+            "某一个",
+            "一个",
+            "一条",
+            "一则",
+            "某个",
+            "某条",
+            "几个",
+            "几条",
+            "随便",
+            "一下",
+            "我的",
+            "我这边",
+            "这里",
+            "里面",
+            "小智便签应用",
+            "小智便签",
+            "便签应用",
+            "便签app",
+            "小智",
+            "便签",
+            "笔记",
+            "记录",
+            "内容",
+            "详情",
+            "标题",
+            "的",
+        },
+        key=len,
+        reverse=True,
+    )
+)
+
 _SPLIT = re.compile(r"[\s,，、;；:：!?！？。\.\-/\\|]+")
 
 _QUERY_META_PATTERNS = (
@@ -201,6 +279,24 @@ def is_contextual_reference(value: str) -> bool:
     )
 
 
+def is_generic_note_search_query(value: str) -> bool:
+    """Whether a note lookup contains no usable title/content keyword.
+
+    ``查便签`` and ``查一个便签`` are generic and must trigger clarification.
+    ``查王总报价的便签`` is not generic because ``王总报价`` remains after
+    removing wrappers, action words, quantifiers, and the note noun.
+    """
+
+    compact = normalize_spoken_text(value).replace(" ", "")
+    if not compact or not any(noun in compact for noun in ("便签", "笔记", "记录")):
+        return False
+    stripped = compact
+    for phrase in _GENERIC_NOTE_QUERY_FILLERS:
+        filler = normalize_spoken_text(phrase).replace(" ", "")
+        stripped = stripped.replace(filler, "")
+    return not stripped
+
+
 def extract_search_terms(value: str) -> tuple[str, ...]:
     """Extract ordered, bounded search terms from a verbose spoken query.
 
@@ -210,7 +306,7 @@ def extract_search_terms(value: str) -> tuple[str, ...]:
     """
 
     raw = unicodedata.normalize("NFKC", str(value)).strip()
-    if not raw:
+    if not raw or is_generic_note_search_query(raw):
         return ()
 
     candidates: list[str] = []
@@ -254,8 +350,9 @@ TOOL_INTENT_DESCRIPTIONS: dict[str, str] = {
         "解析，绝不能把用户口述数字直接当内部 ID。若候选不唯一必须返回 ambiguous，绝不能猜第一条。"
     ),
     "notes.search": (
-        "按关键词和可选标签搜索小智便签，返回有界摘要。适用于‘查便签’‘找一下王总报价’"
-        "‘麻烦看看之前记的包装问题’等口语或啰嗦表达；不是文件搜索，也不是系统记事本。"
+        "按明确关键词和可选标签搜索小智便签，返回有界摘要。适用于‘找一下王总报价’"
+        "‘麻烦看看之前记的包装问题’等包含实际主题的口语表达；不是文件搜索，也不是系统记事本。"
+        "用户只说‘查便签’‘查一个便签’而未给标题或内容关键词时禁止调用，必须先追问。"
         "需要修改目标时必须先调用 resolve 唯一定位，搜索结果不能直接授权写入。"
     ),
     "notes.list_recent": (
@@ -378,5 +475,6 @@ __all__ = [
     "extract_search_terms",
     "intent_description",
     "is_contextual_reference",
+    "is_generic_note_search_query",
     "normalize_spoken_text",
 ]

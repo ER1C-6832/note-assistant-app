@@ -122,7 +122,9 @@ class Gate51ToolExecutor:
             )
         if name == "notes.search":
             raw_query = str(args["query"])
-            terms = extract_search_terms(raw_query) or (raw_query.strip(),)
+            terms = extract_search_terms(raw_query)
+            if not terms:
+                return self._missing_search_terms(name, descriptor)
             tags = _strings(args.get("tags", ()))
             scope = str(args.get("scope", "active"))
             limit = int(args.get("limit", 10))
@@ -146,7 +148,9 @@ class Gate51ToolExecutor:
             notes = await self._queries.list_deleted_bounded(int(args.get("limit", 20)))
             return self._list_result(name, descriptor, notes, "已删除便签已列出")
         if name == "notes.list_todos":
-            notes = await self._queries.list_by_tag_bounded(_TODO_TAG, int(args.get("limit", 20)))
+            notes = await self._queries.list_by_tag_bounded(
+                _TODO_TAG, int(args.get("limit", 20))
+            )
             return self._list_result(name, descriptor, notes, "待办便签已列出")
         if name == "notes.list_pinned":
             notes = await self._queries.list_pinned_bounded(int(args.get("limit", 20)))
@@ -154,6 +158,8 @@ class Gate51ToolExecutor:
         if name == "notes.resolve":
             resolution = await self._resolve(args)
             candidates = tuple(_summary(note) for note in resolution.candidates)
+            if resolution.status == "missing_query":
+                return self._missing_search_terms(name, descriptor)
             if resolution.status == "not_found":
                 return self._not_found(name, descriptor)
             if resolution.status == "ambiguous":
@@ -208,7 +214,9 @@ class Gate51ToolExecutor:
                 return self._not_found(name, descriptor)
             command = UiCommand(UiCommandKind.OPEN_NOTE, {"note_id": note_id})
         elif name == "ui.show_search":
-            command = UiCommand(UiCommandKind.SHOW_SEARCH, {"query": str(args.get("query", ""))})
+            command = UiCommand(
+                UiCommandKind.SHOW_SEARCH, {"query": str(args.get("query", ""))}
+            )
         elif name == "ui.show_note_list":
             command = UiCommand(UiCommandKind.SHOW_NOTE_LIST)
         elif name == "ui.show_tag":
@@ -239,6 +247,11 @@ class Gate51ToolExecutor:
         exact_title = str(args.get("exact_title", "")).strip()
         query = str(args.get("query", "")).strip()
 
+        contextual = is_contextual_reference(query)
+        terms = () if exact_title or contextual else extract_search_terms(query)
+        if not exact_title and not contextual and not terms:
+            return _Resolution("missing_query", ())
+
         pool = await self._queries.list_scope_bounded(scope, max(100, limit * 20))
         if exact_title:
             exact = tuple(
@@ -246,15 +259,11 @@ class Gate51ToolExecutor:
             )
             return _resolution_from_candidates(exact[:limit])
 
-        if is_contextual_reference(query):
+        if contextual:
             # A bare ‘刚才那条/那个’ has no stable conversation-local target in
             # the client.  Resolve only when the selected scope itself has one
             # candidate; otherwise return recent candidates for clarification.
             return _resolution_from_candidates(tuple(pool[:limit]))
-
-        terms = extract_search_terms(query) or ((_normalized(query),) if query else ())
-        if not terms:
-            return _Resolution("not_found", ())
 
         primary = _normalized(terms[0])
         exact = tuple(note for note in pool if _normalized(note.title) == primary)
@@ -274,9 +283,15 @@ class Gate51ToolExecutor:
             )
             return _resolution_from_candidates(tuple(ranked[:limit]))
 
-        normalized_terms = tuple(_normalized(term) for term in terms if _normalized(term))
+        normalized_terms = tuple(
+            _normalized(term) for term in terms if _normalized(term)
+        )
         ranked = sorted(
-            (note for note in pool if any(_matches_query(note, term) for term in normalized_terms)),
+            (
+                note
+                for note in pool
+                if any(_matches_query(note, term) for term in normalized_terms)
+            ),
             key=lambda note: (
                 _rank_terms(note, normalized_terms),
                 note.updated_at,
@@ -299,6 +314,18 @@ class Gate51ToolExecutor:
             message,
             {"count": len(notes), "notes": [_summary(note) for note in notes]},
             affected_note_ids=tuple(note.id for note in notes),
+        )
+
+    @staticmethod
+    def _missing_search_terms(
+        name: str, descriptor: ToolDescriptor
+    ) -> ToolResult:
+        return ToolResult(
+            status="blocked",
+            message="请提供便签标题或内容关键词",
+            tool_name=name,
+            risk=descriptor.risk,
+            error_code="missing_search_terms",
         )
 
     @staticmethod
@@ -377,7 +404,9 @@ def _normalized(value: str) -> str:
 
 
 def _strings(value: object) -> tuple[str, ...]:
-    if not isinstance(value, Iterable) or isinstance(value, (str, bytes, bytearray)):
+    if not isinstance(value, Iterable) or isinstance(
+        value, (str, bytes, bytearray)
+    ):
         return ()
     return tuple(str(item).strip() for item in value if str(item).strip())
 
@@ -415,7 +444,9 @@ def _full_note(note: Note) -> dict[str, JsonValue]:
 
 
 def _bound_result(payload: dict[str, JsonValue]) -> dict[str, JsonValue]:
-    encoded = json.dumps(payload, ensure_ascii=False, separators=(",", ":"), sort_keys=True)
+    encoded = json.dumps(
+        payload, ensure_ascii=False, separators=(",", ":"), sort_keys=True
+    )
     if len(encoded.encode("utf-8")) <= MCP_MAX_RESULT_BYTES - 2048:
         return payload
     notes = payload.get("notes")
@@ -424,7 +455,10 @@ def _bound_result(payload: dict[str, JsonValue]) -> dict[str, JsonValue]:
             notes
             and len(
                 json.dumps(
-                    payload, ensure_ascii=False, separators=(",", ":"), sort_keys=True
+                    payload,
+                    ensure_ascii=False,
+                    separators=(",", ":"),
+                    sort_keys=True,
                 ).encode("utf-8")
             )
             > MCP_MAX_RESULT_BYTES - 2048
