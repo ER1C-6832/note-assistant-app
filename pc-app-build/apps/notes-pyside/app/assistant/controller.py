@@ -1214,8 +1214,19 @@ class AssistantController:
     async def connect(self) -> None:
         await self._submit_command(ConnectRequested(at_ns=self._clock.now_ns()))
 
-    async def reconnect(self) -> None:
-        await self._submit_command(ReconnectRequested(at_ns=self._clock.now_ns()))
+    async def reconnect(
+        self,
+        *,
+        reason: str = "manual_reconnect",
+        message: str | None = None,
+    ) -> None:
+        await self._submit_command(
+            ReconnectRequested(
+                at_ns=self._clock.now_ns(),
+                reason=reason,
+                message=message,
+            )
+        )
 
     async def disconnect(self, reason: str = "user_disconnect") -> None:
         await self._submit_command(DisconnectRequested(at_ns=self._clock.now_ns(), reason=reason))

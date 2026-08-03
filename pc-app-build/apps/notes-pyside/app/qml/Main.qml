@@ -21,6 +21,7 @@ ApplicationWindow {
     property int searchResetToken: 0
     property var pendingConfirmation: ({})
     property string confirmationStatus: ""
+    property bool confirmationBusy: false
 
     readonly property var viewModel: notesViewModel
     readonly property bool viewModelReady: root.viewModel !== null
@@ -139,6 +140,7 @@ ApplicationWindow {
             } else if (command === "show_confirmation") {
                 root.pendingConfirmation = payload
                 root.confirmationStatus = ""
+                root.confirmationBusy = false
                 confirmationDialog.open()
             }
         }
@@ -148,10 +150,21 @@ ApplicationWindow {
         target: root.mcpUiAdapter
         ignoreUnknownSignals: true
 
+        function onConfirmationActionStarted(confirmationId, action) {
+            if (String(root.pendingConfirmation.confirmation_id || "") !== String(confirmationId)) return
+            root.confirmationBusy = true
+            root.confirmationStatus = action === "confirm" ? "正在确认执行…" : "正在取消操作…"
+        }
+
         function onConfirmationActionFinished(confirmationId, status, message) {
             if (String(root.pendingConfirmation.confirmation_id || "") !== String(confirmationId)) return
+            root.confirmationBusy = false
             root.confirmationStatus = message
-            if (status === "success" || status === "partial_success") {
+            var terminal = [
+                "success", "partial_success", "rejected", "failed",
+                "execution_failed", "consumed", "timeout"
+            ].indexOf(String(status)) >= 0
+            if (terminal) {
                 confirmationDialog.close()
                 root.pendingConfirmation = ({})
             }
@@ -295,14 +308,16 @@ ApplicationWindow {
                 spacing: 12
 
                 Button {
-                    text: "拒绝"
+                    text: root.confirmationBusy ? "处理中…" : "拒绝"
+                    enabled: !root.confirmationBusy
                     onClicked: root.mcpUiAdapter.rejectPending(
                         String(root.pendingConfirmation.confirmation_id || "")
                     )
                 }
 
                 Button {
-                    text: "确认执行"
+                    text: root.confirmationBusy ? "处理中…" : "确认执行"
+                    enabled: !root.confirmationBusy
                     highlighted: true
                     onClicked: root.mcpUiAdapter.confirmPending(
                         String(root.pendingConfirmation.confirmation_id || "")

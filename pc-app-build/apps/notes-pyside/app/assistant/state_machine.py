@@ -1912,6 +1912,12 @@ class ConversationStateMachine:
             )
         old_generation = current.connection.connection_generation
         generation = old_generation + 1
+        automatic = event.reason != "manual_reconnect"
+        recovery_message = event.message or (
+            "正在手工重连 Scripted Fake Runtime"
+            if current.runtime_mode is AssistantRuntimeMode.FAKE
+            else "正在手工重连真实 WebSocket"
+        )
         state = replace(
             current,
             phase=AssistantPhase.RECONNECTING,
@@ -1924,26 +1930,45 @@ class ConversationStateMachine:
                 ),
                 connection_generation=generation,
             ),
-            audio=self._idle_audio(current.audio),
-            conversation=self._idle_conversation(current.conversation),
+            audio=self._idle_audio(
+                current.audio,
+                invalidate_capture=True,
+                invalidate_playback=True,
+                invalidate_microphone_lease=True,
+            ),
+            conversation=self._idle_conversation(
+                current.conversation,
+                invalidate_streaming=True,
+            ),
             recovery=replace(
                 current.recovery,
                 reconnect_attempt=0,
-                last_reconnect_decision="manual_reconnect",
+                last_reconnect_decision=event.reason,
                 next_reconnect_at_ns=None,
                 manual_disconnect_requested=False,
+                runtime_error_count=(
+                    current.recovery.runtime_error_count + (1 if automatic else 0)
+                ),
             ),
-            status_text=(
-                "正在手工重连 Scripted Fake Runtime"
-                if current.runtime_mode is AssistantRuntimeMode.FAKE
-                else "正在手工重连真实 WebSocket"
+            status_text=recovery_message,
+            error=(
+                AssistantError(
+                    code="lifecycle_watchdog_recovery",
+                    message=recovery_message,
+                    category=AssistantErrorCategory.RUNTIME,
+                    recoverable=True,
+                    source_event=type(event).__name__,
+                    occurred_at_ns=event.at_ns,
+                    details_redacted=event.reason,
+                )
+                if automatic
+                else None
             ),
-            error=None,
         )
         effects = (
             CancelReconnect(),
-            CancelRuntimeEffects(reason="manual_reconnect"),
-            CloseTransport(generation=old_generation, reason="manual_reconnect"),
+            CancelRuntimeEffects(reason=event.reason),
+            CloseTransport(generation=old_generation, reason=event.reason),
             OpenTransport(generation=generation, runtime_mode=current.runtime_mode),
         )
         return self._transition(state, event, effects)

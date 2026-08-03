@@ -135,7 +135,12 @@ class Gate51ToolExecutor:
                 )
             else:
                 notes = await search_terms(terms, tags=tags, scope=scope, limit=limit)
-            return self._list_result(name, descriptor, notes, "搜索完成")
+            return self._list_result(
+                name,
+                descriptor,
+                notes,
+                _search_result_message(raw_query, notes),
+            )
         if name == "notes.list_recent":
             notes = await self._queries.list_recent(int(args.get("limit", 5)))
             return self._list_result(name, descriptor, notes, "最近便签已列出")
@@ -319,6 +324,17 @@ class Gate51ToolExecutor:
             {"count": len(notes), "notes": [_summary(note) for note in notes]},
             affected_note_ids=tuple(note.id for note in notes),
         )
+
+
+def _search_result_message(query: str, notes: tuple[Note, ...]) -> str:
+    clean_query = query.strip()
+    if not notes:
+        return f"没有找到与“{clean_query}”匹配的便签"
+    titles = "、".join(note.title for note in notes[:3])
+    if len(notes) == 1:
+        return f"找到1条便签：{titles}"
+    suffix = "等" if len(notes) > 3 else ""
+    return f"找到{len(notes)}条便签：{titles}{suffix}"
 
     @staticmethod
     def _missing_search_terms(

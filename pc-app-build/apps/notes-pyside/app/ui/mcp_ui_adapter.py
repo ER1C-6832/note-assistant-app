@@ -14,25 +14,41 @@ from ..assistant.mcp.ui_bus import UiCommand, UiCommandKind, UiDispatchResult
 from .notes_view_model import NotesViewModel
 
 
+LOCAL_CONFIRMATION_TIMEOUT_SECONDS = 15.0
+
+
 class ConfirmationActions(Protocol):
     async def confirm_local(self, confirmation_id: str) -> ToolResult: ...
 
     async def reject_local(self, confirmation_id: str) -> ToolResult: ...
 
 
+class ConfirmationLifecycleObserver(Protocol):
+    async def local_confirmation_finished(
+        self,
+        action: str,
+        confirmation_id: str,
+        status: str,
+        message: str,
+    ) -> None: ...
+
+
 class NotesUiCommandAdapter(QObject):
     """Dispatch typed commands to NotesViewModel and expose safe signals to QML."""
 
     navigationRequested = Signal(str, "QVariantMap")
+    confirmationActionStarted = Signal(str, str)
     confirmationActionFinished = Signal(str, str, str)
 
     def __init__(self, view_model: NotesViewModel) -> None:
         super().__init__()
         self._view_model = view_model
         self._confirmation_actions: ConfirmationActions | None = None
+        self._lifecycle_observer: ConfirmationLifecycleObserver | None = None
         self._closed = False
         self._command_history: deque[str] = deque(maxlen=32)
         self._confirmation_tasks: set[asyncio.Task[None]] = set()
+        self._active_confirmation_ids: set[str] = set()
 
     @property
     def command_history(self) -> tuple[str, ...]:
@@ -42,6 +58,13 @@ class NotesUiCommandAdapter(QObject):
         if self._closed:
             raise RuntimeError("UI command adapter is closed")
         self._confirmation_actions = actions
+
+    def bind_lifecycle_observer(
+        self, observer: ConfirmationLifecycleObserver
+    ) -> None:
+        if self._closed:
+            raise RuntimeError("UI command adapter is closed")
+        self._lifecycle_observer = observer
 
     async def dispatch(self, command: UiCommand) -> UiDispatchResult:
         if self._closed:
@@ -106,12 +129,14 @@ class NotesUiCommandAdapter(QObject):
     async def close(self) -> None:
         self._closed = True
         self._confirmation_actions = None
+        self._lifecycle_observer = None
         tasks = tuple(self._confirmation_tasks)
         for task in tasks:
             task.cancel()
         if tasks:
             await asyncio.gather(*tasks, return_exceptions=True)
         self._confirmation_tasks.clear()
+        self._active_confirmation_ids.clear()
 
     async def _wait_query_idle(self, timeout_seconds: float = 3.0) -> bool:
         deadline = time.perf_counter() + timeout_seconds
@@ -127,29 +152,60 @@ class NotesUiCommandAdapter(QObject):
         if self._closed or actions is None or not clean_id:
             self.confirmationActionFinished.emit(clean_id, "blocked", "确认操作当前不可用")
             return
+        if clean_id in self._active_confirmation_ids:
+            self.confirmationActionFinished.emit(clean_id, "blocked", "确认操作正在执行")
+            return
         try:
             loop = asyncio.get_running_loop()
         except RuntimeError:
             self.confirmationActionFinished.emit(clean_id, "blocked", "异步事件循环尚未启动")
             return
 
+        self._active_confirmation_ids.add(clean_id)
+        self.confirmationActionStarted.emit(clean_id, action)
+
+        async def finish(status: str, message: str) -> None:
+            self.confirmationActionFinished.emit(clean_id, status, message)
+            observer = self._lifecycle_observer
+            if observer is not None:
+                try:
+                    await observer.local_confirmation_finished(
+                        action, clean_id, status, message
+                    )
+                except Exception:
+                    pass
+
         async def run() -> None:
             try:
-                result = (
-                    await actions.confirm_local(clean_id)
+                operation = (
+                    actions.confirm_local(clean_id)
                     if action == "confirm"
-                    else await actions.reject_local(clean_id)
+                    else actions.reject_local(clean_id)
+                )
+                result = await asyncio.wait_for(
+                    operation,
+                    timeout=LOCAL_CONFIRMATION_TIMEOUT_SECONDS,
                 )
             except asyncio.CancelledError:
                 raise
-            except Exception:
-                self.confirmationActionFinished.emit(clean_id, "failed", "确认操作执行失败")
+            except asyncio.TimeoutError:
+                await finish("timeout", "确认操作超时，助手将自动恢复连接")
                 return
-            self.confirmationActionFinished.emit(clean_id, result.status, result.message)
+            except Exception:
+                await finish("failed", "确认操作执行失败")
+                return
+            finally:
+                self._active_confirmation_ids.discard(clean_id)
+            await finish(result.status, result.message)
 
         task = loop.create_task(run(), name=f"assistant-local-{action}-{clean_id[:8]}")
         self._confirmation_tasks.add(task)
         task.add_done_callback(self._confirmation_tasks.discard)
 
 
-__all__ = ["ConfirmationActions", "NotesUiCommandAdapter"]
+__all__ = [
+    "ConfirmationActions",
+    "ConfirmationLifecycleObserver",
+    "LOCAL_CONFIRMATION_TIMEOUT_SECONDS",
+    "NotesUiCommandAdapter",
+]

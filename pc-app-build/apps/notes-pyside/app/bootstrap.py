@@ -1,5 +1,7 @@
 """Composition root for the single-process desktop application."""
 
+# LIFECYCLE_CLOSURE_V1
+
 from __future__ import annotations
 
 import asyncio
@@ -42,6 +44,7 @@ from .assistant.audio import (
 )
 from .assistant.audio.session_supervisor import AudioSessionSupervisor
 from .assistant.controller import SystemRuntimeClock
+from .assistant.lifecycle_supervisor import SessionLifecycleSupervisor
 from .assistant.identity import LegacyPyXiaozhiIdentitySource
 from .assistant.mcp import Gate53ToolExecutor, UiCommandBus
 from .assistant.playback.coordinator import PlaybackCoordinator
@@ -90,6 +93,7 @@ class AssistantRuntime:
     acoustic_barge_in: AcousticBargeInCoordinator | None
     mcp_coordinator: McpCoordinator
     controller: AssistantController
+    lifecycle_supervisor: SessionLifecycleSupervisor
     view_model: AssistantViewModel
 
 
@@ -263,6 +267,7 @@ def create_assistant_runtime(
         microphone_coordinator=audio_session_supervisor.microphone_coordinator,
         runtime_log_path=paths.logs_dir / "pc-runtime.log",
     )
+    lifecycle_supervisor = SessionLifecycleSupervisor(controller)
     offline_kws = OfflineKwsCoordinator(
         controller,
         preferences_store,
@@ -301,6 +306,7 @@ def create_assistant_runtime(
         acoustic_barge_in=acoustic_barge_in,
         mcp_coordinator=coordinator,
         controller=controller,
+        lifecycle_supervisor=lifecycle_supervisor,
         view_model=AssistantViewModel(
             controller,
             preferences_store=preferences_store,
@@ -360,6 +366,9 @@ def create_application_context(
     mcp_registry = ToolRegistry(executor=mcp_tool_executor)
     mcp_coordinator = McpCoordinator(mcp_registry)
     assistant_runtime = create_assistant_runtime(paths, mcp_coordinator=mcp_coordinator)
+    ui_command_adapter.bind_lifecycle_observer(
+        assistant_runtime.lifecycle_supervisor
+    )
 
     lifecycle = ApplicationLifecycle()
     lifecycle.register_async_closer(
@@ -389,6 +398,10 @@ def create_application_context(
     lifecycle.register_async_closer(
         "assistant-audio-supervisor",
         assistant_runtime.audio_session_supervisor.close,
+    )
+    lifecycle.register_async_closer(
+        "assistant-lifecycle-supervisor",
+        assistant_runtime.lifecycle_supervisor.close,
     )
     lifecycle.register_async_closer(
         "assistant-controller",

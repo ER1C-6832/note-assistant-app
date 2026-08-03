@@ -45,7 +45,8 @@ class ConnectRequested(AssistantEvent):
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class ReconnectRequested(AssistantEvent):
-    pass
+    reason: str = "manual_reconnect"
+    message: str | None = None
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
