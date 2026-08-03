@@ -247,6 +247,10 @@ class Gate51ToolExecutor:
         exact_title = str(args.get("exact_title", "")).strip()
         query = str(args.get("query", "")).strip()
 
+        if not exact_title and query.isdecimal():
+            exact_title = query
+            query = ""
+
         contextual = is_contextual_reference(query)
         terms = () if exact_title or contextual else extract_search_terms(query)
         if not exact_title and not contextual and not terms:
