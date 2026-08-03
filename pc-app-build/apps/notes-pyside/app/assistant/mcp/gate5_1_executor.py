@@ -58,11 +58,6 @@ class _Resolution:
     candidates: tuple[Note, ...]
 
 
-<<<<<<< HEAD
-
-
-=======
->>>>>>> 3032e26761a842b01df42146891ac875d0e1a591
 def _search_result_message(query: str, notes: tuple[Note, ...]) -> str:
     clean_query = query.strip()
     if not notes:
@@ -73,10 +68,7 @@ def _search_result_message(query: str, notes: tuple[Note, ...]) -> str:
     suffix = "等" if len(notes) > 3 else ""
     return f"找到{len(notes)}条便签：{titles}{suffix}"
 
-<<<<<<< HEAD
-=======
 
->>>>>>> 3032e26761a842b01df42146891ac875d0e1a591
 class Gate51ToolExecutor:
     """Execute only Gate 5.1 tools and fail closed for later Gate handlers."""
 
