@@ -58,6 +58,17 @@ class _Resolution:
     candidates: tuple[Note, ...]
 
 
+def _search_result_message(query: str, notes: tuple[Note, ...]) -> str:
+    clean_query = query.strip()
+    if not notes:
+        return f"没有找到与“{clean_query}”匹配的便签"
+    titles = "、".join(note.title for note in notes[:3])
+    if len(notes) == 1:
+        return f"找到1条便签：{titles}"
+    suffix = "等" if len(notes) > 3 else ""
+    return f"找到{len(notes)}条便签：{titles}{suffix}"
+
+
 class Gate51ToolExecutor:
     """Execute only Gate 5.1 tools and fail closed for later Gate handlers."""
 
@@ -324,17 +335,6 @@ class Gate51ToolExecutor:
             {"count": len(notes), "notes": [_summary(note) for note in notes]},
             affected_note_ids=tuple(note.id for note in notes),
         )
-
-
-def _search_result_message(query: str, notes: tuple[Note, ...]) -> str:
-    clean_query = query.strip()
-    if not notes:
-        return f"没有找到与“{clean_query}”匹配的便签"
-    titles = "、".join(note.title for note in notes[:3])
-    if len(notes) == 1:
-        return f"找到1条便签：{titles}"
-    suffix = "等" if len(notes) > 3 else ""
-    return f"找到{len(notes)}条便签：{titles}{suffix}"
 
     @staticmethod
     def _missing_search_terms(
