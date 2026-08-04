@@ -52,7 +52,7 @@ MAX_MESSAGE_BYTES = 10 * 1024 * 1024
 SEND_QUEUE_CAPACITY = 64
 MAX_CLOSE_REASON_LENGTH = 80
 TEXT_TURN_SETTLE_SECONDS = 1.5
-TEXT_TTS_FALLBACK_SECONDS = 6.0
+TTS_LIFECYCLE_TIMEOUT_SECONDS = 60.0
 TEXT_TURN_RESPONSE_TIMEOUT_SECONDS = 30.0
 
 
@@ -135,6 +135,7 @@ class _ActiveConnection:
     close_emitted: bool = False
     active_text_turn_token: int | None = None
     text_turn_had_assistant_text: bool = False
+    text_tts_lifecycle_started: bool = False
     text_turn_settle_task: asyncio.Task[None] | None = None
     text_turn_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
     text_sent_ready: asyncio.Event = field(default_factory=asyncio.Event)
@@ -142,6 +143,7 @@ class _ActiveConnection:
     active_capture_generation: int | None = None
     voice_turn_had_stt_text: bool = False
     voice_turn_had_assistant_text: bool = False
+    voice_tts_lifecycle_started: bool = False
     voice_turn_settle_task: asyncio.Task[None] | None = None
     voice_turn_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
 
@@ -330,6 +332,7 @@ class RealWebSocketTransport:
                 raise RuntimeError("上一对话回合尚未完成，拒绝并行发送")
             active.active_text_turn_token = turn_token
             active.text_turn_had_assistant_text = False
+            active.text_tts_lifecycle_started = False
             active.text_sent_ready.clear()
             self._cancel_text_turn_settle(active)
             payload = self._builder.listen_detect(active.session_id, text)
@@ -379,6 +382,7 @@ class RealWebSocketTransport:
             active.active_capture_generation = capture_generation
             active.voice_turn_had_stt_text = False
             active.voice_turn_had_assistant_text = False
+            active.voice_tts_lifecycle_started = False
             self._cancel_voice_turn_settle(active)
             payload = self._builder.start_listening(active.session_id, mode)
             try:
@@ -604,13 +608,23 @@ class RealWebSocketTransport:
                     turn_token=turn_token,
                 )
             )
-            if voice_turn is not None and readable and event.source_type != "stt":
+            if (
+                voice_turn is not None
+                and readable
+                and event.source_type != "stt"
+                and not active.voice_tts_lifecycle_started
+            ):
                 self._schedule_voice_turn_settle(
                     active,
                     delay_seconds=TEXT_TURN_SETTLE_SECONDS,
                     reason="voice_assistant_text_settled",
                 )
-            elif text_turn is not None and readable and event.source_type != "stt":
+            elif (
+                text_turn is not None
+                and readable
+                and event.source_type != "stt"
+                and not active.text_tts_lifecycle_started
+            ):
                 self._schedule_text_turn_settle(
                     active,
                     delay_seconds=TEXT_TURN_SETTLE_SECONDS,
@@ -623,11 +637,19 @@ class RealWebSocketTransport:
             turn_token = text_turn if text_turn is not None else voice_turn
             if text_turn is not None:
                 await active.text_sent_ready.wait()
+            normalized_state = event.state.strip().lower()
+            terminal = is_terminal_tts_state(normalized_state)
             readable = has_readable_transcript_text(event.text)
-            if voice_turn is not None and readable:
-                active.voice_turn_had_assistant_text = True
-            elif text_turn is not None and readable:
-                active.text_turn_had_assistant_text = True
+            if voice_turn is not None:
+                if not terminal:
+                    active.voice_tts_lifecycle_started = True
+                if readable:
+                    active.voice_turn_had_assistant_text = True
+            elif text_turn is not None:
+                if not terminal:
+                    active.text_tts_lifecycle_started = True
+                if readable:
+                    active.text_turn_had_assistant_text = True
             await active.event_sink(
                 TtsStateReceived(
                     at_ns=now,
@@ -639,34 +661,28 @@ class RealWebSocketTransport:
                     raw_json_redacted=event.raw_json_redacted,
                 )
             )
-            if is_terminal_tts_state(event.state):
+            if terminal:
+                reason = f"tts_{normalized_state or 'terminal'}"
                 if voice_turn is not None:
-                    await self._complete_voice_turn(active, reason=f"tts_{event.state}")
+                    await self._complete_voice_turn(active, reason=reason)
                 else:
-                    await self._complete_text_turn(active, reason=f"tts_{event.state}")
-            elif voice_turn is not None and readable:
-                self._schedule_voice_turn_settle(
-                    active,
-                    delay_seconds=TEXT_TURN_SETTLE_SECONDS,
-                    reason="voice_tts_text_settled",
-                )
-            elif text_turn is not None and readable:
-                self._schedule_text_turn_settle(
-                    active,
-                    delay_seconds=TEXT_TURN_SETTLE_SECONDS,
-                    reason="tts_text_settled",
-                )
+                    await self._complete_text_turn(active, reason=reason)
             elif voice_turn is not None:
+                # A non-terminal TTS state owns the voice turn until an explicit
+                # terminal state, abort, disconnect, or a long stuck-lifecycle
+                # watchdog. It must never be completed by the old 6-second fallback.
                 self._schedule_voice_turn_settle(
                     active,
-                    delay_seconds=TEXT_TTS_FALLBACK_SECONDS,
-                    reason="voice_tts_state_fallback",
+                    delay_seconds=TTS_LIFECYCLE_TIMEOUT_SECONDS,
+                    reason="voice_tts_lifecycle_timeout",
                 )
             elif text_turn is not None:
+                # Keep the turn token alive so a delayed sentence_start can still
+                # create a playback stream and accept the following Opus packets.
                 self._schedule_text_turn_settle(
                     active,
-                    delay_seconds=TEXT_TTS_FALLBACK_SECONDS,
-                    reason="tts_state_fallback",
+                    delay_seconds=TTS_LIFECYCLE_TIMEOUT_SECONDS,
+                    reason="tts_lifecycle_timeout",
                 )
             return
         if isinstance(event, TokenUsage):
@@ -798,6 +814,7 @@ class RealWebSocketTransport:
             had_assistant_text = active.text_turn_had_assistant_text
             active.active_text_turn_token = None
             active.text_turn_had_assistant_text = False
+            active.text_tts_lifecycle_started = False
             active.text_sent_ready.set()
             self._cancel_text_turn_settle(active)
 
@@ -868,6 +885,7 @@ class RealWebSocketTransport:
         active.active_capture_generation = None
         active.voice_turn_had_stt_text = False
         active.voice_turn_had_assistant_text = False
+        active.voice_tts_lifecycle_started = False
 
     @staticmethod
     def _voice_matches(
