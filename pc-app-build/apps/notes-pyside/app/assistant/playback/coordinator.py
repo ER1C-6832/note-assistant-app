@@ -1,5 +1,7 @@
 """Bridge wire-order downlink ingress to one real playback engine."""
 
+# PLAYBACK_PACKET_IDLE_WATCHDOG_V1
+
 from __future__ import annotations
 
 import asyncio
@@ -51,6 +53,7 @@ class PlaybackCoordinator:
         output_plan_provider: OutputPlanProvider = probe_default_output_plan,
         stream_start_timeout_seconds: float = 6.0,
         decoder_progress_timeout_seconds: float = 6.0,
+        packet_idle_timeout_seconds: float = 8.0,
         playback_activity_sink: PlaybackActivitySink | None = None,
         render_reference_sink: RenderReferenceCallback | None = None,
         engine_factory: (
@@ -65,12 +68,17 @@ class PlaybackCoordinator:
             | None
         ) = None,
     ) -> None:
-        if stream_start_timeout_seconds <= 0 or decoder_progress_timeout_seconds <= 0:
+        if (
+            stream_start_timeout_seconds <= 0
+            or decoder_progress_timeout_seconds <= 0
+            or packet_idle_timeout_seconds <= 0
+        ):
             raise ValueError("playback watchdog timeouts must be positive")
         self._clock_ns = clock_ns
         self._output_plan_provider = output_plan_provider
         self._stream_start_timeout_seconds = stream_start_timeout_seconds
         self._decoder_progress_timeout_seconds = decoder_progress_timeout_seconds
+        self._packet_idle_timeout_seconds = packet_idle_timeout_seconds
         self._engine_factory = engine_factory or self._make_real_engine
         self._playback_activity_sink = playback_activity_sink
         self._render_reference_sink = render_reference_sink
@@ -81,6 +89,7 @@ class PlaybackCoordinator:
         self._context: TtsStreamContext | None = None
         self._output_plan: PyAudioOutputPlan | None = None
         self._packet_sequence = 0
+        self._last_packet_received_at_ns: int | None = None
         self._last_summary: PlaybackSummary | None = None
         self._last_latency_sample: dict[str, float | None] = {}
         self._watchdog_task: asyncio.Task[None] | None = None
@@ -205,6 +214,7 @@ class PlaybackCoordinator:
             self._engine = engine
             self._output_plan = plan
             self._packet_sequence = 0
+            self._last_packet_received_at_ns = None
             self._watchdog_task = asyncio.create_task(
                 self._watch_playback_progress(context, engine),
                 name=f"assistant-playback-watchdog-{playback_generation}",
@@ -231,7 +241,7 @@ class PlaybackCoordinator:
         ):
             return False
         self._packet_sequence += 1
-        return engine.offer_packet(
+        accepted = engine.offer_packet(
             EncodedDownlinkPacket(
                 connection_generation=connection_generation,
                 stream_sequence=stream_sequence,
@@ -240,6 +250,9 @@ class PlaybackCoordinator:
                 payload=payload,
             )
         )
+        if accepted:
+            self._last_packet_received_at_ns = received_at_ns
+        return accepted
 
     async def start_playback(
         self,
@@ -330,6 +343,7 @@ class PlaybackCoordinator:
         self._context = None
         self._output_plan = None
         self._packet_sequence = 0
+        self._last_packet_received_at_ns = None
         if engine is None:
             self._set_playback_activity(PlaybackActivity.INACTIVE)
             return
@@ -441,6 +455,23 @@ class PlaybackCoordinator:
                     await engine.fail(
                         code="playback_decoder_progress_timeout",
                         message="Opus decoder produced no PCM before watchdog timeout",
+                    )
+                    return
+                last_packet_at_ns = self._last_packet_received_at_ns
+                if (
+                    metrics.first_decoded_at_ns is not None
+                    and metrics.input_terminal_at_ns is None
+                    and last_packet_at_ns is not None
+                    and engine.pcm_buffered_bytes == 0
+                    and now_ns - last_packet_at_ns
+                    >= self._packet_idle_timeout_seconds * 1_000_000_000
+                ):
+                    await engine.fail(
+                        code="playback_packet_idle_timeout",
+                        message=(
+                            "TTS playback received no binary audio while the "
+                            "input stream remained non-terminal"
+                        ),
                     )
                     return
                 if metrics.playback_started_at_ns is not None:

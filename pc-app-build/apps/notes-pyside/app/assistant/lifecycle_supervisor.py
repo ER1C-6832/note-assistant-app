@@ -6,6 +6,8 @@ remains non-terminal beyond a bounded deadline.  Recovery uses a generation
 change (reconnect), so stale callbacks cannot revive the abandoned turn.
 """
 
+# PLAYBACK_STALL_RECOVERY_V1
+
 from __future__ import annotations
 
 import asyncio
@@ -29,7 +31,17 @@ STREAMING_TURN_TIMEOUT_SECONDS = 35.0
 ORPHAN_BUSY_TIMEOUT_SECONDS = 8.0
 LOCAL_CONFIRMATION_GRACE_SECONDS = 4.0
 LOCAL_CONFIRMATION_PLAYBACK_GRACE_SECONDS = 12.0
+PLAYBACK_STALL_RECOVERY_DELAY_SECONDS = 0.5
 
+_PLAYBACK_STALL_ERROR_CODES = frozenset(
+    {
+        "playback_packet_idle_timeout",
+        "playback_stream_start_timeout",
+        "playback_decoder_progress_timeout",
+        "playback_drain_timeout",
+        "playback_drain_incomplete",
+    }
+)
 _TERMINAL_LOCAL_STATUSES = frozenset(
     {
         "success",
@@ -257,18 +269,37 @@ def _watch_spec(state: AssistantState) -> _WatchSpec | None:
     if (
         not state.enabled
         or state.connection.status is not AssistantConnectionStatus.CONNECTED
-        or state.phase in {
-            AssistantPhase.DISABLED,
-            AssistantPhase.IDLE,
-            AssistantPhase.CONNECTING,
-            AssistantPhase.RECONNECTING,
-            AssistantPhase.ERROR,
-        }
     ):
         return None
 
-    conversation = state.conversation
     generation = state.connection.connection_generation
+    if (
+        state.phase is AssistantPhase.ERROR
+        and state.error is not None
+        and state.error.code in _PLAYBACK_STALL_ERROR_CODES
+    ):
+        return _WatchSpec(
+            key=(
+                "playback_stall",
+                generation,
+                state.audio.playback_generation,
+                state.error.code,
+            ),
+            timeout_seconds=PLAYBACK_STALL_RECOVERY_DELAY_SECONDS,
+            reason=state.error.code,
+            message="语音播放链路未正常结束，正在自动恢复连接",
+        )
+
+    if state.phase in {
+        AssistantPhase.DISABLED,
+        AssistantPhase.IDLE,
+        AssistantPhase.CONNECTING,
+        AssistantPhase.RECONNECTING,
+        AssistantPhase.ERROR,
+    }:
+        return None
+
+    conversation = state.conversation
     progress = (
         state.phase.value,
         state.protocol.last_protocol_event,
@@ -345,6 +376,7 @@ __all__ = [
     "LOCAL_CONFIRMATION_GRACE_SECONDS",
     "LOCAL_CONFIRMATION_PLAYBACK_GRACE_SECONDS",
     "ORPHAN_BUSY_TIMEOUT_SECONDS",
+    "PLAYBACK_STALL_RECOVERY_DELAY_SECONDS",
     "SessionLifecycleSupervisor",
     "STREAMING_TURN_TIMEOUT_SECONDS",
     "TEXT_TURN_TIMEOUT_SECONDS",
